@@ -657,7 +657,7 @@ private struct BridgedAssistantFooterV3: View {
     private static let completedAtFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
+        f.dateFormat = "MM-dd HH:mm"
         return f
     }()
 
