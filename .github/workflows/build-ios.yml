@@ -13,7 +13,7 @@ jobs:
       - name: Tools
         run: |
           xcodebuild -version
-          brew install ninja llvm libarchive pkg-config go
+          brew install ninja llvm lld libarchive pkg-config go
           pip3 install --break-system-packages meson || pip3 install meson
           xcodebuild -downloadComponent MetalToolchain || true
           xcrun -sdk iphoneos metal --version || true
@@ -31,7 +31,8 @@ jobs:
       - name: Build native deps
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
+          which clang ld.lld lld || true
           ./deps/build_lame.sh
           ./deps/build_ffmpeg.sh
           ./deps/build_ish.sh
