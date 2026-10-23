@@ -505,14 +505,15 @@ private struct BridgedAssistantFooterV3: View {
                     // Gated on showUsage too, so it reveals and hides with the
                     // capsule rather than lingering on its own after a tap.
                     if bridge.showUsage, let completedAt = message.completedAt {
-                        VStack(alignment: .trailing, spacing: 0) {
-                                Text(Self.completedDateText(completedAt))
-                                Text(Self.completedClockText(completedAt))
-                            }
+                        Text(Self.completedAtText(completedAt))
                             .lineLimit(1)
                             .fixedSize()
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(ChatColors.tertiaryText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(ChatColors.userBubble.opacity(0.6))
+                            .clipShape(Capsule())
                             .opacity(bridge.usageContentVisible ? 1 : 0)
                     }
                 }
@@ -666,7 +667,7 @@ private struct BridgedAssistantFooterV3: View {
         return f
     }()
 
-    /// [MOD] Date shown above the clock (two-line footer time).
+    /// [MOD] Single-line footer: only older messages include the date.
     private static let completedDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -674,11 +675,11 @@ private struct BridgedAssistantFooterV3: View {
         return f
     }()
 
-    private static func completedDateText(_ d: Date) -> String { completedDateFormatter.string(from: d) }
-    private static func completedClockText(_ d: Date) -> String { completedAtFormatter.string(from: d) }
-
     private static func completedAtText(_ d: Date) -> String {
-        completedDateFormatter.string(from: d) + "\n" + completedAtFormatter.string(from: d)
+        let clock = completedAtFormatter.string(from: d)
+        return Calendar.current.isDateInToday(d)
+            ? clock
+            : completedDateFormatter.string(from: d) + " " + clock
     }
 
     @ViewBuilder
