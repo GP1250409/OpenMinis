@@ -3351,14 +3351,20 @@ struct ContentView: View {
                     // ROW (above); the header slot serves the date buckets,
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
-                    if group.folderId == nil || isSelecting {
-                        sectionHeader(index: index, group: group)
-                    } else if group.showsGroupsHeader {
-                        Text("Groups")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
-                            .textCase(nil)
+                    Group {
+                        if group.folderId == nil || isSelecting {
+                            sectionHeader(index: index, group: group)
+                        } else if group.showsGroupsHeader {
+                            Text("Groups")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color(UIColor.secondaryLabel))
+                                .textCase(nil)
+                        }
                     }
+                    // [MOD] Section headers must not take part in the folder
+                    // accordion animation, otherwise the "Pinned"/"Groups"
+                    // label flickers while a folder expands/collapses.
+                    .transaction { $0.animation = nil }
                 }
             }
 
@@ -3542,14 +3548,20 @@ struct ContentView: View {
                     // ROW (above); the header slot serves the date buckets,
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
-                    if group.folderId == nil || isSelecting {
-                        sectionHeader(index: index, group: group)
-                    } else if group.showsGroupsHeader {
-                        Text("Groups")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(UIColor.secondaryLabel))
-                            .textCase(nil)
+                    Group {
+                        if group.folderId == nil || isSelecting {
+                            sectionHeader(index: index, group: group)
+                        } else if group.showsGroupsHeader {
+                            Text("Groups")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color(UIColor.secondaryLabel))
+                                .textCase(nil)
+                        }
                     }
+                    // [MOD] Section headers must not take part in the folder
+                    // accordion animation, otherwise the "Pinned"/"Groups"
+                    // label flickers while a folder expands/collapses.
+                    .transaction { $0.animation = nil }
                 }
             }
 
