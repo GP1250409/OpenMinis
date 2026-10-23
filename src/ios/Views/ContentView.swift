@@ -7830,6 +7830,12 @@ private struct AppearanceSettingsView: View {
             } footer: {
                 Text("Override the system appearance for this app.")
             }
+            .onChange(of: appearanceMode) { _ in
+                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+                windowScene.windows.forEach { window in
+                    window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
+                }
+            }
 
             Section {
                 chatThemeRow(id: "", name: "System", subtitle: "iOS default colours", theme: nil)
@@ -7841,13 +7847,6 @@ private struct AppearanceSettingsView: View {
             } footer: {
                 Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
             }
-            .onChange(of: appearanceMode) { _ in
-                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                windowScene.windows.forEach { window in
-                    window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
-                }
-            }
-
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
                     Text("Auto").tag(0)
