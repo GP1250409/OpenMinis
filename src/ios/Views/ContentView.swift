@@ -7786,6 +7786,7 @@ private struct AppearanceSettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
     @AppStorage("appIconMode") private var appIconMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
+    @AppStorage("chatThemeId") private var chatThemeId: String = ""
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -7828,6 +7829,17 @@ private struct AppearanceSettingsView: View {
                 Text("Theme")
             } footer: {
                 Text("Override the system appearance for this app.")
+            }
+
+            Section {
+                chatThemeRow(id: "", name: "System", subtitle: "iOS default colours", theme: nil)
+                ForEach(ChatTheme.custom) { t in
+                    chatThemeRow(id: t.id, name: t.name, subtitle: t.subtitle, theme: t)
+                }
+            } header: {
+                Text("Chat Theme")
+            } footer: {
+                Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
             }
             .onChange(of: appearanceMode) { _ in
                 guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
@@ -8043,6 +8055,48 @@ private struct AppearanceSettingsView: View {
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .background(InteractivePopGestureDisabler())
+    }
+
+    @ViewBuilder
+    private func chatThemeRow(id: String, name: String, subtitle: String, theme: ChatTheme?) -> some View {
+        Button {
+            guard chatThemeId != id else { return }
+            // Theme change re-keys the root view (like the language picker), which
+            // drops the Settings sheet — ask it to reopen on this page.
+            UserDefaults.standard.set("appearance", forKey: "pendingSettingsReopen")
+            ViewModelCache.shared.suspendAllForTreeRemount()
+            chatThemeId = id
+        } label: {
+            HStack(spacing: 12) {
+                chatThemePreview(theme)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(name)).foregroundStyle(.primary)
+                    Text(LocalizedStringKey(subtitle)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if chatThemeId == id {
+                    Image(systemName: "checkmark").foregroundStyle(.blue).fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    /// Mini chat mock: background + assistant text line + user bubble + send dot.
+    private func chatThemePreview(_ t: ChatTheme?) -> some View {
+        let bg = t?.background.color ?? Color(UIColor.systemBackground)
+        let bubble = t?.userBubble.color ?? Color(UIColor.tertiarySystemFill)
+        let text = t?.secondaryText.color ?? Color(UIColor.secondaryLabel)
+        let send = t?.sendButton.color ?? Color(UIColor.label)
+        return ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(bg)
+            VStack(alignment: .leading, spacing: 4) {
+                Capsule().fill(text).frame(width: 22, height: 3)
+                HStack { Spacer(); RoundedRectangle(cornerRadius: 3).fill(bubble).frame(width: 20, height: 8) }
+                HStack { Capsule().fill(text.opacity(0.6)).frame(width: 14, height: 3); Spacer(); Circle().fill(send).frame(width: 7, height: 7) }
+            }.padding(6)
+        }
+        .frame(width: 48, height: 40)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at

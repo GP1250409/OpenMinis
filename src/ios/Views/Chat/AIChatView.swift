@@ -67,22 +67,115 @@ private final class CachedViewModel: ObservableObject {
 
 // MARK: - Color Palette (clean light theme)
 
+// MARK: - Chat Themes (Telegram-style)
+//
+// A theme is a small palette of light/dark colour pairs. `ChatColors` reads the
+// selected theme, so every existing `ChatColors.xxx` call site follows it with
+// no changes. "system" keeps the original iOS semantic colours.
+
+private extension UIColor {
+    convenience init(chatHex v: UInt32, alpha: CGFloat = 1) {
+        self.init(red: CGFloat((v >> 16) & 0xFF) / 255,
+                  green: CGFloat((v >> 8) & 0xFF) / 255,
+                  blue: CGFloat(v & 0xFF) / 255, alpha: alpha)
+    }
+}
+
+struct ChatThemePair: Sendable {
+    let light: UIColor
+    let dark: UIColor
+    init(_ l: UInt32, _ d: UInt32, la: CGFloat = 1, da: CGFloat = 1) {
+        light = UIColor(chatHex: l, alpha: la); dark = UIColor(chatHex: d, alpha: da)
+    }
+    var color: Color {
+        Color(UIColor { $0.userInterfaceStyle == .dark ? self.dark : self.light })
+    }
+}
+
+struct ChatTheme: Identifiable, Sendable {
+    let id: String
+    let name: String
+    let subtitle: String
+    let background, secondaryBg, inputIconBorder, inputBg, inputBorder: ChatThemePair
+    let primaryText, secondaryText, tertiaryText: ChatThemePair
+    let userBubble, toolBg, toolBorder, accent, sendButton, sendButtonDisabled: ChatThemePair
+
+    // Telegram "Day Classic" (incoming 0xFFFFFF / outgoing 0xE1FFC7, accent
+    // 0x0088FF, secondary text 0x77828C, separator 0xBEC2C6) and "Night"
+    // (background 0x000000, incoming 0x1D1D1D, outgoing 0x0088FF).
+    static let telegram = ChatTheme(
+        id: "telegram", name: "Telegram Classic", subtitle: "Blue accent, green bubbles",
+        background: .init(0xE6EBEE, 0x000000), secondaryBg: .init(0xFFFFFF, 0x1D1D1D),
+        inputIconBorder: .init(0xBEC2C6, 0x3A3A3C), inputBg: .init(0xFFFFFF, 0x242424),
+        inputBorder: .init(0xBEC2C6, 0x3A3A3C),
+        primaryText: .init(0x000000, 0xFFFFFF), secondaryText: .init(0x77828C, 0xFFFFFF, da: 0.5),
+        tertiaryText: .init(0x77828C, 0xFFFFFF, la: 0.7, da: 0.35),
+        userBubble: .init(0xE1FFC7, 0x0088FF), toolBg: .init(0xFFFFFF, 0x1D1D1D),
+        toolBorder: .init(0xBEC2C6, 0x3A3A3C, la: 0.6, da: 0.6),
+        accent: .init(0x0088FF, 0x61BCF9), sendButton: .init(0x0088FF, 0x0088FF),
+        sendButtonDisabled: .init(0xBEC2C6, 0x4A4A4C))
+
+    // Anthropic Claude: warm ivory paper, clay-orange accent.
+    static let claude = ChatTheme(
+        id: "claude", name: "Claude", subtitle: "Warm paper, clay accent",
+        background: .init(0xFAF9F5, 0x262624), secondaryBg: .init(0xF0EEE6, 0x30302E),
+        inputIconBorder: .init(0xE8E6DC, 0x4A4946), inputBg: .init(0xFFFFFF, 0x30302E),
+        inputBorder: .init(0xE0DDD0, 0x4A4946),
+        primaryText: .init(0x141413, 0xFAF9F5), secondaryText: .init(0x73726C, 0xB0AEA5),
+        tertiaryText: .init(0xA3A199, 0x7D7B74),
+        userBubble: .init(0xF0EEE6, 0x3A3937), toolBg: .init(0xF5F4EE, 0x2E2E2C),
+        toolBorder: .init(0xE0DDD0, 0x4A4946, la: 0.8, da: 0.8),
+        accent: .init(0xD97757, 0xD97757), sendButton: .init(0xD97757, 0xD97757),
+        sendButtonDisabled: .init(0xDDD9CB, 0x4A4946))
+
+    // ChatGPT: neutral white / graphite, black send button.
+    static let chatgpt = ChatTheme(
+        id: "chatgpt", name: "ChatGPT", subtitle: "Neutral grey, minimal",
+        background: .init(0xFFFFFF, 0x212121), secondaryBg: .init(0xF9F9F9, 0x2A2A2A),
+        inputIconBorder: .init(0xE5E5E5, 0x424242), inputBg: .init(0xFFFFFF, 0x303030),
+        inputBorder: .init(0xE5E5E5, 0x424242),
+        primaryText: .init(0x0D0D0D, 0xECECEC), secondaryText: .init(0x5D5D5D, 0xB4B4B4),
+        tertiaryText: .init(0x8F8F8F, 0x8E8E8E),
+        userBubble: .init(0xF4F4F4, 0x303030), toolBg: .init(0xF9F9F9, 0x2A2A2A),
+        toolBorder: .init(0xE5E5E5, 0x424242, la: 0.8, da: 0.8),
+        accent: .init(0x0D0D0D, 0xECECEC), sendButton: .init(0x0D0D0D, 0xECECEC),
+        sendButtonDisabled: .init(0xD7D7D7, 0x4A4A4A))
+
+    static let custom: [ChatTheme] = [.telegram, .claude, .chatgpt]
+}
+
+enum ChatThemeStore {
+    static let key = "chatThemeId"
+    /// nil = "System" (original iOS semantic colours).
+    static var current: ChatTheme? {
+        guard let id = UserDefaults.standard.string(forKey: key) else { return nil }
+        return ChatTheme.custom.first { $0.id == id }
+    }
+}
+
 enum ChatColors {
-    static let background = Color(UIColor.systemBackground)
-    static let secondaryBg = Color(UIColor.secondarySystemBackground)
-    static let inputIconBg = Color(UIColor.secondarySystemBackground)
-    static let inputIconBorder = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.35, alpha: 1) : UIColor(white: 0, alpha: 0) })
-    static let inputBg = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : .white })
-    static let inputBorder = Color(UIColor.separator)
-    static let primaryText = Color(UIColor.label)
-    static let secondaryText = Color(UIColor.secondaryLabel)
-    static let tertiaryText = Color(UIColor.tertiaryLabel)
-    static let userBubble = Color(UIColor.tertiarySystemFill)
-    static let toolBg = Color(UIColor.tertiarySystemGroupedBackground)
-    static let toolBorder = Color(UIColor.separator).opacity(0.5)
-    static let accent = Color(UIColor.label)
-    static let sendButton = Color(UIColor.label)
-    static let sendButtonDisabled = Color(UIColor.quaternaryLabel)
+    private static func pick(_ f: (ChatTheme) -> ChatThemePair, _ fallback: Color) -> Color {
+        ChatThemeStore.current.map { f($0).color } ?? fallback
+    }
+    static var background: Color { pick({ $0.background }, Color(UIColor.systemBackground)) }
+    static var secondaryBg: Color { pick({ $0.secondaryBg }, Color(UIColor.secondarySystemBackground)) }
+    static var inputIconBg: Color { pick({ $0.secondaryBg }, Color(UIColor.secondarySystemBackground)) }
+    static var inputIconBorder: Color {
+        pick({ $0.inputIconBorder }, Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.35, alpha: 1) : UIColor(white: 0, alpha: 0) }))
+    }
+    static var inputBg: Color {
+        pick({ $0.inputBg }, Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : .white }))
+    }
+    static var inputBorder: Color { pick({ $0.inputBorder }, Color(UIColor.separator)) }
+    static var primaryText: Color { pick({ $0.primaryText }, Color(UIColor.label)) }
+    static var secondaryText: Color { pick({ $0.secondaryText }, Color(UIColor.secondaryLabel)) }
+    static var tertiaryText: Color { pick({ $0.tertiaryText }, Color(UIColor.tertiaryLabel)) }
+    static var userBubble: Color { pick({ $0.userBubble }, Color(UIColor.tertiarySystemFill)) }
+    static var toolBg: Color { pick({ $0.toolBg }, Color(UIColor.tertiarySystemGroupedBackground)) }
+    static var toolBorder: Color { pick({ $0.toolBorder }, Color(UIColor.separator).opacity(0.5)) }
+    static var accent: Color { pick({ $0.accent }, Color(UIColor.label)) }
+    static var sendButton: Color { pick({ $0.sendButton }, Color(UIColor.label)) }
+    static var sendButtonDisabled: Color { pick({ $0.sendButtonDisabled }, Color(UIColor.quaternaryLabel)) }
 }
 
 // MARK: - System Resource Monitor
