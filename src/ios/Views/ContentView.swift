@@ -2892,12 +2892,7 @@ struct ContentView: View {
         // whose oscillation read as continuous wobble. Hence a short plain
         // easeInOut: monotonic (no overshoot to re-measure), brief enough
         // that the List's per-frame self-size pass stays cheap.
-        // [MOD] No animation: the folder card and its member rows are
-        // separate List rows, so animating makes the card's corner shape
-        // switch (lone -> top) out of sync with the fading-in members, which
-        // shows as a flicker at the seam. Apply the change in one step.
-        var noAnim = Transaction(); noAnim.disablesAnimations = true
-        withTransaction(noAnim) {
+        withAnimation(.easeInOut(duration: 0.25)) {
             if collapsedFolderIds.contains(folderId) {
                 collapsedFolderIds = Set(folders.map(\.id))
                 collapsedFolderIds.remove(folderId)
@@ -3356,20 +3351,14 @@ struct ContentView: View {
                     // ROW (above); the header slot serves the date buckets,
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
-                    Group {
-                        if group.folderId == nil || isSelecting {
-                            sectionHeader(index: index, group: group)
-                        } else if group.showsGroupsHeader {
-                            Text("Groups")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color(UIColor.secondaryLabel))
-                                .textCase(nil)
-                        }
+                    if group.folderId == nil || isSelecting {
+                        sectionHeader(index: index, group: group)
+                    } else if group.showsGroupsHeader {
+                        Text("Groups")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .textCase(nil)
                     }
-                    // [MOD] Section headers must not take part in the folder
-                    // accordion animation, otherwise the "Pinned"/"Groups"
-                    // label flickers while a folder expands/collapses.
-                    .transaction { $0.animation = nil }
                 }
             }
 
@@ -3553,20 +3542,14 @@ struct ContentView: View {
                     // ROW (above); the header slot serves the date buckets,
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
-                    Group {
-                        if group.folderId == nil || isSelecting {
-                            sectionHeader(index: index, group: group)
-                        } else if group.showsGroupsHeader {
-                            Text("Groups")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color(UIColor.secondaryLabel))
-                                .textCase(nil)
-                        }
+                    if group.folderId == nil || isSelecting {
+                        sectionHeader(index: index, group: group)
+                    } else if group.showsGroupsHeader {
+                        Text("Groups")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .textCase(nil)
                     }
-                    // [MOD] Section headers must not take part in the folder
-                    // accordion animation, otherwise the "Pinned"/"Groups"
-                    // label flickers while a folder expands/collapses.
-                    .transaction { $0.animation = nil }
                 }
             }
 
@@ -7838,9 +7821,9 @@ private struct AppearanceSettingsView: View {
             }
 
             Section {
-                chatThemeRow(id: "", name: "System", subtitle: "iOS default colours", theme: nil)
+                chatThemeRow(id: "", name: "Default Theme", theme: nil)
                 ForEach(ChatTheme.custom) { t in
-                    chatThemeRow(id: t.id, name: t.name, subtitle: t.subtitle, theme: t)
+                    chatThemeRow(id: t.id, name: t.name, theme: t)
                 }
             } header: {
                 Text("Chat Theme")
@@ -8056,21 +8039,20 @@ private struct AppearanceSettingsView: View {
         .background(InteractivePopGestureDisabler())
     }
 
+    /// Same structure as the standard Settings rows ("Manage Providers" etc.):
+    /// a `Label` whose icon is the mini preview, so `List` supplies the 44pt row
+    /// height and starts the separator at the title's leading edge by itself.
     @ViewBuilder
-    private func chatThemeRow(id: String, name: String, subtitle: String, theme: ChatTheme?) -> some View {
+    private func chatThemeRow(id: String, name: String, theme: ChatTheme?) -> some View {
         Button {
             guard chatThemeId != id else { return }
-            // Theme change re-keys the root view (like the language picker), which
-            // drops the Settings sheet — ask it to reopen on this page.
-            UserDefaults.standard.set("appearance", forKey: "pendingSettingsReopen")
-            ViewModelCache.shared.suspendAllForTreeRemount()
             chatThemeId = id
         } label: {
-            HStack(spacing: 12) {
-                chatThemePreview(theme)
-                VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Label {
                     Text(LocalizedStringKey(name)).foregroundStyle(.primary)
-                    Text(LocalizedStringKey(subtitle)).font(.caption).foregroundStyle(.secondary)
+                } icon: {
+                    chatThemePreview(theme)
                 }
                 Spacer()
                 if chatThemeId == id {
@@ -8080,22 +8062,22 @@ private struct AppearanceSettingsView: View {
         }
     }
 
-    /// Mini chat mock: background + assistant text line + user bubble + send dot.
+    /// Mini chat mock sized to sit in the Label icon slot of a 44pt row.
     private func chatThemePreview(_ t: ChatTheme?) -> some View {
         let bg = t?.background.color ?? Color(UIColor.systemBackground)
         let bubble = t?.userBubble.color ?? Color(UIColor.tertiarySystemFill)
         let text = t?.secondaryText.color ?? Color(UIColor.secondaryLabel)
         let send = t?.sendButton.color ?? Color(UIColor.label)
         return ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(bg)
-            VStack(alignment: .leading, spacing: 4) {
-                Capsule().fill(text).frame(width: 22, height: 3)
-                HStack { Spacer(); RoundedRectangle(cornerRadius: 3).fill(bubble).frame(width: 20, height: 8) }
-                HStack { Capsule().fill(text.opacity(0.6)).frame(width: 14, height: 3); Spacer(); Circle().fill(send).frame(width: 7, height: 7) }
-            }.padding(6)
+            RoundedRectangle(cornerRadius: 6).fill(bg)
+            VStack(alignment: .leading, spacing: 3) {
+                Capsule().fill(text).frame(width: 14, height: 2.5)
+                HStack { Spacer(); RoundedRectangle(cornerRadius: 2).fill(bubble).frame(width: 14, height: 6) }
+                HStack { Capsule().fill(text.opacity(0.6)).frame(width: 9, height: 2.5); Spacer(); Circle().fill(send).frame(width: 6, height: 6) }
+            }.padding(5)
         }
-        .frame(width: 48, height: 40)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
+        .frame(width: 36, height: 30)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at

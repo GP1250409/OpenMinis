@@ -86,7 +86,6 @@ struct MinisApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
-    @AppStorage("chatThemeId") private var chatThemeId: String = ""
     @StateObject private var shareCoordinator = ShareCoordinator.shared
     @ObservedObject private var fontSettings = FontSettings.shared
     @ObservedObject private var configConfirmGate = ConfigConfirmationGate.shared
@@ -246,7 +245,7 @@ struct MinisApp: App {
                 // lookups but does not invalidate the existing view tree.
                 // Re-keying the root drops + re-mounts every descendant,
                 // re-running their bodies under the new languageBundle.
-                .id(appLanguage + "|" + chatThemeId)
+                .id(appLanguage)
                 // Confirmation gate for every minis-config write. Mounted
                 // at the root so the sheet appears regardless of which
                 // screen is active when the agent triggers a change.

@@ -196,6 +196,7 @@ private struct PreviewContentSizeKey: PreferenceKey {
 // MARK: - Chat Message Row
 
 struct ChatMessageRow: View {
+    @AppStorage("chatThemeId") private var chatThemeIdObserver: String = ""
     @ObservedObject var message: ChatMessage
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool

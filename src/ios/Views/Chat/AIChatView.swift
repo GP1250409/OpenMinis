@@ -104,16 +104,16 @@ struct ChatTheme: Identifiable, Sendable {
     // 0x0088FF, secondary text 0x77828C, separator 0xBEC2C6) and "Night"
     // (background 0x000000, incoming 0x1D1D1D, outgoing 0x0088FF).
     static let telegram = ChatTheme(
-        id: "telegram", name: "Telegram Classic", subtitle: "Blue accent, green bubbles",
-        background: .init(0xE6EBEE, 0x000000), secondaryBg: .init(0xFFFFFF, 0x1D1D1D),
-        inputIconBorder: .init(0xBEC2C6, 0x3A3A3C), inputBg: .init(0xFFFFFF, 0x242424),
-        inputBorder: .init(0xBEC2C6, 0x3A3A3C),
-        primaryText: .init(0x000000, 0xFFFFFF), secondaryText: .init(0x77828C, 0xFFFFFF, da: 0.5),
-        tertiaryText: .init(0x77828C, 0xFFFFFF, la: 0.7, da: 0.35),
-        userBubble: .init(0xE1FFC7, 0x0088FF), toolBg: .init(0xFFFFFF, 0x1D1D1D),
-        toolBorder: .init(0xBEC2C6, 0x3A3A3C, la: 0.6, da: 0.6),
-        accent: .init(0x0088FF, 0x61BCF9), sendButton: .init(0x0088FF, 0x0088FF),
-        sendButtonDisabled: .init(0xBEC2C6, 0x4A4A4C))
+        id: "telegram", name: "Telegram Classic", subtitle: "",
+        background: .init(0xC9DFB4, 0x0E1621), secondaryBg: .init(0xFFFFFF, 0x182533),
+        inputIconBorder: .init(0xDADDE1, 0x243447), inputBg: .init(0xFFFFFF, 0x17212B),
+        inputBorder: .init(0xDADDE1, 0x243447),
+        primaryText: .init(0x000000, 0xFFFFFF), secondaryText: .init(0x77828C, 0x7F91A4),
+        tertiaryText: .init(0x77828C, 0x6D7F8F, la: 0.75),
+        userBubble: .init(0xE1FFC7, 0x2B5278), toolBg: .init(0xFFFFFF, 0x17212B, la: 0.85),
+        toolBorder: .init(0xFFFFFF, 0x243447),
+        accent: .init(0x0088FF, 0x6AB3F3), sendButton: .init(0x0088FF, 0x2B87D1),
+        sendButtonDisabled: .init(0xB5C4A6, 0x2A3A4A))
 
     // Anthropic Claude: warm ivory paper, clay-orange accent.
     static let claude = ChatTheme(
@@ -325,6 +325,8 @@ struct AIChatView: View {
     @ObservedObject private var mentionIndex = FileMentionIndex.shared
     @ObservedObject private var configStore = ProviderConfigStore.shared
     @ObservedObject private var fontSettings = FontSettings.shared
+    /// Re-evaluates body when the chat theme changes (ChatColors reads it lazily).
+    @AppStorage("chatThemeId") private var chatThemeIdObserver: String = ""
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
     @Environment(\.dismiss) private var dismiss
     @State private var inputFocused: Bool = false
