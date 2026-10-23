@@ -507,7 +507,7 @@ private struct BridgedAssistantFooterV3: View {
                     if bridge.showUsage, let completedAt = message.completedAt {
                         Text(Self.completedAtText(completedAt))
                             .multilineTextAlignment(.trailing)
-                            .fixedSize()
+                            .lineLimit(2)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(ChatColors.tertiaryText)
                             .opacity(bridge.usageContentVisible ? 1 : 0)

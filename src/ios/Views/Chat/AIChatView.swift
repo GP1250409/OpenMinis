@@ -81,18 +81,21 @@ private extension UIColor {
     }
 }
 
-struct ChatThemePair: Sendable {
+struct ChatThemePair: @unchecked Sendable {
     let light: UIColor
     let dark: UIColor
+    /// Built ONCE. A computed property here made every `body` pass (and every
+    /// frame of the typing-dots animation) create a fresh dynamic UIColor, which
+    /// SwiftUI sees as a changed value and re-lays-out.
+    let color: Color
     init(_ l: UInt32, _ d: UInt32, la: CGFloat = 1, da: CGFloat = 1) {
-        light = UIColor(chatHex: l, alpha: la); dark = UIColor(chatHex: d, alpha: da)
-    }
-    var color: Color {
-        Color(UIColor { $0.userInterfaceStyle == .dark ? self.dark : self.light })
+        let lc = UIColor(chatHex: l, alpha: la), dc = UIColor(chatHex: d, alpha: da)
+        light = lc; dark = dc
+        color = Color(UIColor { $0.userInterfaceStyle == .dark ? dc : lc })
     }
 }
 
-struct ChatTheme: Identifiable, Sendable {
+struct ChatTheme: Identifiable, @unchecked Sendable {
     let id: String
     let name: String
     let subtitle: String
@@ -146,9 +149,21 @@ struct ChatTheme: Identifiable, Sendable {
 
 enum ChatThemeStore {
     static let key = "chatThemeId"
-    /// nil = "System" (original iOS semantic colours).
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cachedId: String? = UserDefaults.standard.string(forKey: key)
+    nonisolated(unsafe) private static var observer: NSObjectProtocol? = {
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { _ in
+            let v = UserDefaults.standard.string(forKey: ChatThemeStore.key)
+            ChatThemeStore.lock.lock(); ChatThemeStore.cachedId = v; ChatThemeStore.lock.unlock()
+        }
+    }()
+    /// nil = "Default Theme" (original iOS semantic colours). Reads a cached id
+    /// (refreshed on UserDefaults changes) so per-frame colour lookups never hit
+    /// the preferences store.
     static var current: ChatTheme? {
-        guard let id = UserDefaults.standard.string(forKey: key) else { return nil }
+        _ = observer
+        lock.lock(); let id = cachedId; lock.unlock()
+        guard let id, !id.isEmpty else { return nil }
         return ChatTheme.custom.first { $0.id == id }
     }
 }
