@@ -505,9 +505,12 @@ private struct BridgedAssistantFooterV3: View {
                     // Gated on showUsage too, so it reveals and hides with the
                     // capsule rather than lingering on its own after a tap.
                     if bridge.showUsage, let completedAt = message.completedAt {
-                        Text(Self.completedAtText(completedAt))
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
+                        VStack(alignment: .trailing, spacing: 0) {
+                                Text(Self.completedDateText(completedAt))
+                                Text(Self.completedClockText(completedAt))
+                            }
+                            .lineLimit(1)
+                            .fixedSize()
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(ChatColors.tertiaryText)
                             .opacity(bridge.usageContentVisible ? 1 : 0)
@@ -670,6 +673,9 @@ private struct BridgedAssistantFooterV3: View {
         f.dateFormat = "MM-dd"
         return f
     }()
+
+    private static func completedDateText(_ d: Date) -> String { completedDateFormatter.string(from: d) }
+    private static func completedClockText(_ d: Date) -> String { completedAtFormatter.string(from: d) }
 
     private static func completedAtText(_ d: Date) -> String {
         completedDateFormatter.string(from: d) + "\n" + completedAtFormatter.string(from: d)
