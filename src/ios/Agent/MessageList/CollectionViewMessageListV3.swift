@@ -2158,6 +2158,17 @@ extension CollectionViewMessageListV3 {
                 }
                 .store(in: &subscriptions)
 
+            // 7a. Chat theme changes — Markdown attributed strings bake colours in,
+            // so drop their caches and re-render every cell (same path as a font change).
+            NotificationCenter.default.publisher(for: .chatThemeChanged)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.vm?.invalidateAttributedStringCaches()
+                    self.reconfigureAllCells()
+                }
+                .store(in: &subscriptions)
+
             // 7b. Memory pressure — drop the measured-height LRU.
             // [T-ios-listsessions-perf] This cache now outlives session change,
             // so it needs an explicit pressure release. Dropping it is always

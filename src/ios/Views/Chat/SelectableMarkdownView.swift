@@ -318,20 +318,22 @@ struct SelectableMarkdownTheme {
     }
 
     var baseFont: UIFont { .systemFont(ofSize: baseFontSize) }
-    var labelColor: UIColor { .label }
-    var secondaryLabelColor: UIColor { .secondaryLabel }
-    var accentColor: UIColor { .systemOrange }
+    var labelColor: UIColor { ChatMarkdownColors.label ?? .label }
+    var secondaryLabelColor: UIColor { ChatMarkdownColors.secondaryLabel ?? .secondaryLabel }
+    var accentColor: UIColor { ChatMarkdownColors.accent ?? .systemOrange }
     var linkColor: UIColor { .systemBlue }
     var codeBlockBackground: UIColor {
-        UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .black }
+        if let c = ChatMarkdownColors.codeBackground { return c }
+        return UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .black }
     }
     var codeBlockTextColor: UIColor {
-        UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.55, green: 0.95, blue: 0.55, alpha: 1) : .systemGreen }
+        if let c = ChatMarkdownColors.codeText { return c }
+        return UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.55, green: 0.95, blue: 0.55, alpha: 1) : .systemGreen }
     }
-    var inlineCodeBackground: UIColor { minisInlineCodeBackgroundColor }
-    var inlineCodeColor: UIColor { .systemOrange }
-    var blockquoteBarColor: UIColor { UIColor.systemOrange.withAlphaComponent(0.5) }
-    var tableBorderColor: UIColor { UIColor.label.withAlphaComponent(0.25) }
+    var inlineCodeBackground: UIColor { ChatMarkdownColors.inlineCodeBackground ?? minisInlineCodeBackgroundColor }
+    var inlineCodeColor: UIColor { ChatMarkdownColors.inlineCodeText ?? .systemOrange }
+    var blockquoteBarColor: UIColor { (ChatMarkdownColors.accent ?? UIColor.systemOrange).withAlphaComponent(0.5) }
+    var tableBorderColor: UIColor { ChatMarkdownColors.tableBorder ?? UIColor.label.withAlphaComponent(0.25) }
 
     func headingFont(level: Int) -> UIFont {
         let size: CGFloat

@@ -8046,7 +8046,7 @@ private struct AppearanceSettingsView: View {
     private func chatThemeRow(id: String, name: String, theme: ChatTheme?) -> some View {
         Button {
             guard chatThemeId != id else { return }
-            chatThemeId = id
+            ChatThemeStore.select(id)
         } label: {
             HStack {
                 Label {
