@@ -2885,20 +2885,14 @@ struct ContentView: View {
         // out from under the finger for no reason).
         let willExpand = collapsedFolderIds.contains(folderId)
 
-        // Animated again by request — with the jitter history baked into the
-        // parameters. The original shaking had two ingredients: per-row glass
-        // segments re-rendering every animation frame (that structure is gone;
-        // the group is now ONE card, one glass shape), and a springy curve
-        // whose oscillation read as continuous wobble. Hence a short plain
-        // easeInOut: monotonic (no overshoot to re-measure), brief enough
-        // that the List's per-frame self-size pass stays cheap.
-        withAnimation(.easeInOut(duration: 0.25)) {
-            if collapsedFolderIds.contains(folderId) {
-                collapsedFolderIds = Set(folders.map(\.id))
-                collapsedFolderIds.remove(folderId)
-            } else {
-                collapsedFolderIds.insert(folderId)
-            }
+        // [MOD] Apply the accordion's structural change without animation.
+        // Avoid interpolating List row insertion/removal while the deferred
+        // visibility correction below may start its own scroll animation.
+        if willExpand {
+            collapsedFolderIds = Set(folders.map(\.id))
+            collapsedFolderIds.remove(folderId)
+        } else {
+            collapsedFolderIds.insert(folderId)
         }
         UserDefaults.standard.set(Array(collapsedFolderIds), forKey: "collapsedFolderIds")
 
