@@ -602,7 +602,9 @@ struct ChatMessageRow: View {
                     // systemInfo rows. Editing one without the other is how
                     // the clock shipped twice without ever being on screen.
                     if showUsage, let completedAt = message.completedAt {
-                        Text(Self.completedAtFormatter.string(from: completedAt))
+                        Text(Self.completedAtText(completedAt))
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize()
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(ChatColors.tertiaryText)
                             .opacity(usageContentVisible ? 1 : 0)
@@ -710,9 +712,21 @@ struct ChatMessageRow: View {
     private static let completedAtFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MM-dd HH:mm"
+        f.dateFormat = "HH:mm"
         return f
     }()
+
+    /// [MOD] Date shown above the clock (two-line footer time).
+    private static let completedDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MM-dd"
+        return f
+    }()
+
+    private static func completedAtText(_ d: Date) -> String {
+        completedDateFormatter.string(from: d) + "\n" + completedAtFormatter.string(from: d)
+    }
 
     @ViewBuilder
     private func usageCapsule(_ usage: TokenUsage) -> some View {

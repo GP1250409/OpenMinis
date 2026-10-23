@@ -2892,7 +2892,12 @@ struct ContentView: View {
         // whose oscillation read as continuous wobble. Hence a short plain
         // easeInOut: monotonic (no overshoot to re-measure), brief enough
         // that the List's per-frame self-size pass stays cheap.
-        withAnimation(.easeInOut(duration: 0.25)) {
+        // [MOD] No animation: the folder card and its member rows are
+        // separate List rows, so animating makes the card's corner shape
+        // switch (lone -> top) out of sync with the fading-in members, which
+        // shows as a flicker at the seam. Apply the change in one step.
+        var noAnim = Transaction(); noAnim.disablesAnimations = true
+        withTransaction(noAnim) {
             if collapsedFolderIds.contains(folderId) {
                 collapsedFolderIds = Set(folders.map(\.id))
                 collapsedFolderIds.remove(folderId)
