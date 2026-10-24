@@ -1,5 +1,82 @@
 import SwiftUI
 
+// Cosmetic-only folder feedback. These values never participate in row identity
+// or sizing, and no animation transaction wraps the List's structural updates.
+private struct FolderSoftFeedback {
+    let generation: Int
+    let triggeredAt: Date
+    let isExpansion: Bool
+
+    var isFresh: Bool { Date().timeIntervalSince(triggeredAt) < 0.30 }
+}
+
+private struct FolderSoftChevron: View {
+    let isCollapsed: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image(systemName: "chevron.down")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color(UIColor.tertiaryLabel))
+            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+            // Scoped to the chevron only, never the header or the List.
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isCollapsed)
+    }
+}
+
+private struct FolderSoftHeaderFeedback: ViewModifier {
+    let feedback: FolderSoftFeedback?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tintOpacity: Double = 0
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.accentColor.opacity(tintOpacity))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .task(id: feedback?.generation) {
+            guard let feedback, feedback.isFresh, !reduceMotion else {
+                tintOpacity = 0
+                return
+            }
+            var instant = Transaction(animation: nil)
+            instant.disablesAnimations = true
+            withTransaction(instant) { tintOpacity = 0.08 }
+            // Commit the local tint before fading it; no parent state is touched.
+            do { try await Task.sleep(nanoseconds: 30_000_000) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.18)) { tintOpacity = 0 }
+        }
+    }
+}
+
+private struct FolderSoftMemberReveal: ViewModifier {
+    let feedback: FolderSoftFeedback?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    private var shouldReveal: Bool {
+        !reduceMotion && feedback?.isExpansion == true && feedback?.isFresh == true
+    }
+
+    func body(content: Content) -> some View {
+        // Backgrounds and row frames live OUTSIDE this modifier: text/icon
+        // content fades gently, while row heights/positions change immediately.
+        content.opacity(!appeared && shouldReveal ? 0.72 : 1)
+            .onAppear {
+                guard !appeared else { return }
+                if shouldReveal {
+                    withAnimation(.easeOut(duration: 0.16)) { appeared = true }
+                } else {
+                    appeared = true
+                }
+            }
+    }
+}
+
 private let shareLog = AppLogger(category: "Share")
 private let draftLog = AppLogger(category: "DraftSession")
 
@@ -1300,6 +1377,7 @@ struct ContentView: View {
     /// correction is needed at all; never drives layout, so the per-frame writes
     /// cost nothing but a dictionary store.
     @State private var folderHeaderTopY: [String: CGFloat] = [:]
+    @State private var folderSoftFeedback: [String: FolderSoftFeedback] = [:]
     /// The list's visible BOTTOM edge in global coords, the lower bound of the
     /// "still on screen" test. Paired with `folderMiniBarTopY` (the top edge).
     @State private var folderListBottomY: CGFloat = 0
@@ -2884,6 +2962,10 @@ struct ContentView: View {
         // tapped stays exactly where it is; scrolling then would move content
         // out from under the finger for no reason).
         let willExpand = collapsedFolderIds.contains(folderId)
+        folderSoftFeedback[folderId] = FolderSoftFeedback(
+            generation: (folderSoftFeedback[folderId]?.generation ?? 0) + 1,
+            triggeredAt: Date(),
+            isExpansion: willExpand)
 
         // [MOD] Apply the accordion's structural change without animation.
         // Avoid interpolating List row insertion/removal while the deferred
@@ -3234,6 +3316,7 @@ struct ContentView: View {
             // transaction flush from unrelated ContentView
             // state churn doesn't deep-compare ChatSession.
             .equatable()
+            .modifier(FolderSoftMemberReveal(feedback: group.folderId.flatMap { folderSoftFeedback[$0] }))
             // Entry D: long-press then move = drag the
             // session id (never the ChatSession value —
             // same id-only discipline as the list
@@ -3436,6 +3519,7 @@ struct ContentView: View {
                                 // transaction flush from unrelated ContentView
                                 // state churn doesn't deep-compare ChatSession.
                                 .equatable()
+                                .modifier(FolderSoftMemberReveal(feedback: group.folderId.flatMap { folderSoftFeedback[$0] }))
                                 // Entry D: long-press then move = drag the
                                 // session id (never the ChatSession value —
                                 // same id-only discipline as the list
@@ -5391,10 +5475,7 @@ struct ContentView: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(Color(UIColor.tertiaryLabel))
                         }
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(UIColor.tertiaryLabel))
-                            .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
+                        FolderSoftChevron(isCollapsed: group.isCollapsed)
                     }
                 }
             }
@@ -5419,6 +5500,8 @@ struct ContentView: View {
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
                 isExpanded: !group.isCollapsed && !group.ids.isEmpty))
+            .modifier(FolderSoftHeaderFeedback(
+                feedback: group.folderId.flatMap { folderSoftFeedback[$0] }))
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
