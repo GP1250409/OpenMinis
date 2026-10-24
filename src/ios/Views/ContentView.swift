@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// iOS 16-compatible completion signal for the folder row transaction.
+/// A generation is animated with the rows; superseded generations are ignored.
+private struct FolderTransitionCompletionObserver: AnimatableModifier {
+    let targetValue: Double
+    let completion: (Double) -> Void
+    var animatableData: Double {
+        didSet {
+            guard animatableData == targetValue else { return }
+            let completedValue = targetValue
+            let callback = completion
+            DispatchQueue.main.async { callback(completedValue) }
+        }
+    }
+
+    init(value: Double, completion: @escaping (Double) -> Void) {
+        targetValue = value
+        animatableData = value
+        self.completion = completion
+    }
+
+    func body(content: Content) -> some View { content }
+}
+
 private let shareLog = AppLogger(category: "Share")
 private let draftLog = AppLogger(category: "DraftSession")
 
@@ -1300,6 +1323,10 @@ struct ContentView: View {
     /// correction is needed at all; never drives layout, so the per-frame writes
     /// cost nothing but a dictionary store.
     @State private var folderHeaderTopY: [String: CGFloat] = [:]
+    // Experimental accordion: never start a visibility scroll during row animation.
+    @State private var folderTransitionProgress: Double = 0
+    @State private var folderTransitionInFlight = false
+    @State private var folderPendingRevealId: String?
     /// The list's visible BOTTOM edge in global coords, the lower bound of the
     /// "still on screen" test. Paired with `folderMiniBarTopY` (the top edge).
     @State private var folderListBottomY: CGFloat = 0
@@ -2885,43 +2912,52 @@ struct ContentView: View {
         // out from under the finger for no reason).
         let willExpand = collapsedFolderIds.contains(folderId)
 
-        // [MOD] Apply the accordion's structural change without animation.
-        // Avoid interpolating List row insertion/removal while the deferred
-        // visibility correction below may start its own scroll animation.
+        // Build the complete accordion state before submitting ONE row transaction.
+        var next = collapsedFolderIds
         if willExpand {
-            collapsedFolderIds = Set(folders.map(\.id))
-            collapsedFolderIds.remove(folderId)
+            next = Set(folders.map(\.id))
+            next.remove(folderId)
         } else {
-            collapsedFolderIds.insert(folderId)
+            next.insert(folderId)
         }
-        UserDefaults.standard.set(Array(collapsedFolderIds), forKey: "collapsedFolderIds")
-
-        // Deferred one runloop turn on purpose: the rows removed by the collapse
-        // are still in the List when this returns, so measuring now would read
-        // the pre-collapse geometry. Letting SwiftUI apply the structural change
-        // first means the probe values below describe the layout the user will
-        // actually see.
-        //
-        // MINIMAL CORRECTION, not "scroll to top". The first version of this fix
-        // called `scrollTo(anchor: .top)` unconditionally on every expand, which
-        // did keep the folder on screen but slammed it to the top edge even when
-        // it had never moved — the tap read as "jump to top" rather than "expand
-        // in place". Now the header's post-layout position is measured and a
-        // scroll happens ONLY when it actually left the viewport:
-        //
-        //   - still fully on screen  → do nothing at all (the true in-place case)
-        //   - pushed above the top   → bring it just inside the top edge
-        //   - pushed below the bottom→ bring it just inside, still near the top,
-        //                              since an expanded folder needs the space
-        //                              BELOW its header to show members
-        //
-        // `anchor: .top` is still the landing spot when a correction is needed —
-        // what changed is that it is now conditional. SwiftUI's ScrollViewProxy
-        // has no "scroll by delta" primitive, so top-anchoring is the only way to
-        // express "bring this into view"; the win is that the common case no
-        // longer triggers it.
-        if willExpand, let scrollProxy {
+        folderPendingRevealId = willExpand ? folderId : nil
+        let nextGeneration = folderTransitionProgress + 1
+        if UIAccessibility.isReduceMotionEnabled {
+            // No animated completion callback is needed for the accessibility path.
+            folderTransitionInFlight = true
+            collapsedFolderIds = next
+            folderTransitionProgress = nextGeneration
             DispatchQueue.main.async {
+                finishFolderTransition(nextGeneration, scrollProxy: scrollProxy)
+            }
+        } else {
+            folderTransitionInFlight = true
+            withAnimation(.easeInOut(duration: 0.28)) {
+                collapsedFolderIds = next
+                folderTransitionProgress = nextGeneration
+            }
+        }
+        UserDefaults.standard.set(Array(next), forKey: "collapsedFolderIds")
+
+        // Visibility correction is delivered by the list's completion observer.
+        // A single async turn here would read geometry DURING row interpolation.
+    }
+
+    /// Called by the actual interpolation completion, not a fixed-duration timer.
+    /// Rapid taps supersede pending reveals; both list variants may report the
+    /// same completion, so the in-flight guard also makes delivery idempotent.
+    private func finishFolderTransition(_ generation: Double, scrollProxy: ScrollViewProxy?) {
+        guard generation == folderTransitionProgress, folderTransitionInFlight else { return }
+        folderTransitionInFlight = false
+        let revealId = folderPendingRevealId
+        folderPendingRevealId = nil
+        guard let folderId = revealId, !collapsedFolderIds.contains(folderId) else { return }
+
+        if let scrollProxy {
+            DispatchQueue.main.async {
+                guard generation == folderTransitionProgress,
+                      !folderTransitionInFlight,
+                      !collapsedFolderIds.contains(folderId) else { return }
                 let topEdge = folderMiniBarTopY
                 let bottomEdge = folderListBottomY
                 guard let headerY = folderHeaderTopY[folderId], bottomEdge > topEdge else {
@@ -3358,6 +3394,9 @@ struct ContentView: View {
 
         }
         .listStyle(.plain)
+        .modifier(FolderTransitionCompletionObserver(value: folderTransitionProgress) { generation in
+            finishFolderTransition(generation, scrollProxy: scrollProxy)
+        })
         #if DEBUG
         // TEMPORARY scroll-phase markers to bracket the jitter window in the
         // log. Pair with the [ROWH] probe: a [ROWH] line appearing during
@@ -3549,6 +3588,9 @@ struct ContentView: View {
 
         }
         .listStyle(.plain)
+        .modifier(FolderTransitionCompletionObserver(value: folderTransitionProgress) { generation in
+            finishFolderTransition(generation, scrollProxy: scrollProxy)
+        })
         .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 500)
         // [T-macos27-liquid-glass-navbar] See MacOS27GlassWorkaround. Applied to
         // the Mac sidebar List only; the iPhone compact list (the other branch
