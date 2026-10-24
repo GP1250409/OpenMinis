@@ -1,5 +1,147 @@
 import SwiftUI
 
+// MARK: - Experimental compact-sidebar height accordion
+// Rows stay in a fixed identity tree. Only the clipping container's height
+// interpolates; the system List's insert/delete/self-sizing machinery is not used.
+private struct FolderHeightNaturalSize: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct FolderHeightClip<Members: View>: View {
+    let expanded: Bool
+    let members: Members
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var naturalHeight: CGFloat = 0
+
+    init(expanded: Bool, @ViewBuilder members: () -> Members) {
+        self.expanded = expanded
+        self.members = members()
+    }
+
+    var body: some View {
+        members
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: FolderHeightNaturalSize.self,
+                                       value: geometry.size.height)
+            })
+            .frame(height: expanded ? (naturalHeight > 0 ? naturalHeight : nil) : 0,
+                   alignment: .top)
+            .clipped()
+            .allowsHitTesting(expanded)
+            .accessibilityHidden(!expanded)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: expanded)
+            .onPreferenceChange(FolderHeightNaturalSize.self) { height in
+                guard abs(height - naturalHeight) > 0.5 else { return }
+                // Text size/width/content changes are measurements, not toggles.
+                var instant = Transaction(animation: nil)
+                instant.disablesAnimations = true
+                withTransaction(instant) { naturalHeight = max(0, height) }
+            }
+    }
+}
+
+@MainActor
+private final class FolderHeightAnchorCoordinator: NSObject {
+    private final class WeakMarker {
+        weak var view: UIView?
+        init(_ view: UIView) { self.view = view }
+    }
+    private var markers: [String: WeakMarker] = [:]
+    private weak var target: UIView?
+    private weak var scroll: UIScrollView?
+    private var targetViewportY: CGFloat = 0
+    private var deadline: CFTimeInterval = 0
+    private var displayLink: CADisplayLink?
+
+    func register(_ view: UIView, folderId: String) {
+        markers[folderId] = WeakMarker(view)
+    }
+
+    func begin(folderId: String) {
+        stop()
+        guard !UIAccessibility.isReduceMotionEnabled,
+              let view = markers[folderId]?.view, view.window != nil else { return }
+        var ancestor = view.superview
+        while let parent = ancestor, !(parent is UIScrollView) { ancestor = parent.superview }
+        guard let scroll = ancestor as? UIScrollView else { return }
+        target = view
+        self.scroll = scroll
+        targetViewportY = view.convert(view.bounds, to: scroll).minY - scroll.bounds.minY
+        guard targetViewportY >= 0, targetViewportY <= scroll.bounds.height else {
+            stop()
+            return
+        }
+        // No second scroll animation. Correct the tapped header's viewport
+        // coordinate during height interpolation, clamped to real scroll bounds.
+        deadline = CACurrentMediaTime() + 0.65
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        displayLink = link
+        link.add(to: .main, forMode: .common)
+    }
+
+    func revealIfNeeded(folderId: String) {
+        guard let view = markers[folderId]?.view, view.window != nil else { return }
+        var ancestor = view.superview
+        while let parent = ancestor, !(parent is UIScrollView) { ancestor = parent.superview }
+        guard let scroll = ancestor as? UIScrollView else { return }
+        let y = view.convert(view.bounds, to: scroll).minY - scroll.bounds.minY
+        guard y < 8 || y > scroll.bounds.height - 8 else { return }
+        let minimum = -scroll.adjustedContentInset.top
+        let maximum = max(minimum, scroll.contentSize.height - scroll.bounds.height
+                          + scroll.adjustedContentInset.bottom)
+        let next = min(maximum, max(minimum, scroll.contentOffset.y + y - 8))
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: next), animated: false)
+    }
+
+    @objc private func tick() {
+        guard CACurrentMediaTime() < deadline,
+              let view = target, view.window != nil, let scroll,
+              !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else {
+            stop()
+            return
+        }
+        let y = view.convert(view.bounds, to: scroll).minY - scroll.bounds.minY
+        let delta = y - targetViewportY
+        guard abs(delta) > 0.5 else { return }
+        let minimum = -scroll.adjustedContentInset.top
+        let maximum = max(minimum, scroll.contentSize.height - scroll.bounds.height
+                          + scroll.adjustedContentInset.bottom)
+        let next = min(maximum, max(minimum, scroll.contentOffset.y + delta))
+        guard abs(next - scroll.contentOffset.y) > 0.5 else { return }
+        UIView.performWithoutAnimation {
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: next), animated: false)
+        }
+    }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+        target = nil
+        scroll = nil
+    }
+}
+
+private struct FolderHeightAnchorMarker: UIViewRepresentable {
+    let folderId: String
+    let anchor: FolderHeightAnchorCoordinator
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        anchor.register(view, folderId: folderId)
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        anchor.register(uiView, folderId: folderId)
+    }
+}
+
+
 private let shareLog = AppLogger(category: "Share")
 private let draftLog = AppLogger(category: "DraftSession")
 
@@ -133,6 +275,7 @@ struct SidebarGroup: Equatable, Identifiable {
         return out
     }
     var folderId: String? = nil
+    var heightMemberIds: [String] = [] // retained ONLY for the experimental compact height tree
     var totalCount: Int = 0      // member count incl. hidden-by-collapse rows
     var glyphs: [FolderGlyph] = []   // top-3 distinct member category glyphs
     var anyUnread = false
@@ -1300,6 +1443,7 @@ struct ContentView: View {
     /// correction is needed at all; never drives layout, so the per-frame writes
     /// cost nothing but a dictionary store.
     @State private var folderHeaderTopY: [String: CGFloat] = [:]
+    @State private var heightAccordionAnchor = FolderHeightAnchorCoordinator()
     /// The list's visible BOTTOM edge in global coords, the lower bound of the
     /// "still on screen" test. Paired with `folderMiniBarTopY` (the top edge).
     @State private var folderListBottomY: CGFloat = 0
@@ -2836,6 +2980,7 @@ struct ContentView: View {
             // m is recency-sorted, so .first is the newest member.
             g.latestDate = m.first?.updatedAt
             g.summaryTitle = m.first?.title
+            g.heightMemberIds = g.ids
             if g.isCollapsed { g.ids = [] }
             folderGroups.append(g)
         }
@@ -2883,6 +3028,7 @@ struct ContentView: View {
         // Only on EXPAND — collapsing is self-anchoring (the header the user
         // tapped stays exactly where it is; scrolling then would move content
         // out from under the finger for no reason).
+        if usesHeightAccordion { heightAccordionAnchor.begin(folderId: folderId) }
         let willExpand = collapsedFolderIds.contains(folderId)
 
         // [MOD] Apply the accordion's structural change without animation.
@@ -2895,6 +3041,16 @@ struct ContentView: View {
             collapsedFolderIds.insert(folderId)
         }
         UserDefaults.standard.set(Array(collapsedFolderIds), forKey: "collapsedFolderIds")
+        if usesHeightAccordion {
+            // The new ScrollView keeps its anchor during the height change.
+            // Never run the old post-List-layout scrollTo animation as well.
+            if willExpand, UIAccessibility.isReduceMotionEnabled {
+                DispatchQueue.main.async {
+                    heightAccordionAnchor.revealIfNeeded(folderId: folderId)
+                }
+            }
+            return
+        }
 
         // Deferred one runloop turn on purpose: the rows removed by the collapse
         // are still in the List when this returns, so measuring now would read
@@ -3293,9 +3449,129 @@ struct ContentView: View {
 
     private var stackList: some View {
         ScrollViewReader { scrollProxy in
-        stackListBody(scrollProxy: scrollProxy)
+            if usesHeightAccordion {
+                heightAccordionList(scrollProxy: scrollProxy)
+            } else {
+                stackListBody(scrollProxy: scrollProxy)
+            }
+        }
     }
+
+    /// Experiment only: normal compact browsing uses a measured height clip.
+    /// Search, multi-selection and the iPad split sidebar retain the stable List.
+    private var usesHeightAccordion: Bool {
+        !isWideLayout && !isSelecting && !showSearchBar && !folders.isEmpty
     }
+
+    private func heightAccordionMemberRow(_ session: ChatSession, group: SidebarGroup) -> AnyView {
+        AnyView(
+            NavigationLink(value: session.id) {
+                SessionRow(
+                    session: session,
+                    isActive: sessionIsRunning(session.id),
+                    isSuspended: sidebarConcurrencyManager.isSuspended(session.id),
+                    highlightQuery: nil,
+                    matchSnippet: nil
+                )
+                .equatable()
+            }
+            .buttonStyle(.plain)
+            .draggable(session.id)
+            .overlay {
+                if regeneratingTitleSessionId == session.id {
+                    ZStack {
+                        Color(.systemBackground).opacity(0.7)
+                        ProgressView()
+                    }
+                }
+            }
+            .background(Group {
+                if group.folderId != nil {
+                    FolderMemberRowBackground(isLast: session.id == group.heightMemberIds.last)
+                } else {
+                    Color(.systemBackground)
+                }
+            })
+            .contextMenu {
+                SessionContextMenu(
+                    key: MenuKey(sid: session.id, pinned: session.isPinned,
+                                 title: session.title, filed: session.isFiled),
+                    actions: menuActions
+                )
+                .equatable()
+            }
+        )
+    }
+
+    private func heightAccordionFolder(_ group: SidebarGroup,
+                                       scrollProxy: ScrollViewProxy) -> AnyView {
+        AnyView(
+            VStack(spacing: 0) {
+                folderSectionHeader(group, scrollProxy: scrollProxy)
+                    .background {
+                        if let fid = group.folderId {
+                            FolderHeightAnchorMarker(folderId: fid, anchor: heightAccordionAnchor)
+                        }
+                    }
+                FolderHeightClip(expanded: !group.isCollapsed) {
+                    VStack(spacing: 0) {
+                        // Deliberately eager, stable member tree for this experiment:
+                        // removing rows on collapse would defeat height interpolation.
+                        ForEach(group.heightMemberIds, id: \.self) { sid in
+                            if let session = sessionForRow(sid) {
+                                heightAccordionMemberRow(session, group: group)
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private func heightAccordionList(scrollProxy: ScrollViewProxy) -> AnyView {
+        AnyView(
+            ScrollView(.vertical) {
+                // No lazy estimated heights and no List row insert/delete animation.
+                VStack(spacing: 0) {
+                    let groups = groupedSessionIDs(filteredSessions)
+                    ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                        if group.folderId != nil {
+                            if group.showsGroupsHeader {
+                                Text("Groups")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                            }
+                            heightAccordionFolder(group, scrollProxy: scrollProxy)
+                        } else {
+                            sectionHeader(index: index, group: group)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                            ForEach(group.ids, id: \.self) { sid in
+                                if let session = sessionForRow(sid) {
+                                    heightAccordionMemberRow(session, group: group)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .background(Color(.systemBackground))
+            .opacity(didInitialLoad ? 1 : 0)
+            .overlay { if didInitialLoad, filteredSessions.isEmpty, !isSearching { emptyState } }
+            .overlay(alignment: .top) { folderMiniBarOverlay(scrollProxy) }
+            .safeAreaInset(edge: .bottom) { fabRow }
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { sidebarToolbarContent }
+            .onDisappear { heightAccordionAnchor.stop() }
+        )
+    }
+
 
     /// The list itself. Split from `stackList` so the outer chrome chain
     /// (`safeAreaInset` → `ignoresSafeArea` → `navigationBarTitleDisplayMode` →
@@ -5395,6 +5671,9 @@ struct ContentView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(UIColor.tertiaryLabel))
                             .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
+                            .animation(usesHeightAccordion && !UIAccessibility.isReduceMotionEnabled
+                                       ? .easeInOut(duration: 0.45) : nil,
+                                       value: group.isCollapsed)
                     }
                 }
             }
@@ -5432,7 +5711,7 @@ struct ContentView: View {
             .padding(.top, 4)
             // Expanded: no bottom gap — the card welds onto the first member
             // row's container segment.
-            .padding(.bottom, (group.isCollapsed || group.ids.isEmpty) ? 4 : 0)
+            .padding(.bottom, usesHeightAccordion ? 0 : ((group.isCollapsed || group.ids.isEmpty) ? 4 : 0))
         .onTapGesture {
             if let fid = group.folderId { toggleFolderCollapsed(fid, scrollProxy: scrollProxy) }
         }
@@ -5450,7 +5729,7 @@ struct ContentView: View {
         // A background GeometryReader: it reads the row's own frame without
         // participating in its layout, so no sizing behaviour changes.
         .background {
-            if let fid = group.folderId {
+            if let fid = group.folderId, !usesHeightAccordion {
                 GeometryReader { geo in
                     Color.clear
                         .onAppear { folderHeaderTopY[fid] = geo.frame(in: .global).minY }
