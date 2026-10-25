@@ -112,9 +112,9 @@ struct AOJITImage: Identifiable, Equatable {
             name: "Node.js",
             module: "/usr/bin/node",
             binaries: "/usr/bin/node, /usr/bin/npm, /usr/bin/npx",
-            build: AOJITBuild(file: "aot_nodejs_22.23.2-r0.S", buildId: "c324f04a6d01b07f6858cc8ef1da4d6d3656daa3", package: "nodejs 22.23.2-r0"),
+            build: AOJITBuild(file: "aot_nodejs_22.23.4-r0.S", buildId: "a30ddaa74ad7184449613e6d5ab9dd04a757cf58", package: "nodejs 22.23.4-r0"),
             family: "node",
-            apkSpec: "nodejs=22.23.2-r0",
+            apkSpec: "nodejs=22.23.4-r0",
             restorePackages: [],
             coreRole: nil,
             affects: "node, npm and npx: JavaScript scripts and Node-based CLI tools."
