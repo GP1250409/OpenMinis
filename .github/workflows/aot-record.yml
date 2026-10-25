@@ -58,6 +58,8 @@ jobs:
           export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
           export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
           cd deps/ish
+          sed -i '' 's|strcpy(uts->hostname, hostname);|strlcpy(uts->hostname, hostname, sizeof(uts->hostname));|' kernel/uname.c
+          git diff --stat
           git log -1 --format=%H
           meson setup /tmp/ish-rec -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Db_ndebug=true --buildtype=release
           ninja -C /tmp/ish-rec || ninja -C /tmp/ish-rec
@@ -69,6 +71,7 @@ jobs:
         run: |
           export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
           export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
+          sed -i '' 's|strcpy(uts->hostname, hostname);|strlcpy(uts->hostname, hostname, sizeof(uts->hostname));|' deps/ish/kernel/uname.c
           ./deps/prepare_alpine_rootfs.sh
           mkdir -p /tmp/rec-A
           cp -R deps/resources/alpine-rootfs /tmp/rec-A/alpine-rootfs
