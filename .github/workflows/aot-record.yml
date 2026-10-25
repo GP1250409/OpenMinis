@@ -120,10 +120,9 @@ jobs:
         run: |
           R=/tmp/rec-A/alpine-rootfs
           I="/tmp/ish-rec/ish -f $R"
-          $I /bin/sh -c 'ls -la /opt/aojit/net | head -30; python3 -c "import ssl;print(ssl.OPENSSL_VERSION)"' 2>&1 | tail -40
-          $I /bin/sh -c 'cd /opt/aojit/net; timeout 60 python3 tls_server.py 8499 rsa & sleep 15; ls server_8499.ready; kill %1' 2>&1 | tail -20
-          perl -e 'alarm 120; exec @ARGV' $I /bin/sh -c 'cd /opt/aojit/net; sh tls_run.sh 8450 rsa 2 4 1 1 1 ECDHE-RSA-CHACHA20-POLY1305' 2>&1 | tail -20 || true
-          pkill -f /tmp/ish-rec/ish || true
+          tar -tvf /tmp/net.tar | head -20
+          rm -rf /tmp/rec-cert && cp -R $R /tmp/rec-cert
+          /tmp/ish-rec/ish -f /tmp/rec-cert /bin/sh -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk add openssl ca-certificates 2>&1 | tail -3; cd /opt/aojit/net; sh gen_certs.sh; ls -la' 2>&1 | tail -30
       - name: Record images
         if: env.SKIP != '1'
         run: |
