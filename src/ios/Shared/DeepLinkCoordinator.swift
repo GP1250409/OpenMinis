@@ -40,6 +40,7 @@ final class DeepLinkCoordinator: ObservableObject {
     static let shared = DeepLinkCoordinator()
 
     struct EnvVarCreate {
+        let id = UUID()
         let key: String
         let value: String
         let note: String
@@ -57,6 +58,8 @@ final class DeepLinkCoordinator: ObservableObject {
     /// needs to push form values into the destination view, which goes
     /// through this published EnvVarCreate.
     @Published var pendingEnvVarCreate: EnvVarCreate?
+    // Presentation state only; never contains a secret value.
+    var environmentDestinationVisible = false
 
     /// When non-nil, ContentView opens the SettingsSheet (if not already
     /// open) and SettingsSheet navigates its NavigationStack to the

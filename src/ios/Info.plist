@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.gonepaul.minismod.liveactivity-refresh</string>
+		<string>com.gonepaul.minismod.continued.*</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>

@@ -140,20 +140,19 @@ final class TextFadeAnimator {
         // posts a single processEditing pass for the whole appended tail.
         targetStorage.beginEditing()
         for (i, wr) in wordRanges.enumerated() {
-            let original = currentForegroundColor(at: wr.location, in: targetStorage)
+            // A reveal unit may cross a link/code colour boundary. Preserve
+            // every attributed run instead of painting the unit's first colour.
+            var segments: [(NSRange, UIColor)] = []
+            targetStorage.enumerateAttribute(.foregroundColor, in: wr, options: []) { color, run, _ in
+                segments.append((run, (color as? UIColor) ?? .label))
+            }
             let start = baseStart + CFTimeInterval(i) * step
-            words.append(FadeWord(
-                range: wr,
-                startTime: start,
-                duration: Self.wordFadeDuration,
-                originalColor: original
-            ))
-            // Seed at alpha 0.
-            targetStorage.addAttribute(
-                .foregroundColor,
-                value: original.withAlphaComponent(0),
-                range: wr
-            )
+            for (run, original) in segments {
+                words.append(FadeWord(range: run, startTime: start,
+                                      duration: Self.wordFadeDuration, originalColor: original))
+                targetStorage.addAttribute(.foregroundColor,
+                                           value: original.withAlphaComponent(0), range: run)
+            }
         }
         targetStorage.endEditing()
 

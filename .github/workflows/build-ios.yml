@@ -15,6 +15,10 @@ jobs:
           pip3 install --break-system-packages meson || pip3 install meson
           xcodebuild -downloadComponent MetalToolchain || true
           xcrun -sdk iphoneos metal --version || true
+      - name: MOD UIKit regression tests
+        run: |
+          set -o pipefail
+          python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
       - name: Cache native deps
         id: cache
         uses: actions/cache@v4
@@ -40,16 +44,26 @@ jobs:
         run: cp src/ios/Configs/ProviderCustomization.xcconfig.example src/ios/Configs/ProviderCustomization.xcconfig
       - name: Build app
         run: |
+          set -o pipefail
           xcodebuild -project src/ios/Minis.xcodeproj -scheme Minis \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" build 2>&1 | tail -n 300
+            CURRENT_PROJECT_VERSION=11501 CODE_SIGN_IDENTITY="" build 2>&1 | tee build.log | tail -n 100
       - name: Package
         run: |
-          APP=$(find build/Build/Products -name 'Minis.app' -maxdepth 3 | head -1)
+          APP=$(python3 -c 'from pathlib import Path; print(next(Path("build/Build/Products").glob("*/Minis.app")))')
           echo "APP=$APP"
           mkdir -p out/Payload && cp -R "$APP" out/Payload/
           (cd out && zip -qry Minis-mod-unsigned.ipa Payload)
           ls -la out
       - uses: actions/upload-artifact@v4
         with: { name: Minis-mod-unsigned, path: out/Minis-mod-unsigned.ipa }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mod-validation-logs
+          path: |
+            mod-regression.log
+            build.log
+            build/mod-regression/*.swift
+

@@ -13,14 +13,13 @@ struct EnvironmentVariablesView: View {
     @State private var prefillKey = ""
     @State private var prefillValue = ""
     @State private var prefillNote = ""
-    @State private var overwriteConfirm: OverwriteRequest?
-
-    private struct OverwriteRequest: Identifiable {
-        let id = UUID()
-        let entryId: String
-        let key: String
-        let newValue: String
-    }
+    /// [T-envvar-disable] A `create_key` deep link for a name that already
+    /// exists opens that variable's editor; these carry the link's value (if
+    /// any) and whether to call out its "Enabled" switch (it is off).
+    @State private var deepLinkValue: String?
+    @State private var highlightEnabledFor: String?
+    @State private var presentationReady = false
+    @State private var presentingRequestID: UUID?
 
     private var filteredEntries: [EnvVarEntry] {
         if searchText.isEmpty {
@@ -73,83 +72,113 @@ struct EnvironmentVariablesView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingAddSheet) {
-            EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note in
+        .sheet(isPresented: $showingAddSheet, onDismiss: formDismissed) {
+            EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note, _ in
                 store.add(key: key, value: value, note: note)
             }
+            .onAppear { acknowledgePresentedRequest() }
             .onDisappear {
                 prefillKey = ""
                 prefillValue = ""
                 prefillNote = ""
             }
         }
-        .onAppear {
-            if let pending = deepLink.pendingEnvVarCreate {
-                let normalizedKey = pending.key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-                deepLink.pendingEnvVarCreate = nil
-                if let existing = store.entries.first(where: { $0.key == normalizedKey }) {
-                    let currentValue = store.value(forKey: existing.key) ?? ""
-                    if !currentValue.isEmpty && currentValue != pending.value {
-                        overwriteConfirm = OverwriteRequest(
-                            entryId: existing.id,
-                            key: existing.key,
-                            newValue: pending.value
-                        )
-                    } else if currentValue.isEmpty {
-                        store.update(id: existing.id, key: existing.key, value: pending.value)
-                    }
-                } else {
-                    prefillKey = pending.key
-                    prefillValue = pending.value
-                    prefillNote = pending.note
-                    showingAddSheet = true
-                }
-            }
+        .background(EnvPresentationReady { ready in
+            presentationReady = ready
+            if ready { presentPendingRequest() }
+        }.frame(width: 0, height: 0))
+        .onAppear { deepLink.environmentDestinationVisible = true }
+        .onDisappear { deepLink.environmentDestinationVisible = false }
+        .onChange(of: deepLink.pendingEnvVarCreate?.id) { _ in
+            presentPendingRequest()
         }
-        .alert(
-            AppLocalized("Replace existing value?"),
-            isPresented: Binding(
-                get: { overwriteConfirm != nil },
-                set: { if !$0 { overwriteConfirm = nil } }
-            ),
-            presenting: overwriteConfirm
-        ) { request in
-            Button(AppLocalized("Replace"), role: .destructive) {
-                store.update(id: request.entryId, key: request.key, value: request.newValue)
-            }
-            Button(AppLocalized("Cancel"), role: .cancel) {}
-        } message: { request in
-            Text(AppLocalized("\"\(request.key)\" already has a value. Replace it with \"\(request.newValue)\"?"))
-        }
-        .sheet(item: $editingEntry) { entry in
+        .sheet(item: $editingEntry, onDismiss: formDismissed) { entry in
             EnvVarFormSheet(
                 mode: .edit,
                 initialKey: entry.key,
-                initialValue: store.value(forKey: entry.key) ?? "",
+                initialValue: deepLinkValue ?? store.value(forKey: entry.key) ?? "",
                 initialNote: entry.note,
-                onSave: { key, value, note in
+                initialEnabled: store.isEnabled(id: entry.id),
+                highlightEnabled: highlightEnabledFor == entry.id,
+                onSave: { key, value, note, enabled in
                     store.update(id: entry.id, key: key, value: value, note: note)
+                    if let enabled { store.setEnabled(id: entry.id, enabled) }
                 },
                 onDelete: {
                     store.delete(id: entry.id)
                 }
             )
+            .onAppear { acknowledgePresentedRequest() }
+            .onDisappear {
+                deepLinkValue = nil
+                highlightEnabledFor = nil
+            }
         }
+    }
+
+    private func presentPendingRequest() {
+        guard presentationReady, !showingAddSheet, editingEntry == nil,
+              presentingRequestID == nil,
+              let pending = deepLink.pendingEnvVarCreate else { return }
+        presentingRequestID = pending.id
+        let key = pending.key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if let existing = store.entries.first(where: { $0.key == key }) {
+            deepLinkValue = pending.value.isEmpty ? nil : pending.value
+            highlightEnabledFor = store.isEnabled(id: existing.id) ? nil : existing.id
+            editingEntry = existing
+        } else {
+            prefillKey = pending.key
+            prefillValue = pending.value
+            prefillNote = pending.note
+            showingAddSheet = true
+        }
+    }
+
+    private func acknowledgePresentedRequest() {
+        // Only a form that actually appeared can consume its request. A newer
+        // request arriving during presentation remains queued for onDismiss.
+        if let id = presentingRequestID, deepLink.pendingEnvVarCreate?.id == id {
+            deepLink.pendingEnvVarCreate = nil
+        }
+    }
+
+    private func formDismissed() {
+        presentingRequestID = nil
+        prefillKey = ""; prefillValue = ""; prefillNote = ""
+        deepLinkValue = nil; highlightEnabledFor = nil
+        presentPendingRequest()
     }
 
     @ViewBuilder
     private func envVarRow(_ entry: EnvVarEntry) -> some View {
         let isRevealed = revealedKeys.contains(entry.id)
         let currentValue = store.value(forKey: entry.key) ?? ""
+        // [T-envvar-disable]
+        let isEnabled = store.isEnabled(id: entry.id)
+        let isDuplicate = store.duplicateKeys.contains(entry.key)
 
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.key)
-                    .font(.system(.body, design: .monospaced))
-                    .fontWeight(.medium)
+                HStack(spacing: 6) {
+                    Text(entry.key)
+                        .font(.system(.body, design: .monospaced))
+                        .fontWeight(.medium)
+                        .foregroundStyle(isEnabled ? .primary : .secondary)
+                    if !isEnabled {
+                        // Own key, not the shared "Disabled": zh-Hans reads 已禁用
+                        // here (matching Android), while other screens keep 已停用.
+                        EnvVarBadge(text: AppLocalized("Disabled (environment variable)"), color: .secondary)
+                    }
+                    if isDuplicate {
+                        EnvVarBadge(text: AppLocalized("Duplicate name"), color: .orange)
+                    }
+                }
                 Text(isRevealed ? currentValue : String(repeating: "\u{2022}", count: min(currentValue.count, 20)))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    // [T-shortcut-envvar] Shortcut-stored values can be long,
+                    // multi-line text; keep the row compact when revealed.
+                    .lineLimit(6)
                 if !entry.note.isEmpty {
                     Text(entry.note)
                         .font(.caption)
@@ -188,9 +217,28 @@ struct EnvironmentVariablesView: View {
                 .buttonStyle(.plain)
             }
         }
+        .opacity(isEnabled ? 1 : 0.6)
         .contentShape(Rectangle())
         .onTapGesture {
             editingEntry = entry
+        }
+        // [T-envvar-disable] Swiping left shows Delete and, beside it,
+        // Disable / Enable. Declaring swipeActions replaces the implicit
+        // onDelete swipe, so Delete is listed here (first = full swipe, as
+        // before).
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                store.delete(id: entry.id)
+            } label: {
+                Label(AppLocalized("Delete"), systemImage: "trash")
+            }
+            Button {
+                store.setEnabled(id: entry.id, !isEnabled)
+            } label: {
+                Label(isEnabled ? AppLocalized("Disable") : AppLocalized("Enable"),
+                      systemImage: isEnabled ? "pause.circle" : "play.circle")
+            }
+            .tint(isEnabled ? .gray : .green)
         }
     }
 
@@ -211,13 +259,19 @@ private struct EnvVarFormSheet: View {
     var initialKey: String = ""
     var initialValue: String = ""
     var initialNote: String = ""
-    let onSave: (String, String, String) -> Void
+    /// [T-envvar-disable] nil in add mode (a new variable starts enabled).
+    var initialEnabled: Bool? = nil
+    /// Call out the switch (a deep link landed on a disabled variable).
+    var highlightEnabled: Bool = false
+    /// key, value, note, enabled (nil in add mode).
+    let onSave: (String, String, String, Bool?) -> Void
     var onDelete: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var key = ""
     @State private var value = ""
     @State private var note = ""
+    @State private var enabled = true
     @State private var showingDeleteConfirm = false
     @FocusState private var focusedField: Field?
 
@@ -251,12 +305,23 @@ private struct EnvVarFormSheet: View {
                 }
 
                 Section("Value") {
-                    TextField("Value", text: $value)
-                        .font(.system(.body, design: .monospaced))
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .value)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = .note }
+                    if EnvVarStore.isShortcutKey(key) {
+                        // [T-shortcut-envvar] Shortcut-stored text (an SMS, a
+                        // note) can span lines; a single-line field would
+                        // flatten it on save.
+                        TextField("Value", text: $value, axis: .vertical)
+                            .lineLimit(1...8)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .value)
+                    } else {
+                        TextField("Value", text: $value)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .value)
+                            .submitLabel(.next)
+                            .onSubmit { focusedField = .note }
+                    }
                 }
 
                 Section("Note") {
@@ -272,6 +337,14 @@ private struct EnvVarFormSheet: View {
                             .frame(minHeight: 80)
                             .focused($focusedField, equals: .note)
                             .scrollContentBackground(.hidden)
+                    }
+                }
+
+                if mode == .edit, initialEnabled != nil {
+                    Section {
+                        Toggle(AppLocalized("Enabled"), isOn: $enabled)
+                            .listRowBackground(highlightEnabled && !enabled
+                                               ? Color.orange.opacity(0.18) : nil)
                     }
                 }
 
@@ -301,7 +374,8 @@ private struct EnvVarFormSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
-                        onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines))
+                        onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines),
+                               initialEnabled == nil ? nil : enabled)
                         dismiss()
                     }
                     .disabled(!isValid)
@@ -323,6 +397,7 @@ private struct EnvVarFormSheet: View {
             key = initialKey
             value = initialValue
             note = initialNote
+            enabled = initialEnabled ?? true
         }
         // Use .task instead of onAppear+DispatchQueue: the wait is cancellable
         // (sheet dismissed mid-animation cancels cleanly) and we can resign any
@@ -345,6 +420,46 @@ private struct EnvVarFormSheet: View {
             if mode == .add {
                 focusedField = .key
             }
+        }
+    }
+}
+
+/// [T-envvar-disable] Small capsule tag on a variable row.
+private struct EnvVarBadge: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(color.opacity(0.15), in: Capsule())
+            .lineLimit(1)
+            .fixedSize()
+    }
+}
+
+// UIKit reports completion of the navigation/sheet appearance; no arbitrary
+// delay and no request consumption from an early SwiftUI onAppear callback.
+private struct EnvPresentationReady: UIViewControllerRepresentable {
+    let onReady: (Bool) -> Void
+    func makeUIViewController(context: Context) -> GateController {
+        let c = GateController(); c.onReady = onReady; return c
+    }
+    func updateUIViewController(_ c: GateController, context: Context) { c.onReady = onReady }
+    final class GateController: UIViewController {
+        var onReady: ((Bool) -> Void)?
+        override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.view.window != nil else { return }
+                self.onReady?(true)
+            }
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated); onReady?(false)
         }
     }
 }
