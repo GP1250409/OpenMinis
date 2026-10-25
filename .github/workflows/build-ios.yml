@@ -34,7 +34,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
-          export GOTOOLCHAIN=go1.25.0
+          export GOTOOLCHAIN=go1.25.5
           which clang ld.lld lld go || true
           go version
           ./deps/build_lame.sh
