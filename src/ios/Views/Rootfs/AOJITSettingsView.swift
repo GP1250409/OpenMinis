@@ -217,9 +217,9 @@ struct AOJITImage: Identifiable, Equatable {
             name: "PCRE2",
             module: "/usr/lib/libpcre2-8.so.0",
             binaries: "/usr/lib/libpcre2-8.so.0 (git grep -P, grep -P, rg -P)",
-            build: AOJITBuild(file: "aot_pcre2_10.43-r0.S", buildId: "2a7cfd13f571d133069bf15c8e869ba13d2a4c5f", package: "pcre2 10.43-r0", path: "/usr/lib/libpcre2-8.so.0.12.0"),
+            build: AOJITBuild(file: "aot_pcre2_10.43-r1.S", buildId: "670947d4acae16869d787c05238433d38333e1a1", package: "pcre2 10.43-r1", path: "/usr/lib/libpcre2-8.so.0.12.0"),
             family: "libpcre2-8.so.0*",
-            apkSpec: "pcre2=10.43-r0",
+            apkSpec: "pcre2=10.43-r1",
             restorePackages: [],
             coreRole: nil,
             affects: "Only searches that ask for PCRE regular expressions explicitly: git grep -P, GNU grep -P and rg -P / --pcre2. ripgrep's default search does not use PCRE2 and does not benefit, and neither does jq (it uses another regex library)."
