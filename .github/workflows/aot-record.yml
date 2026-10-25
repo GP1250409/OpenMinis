@@ -141,7 +141,7 @@ jobs:
           rg_() { :; }
           fail=0
           for name in ${{ github.event.inputs.names != '' && github.event.inputs.names || matrix.images }}; do
-            if [ "$name" = pcre2 ]; then set -- libpcre2-8.so ../minis/pcre_train.sh; else
+            if [ "$name" = pcre2 ]; then set -- libpcre2-8.so minis/pcre_train.sh; else
             set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])"); fi
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
