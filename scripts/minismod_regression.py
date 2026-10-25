@@ -38,7 +38,8 @@ let fallback = NSMutableAttributedString(attributedString: good)
 fallback.addAttributes([.font: UIFont.systemFont(ofSize: 14), NSAttributedString.Key("NSOriginalFont"): font], range: NSRange(location: 3, length: 4))
 check(PrefixTest.prefixesEqualIgnoringFontSubstitution(good, fallback), "legitimate font substitution retained")
 let storage = NSTextStorage(attributedString: mixed)
-@MainActor func runTests() {
+// Top-level code is nonisolated; run the actor-isolated assertions explicitly.
+MainActor.assumeIsolated {
 let fade = TextFadeAnimator(requestRedraw: {})
 fade.scheduleAnimation(for: NSRange(location: 0, length: storage.length), in: storage)
 fade.cancelAll()
@@ -58,7 +59,6 @@ check(true, "451 natural/pinned/section-bottom clamp cases")
 check(StablePinnedTitle.titleY(natural: 50, viewport: 260, bottom: 250, height: 30) + 30 <= 260, "pinned title leaves viewport with its section")
 check(34.0 / 2 + 12 == 29, "actual composer concentric geometry")
 }
-runTests()
 print("MINISMOD_REGRESSION_PASS \\(passed)")
 ''')
 # Actual UIKit executable, not a model of the production implementation.
