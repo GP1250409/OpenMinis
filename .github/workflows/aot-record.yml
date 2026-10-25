@@ -38,6 +38,10 @@ jobs:
             images: "node"
             apk: "nodejs npm python3 py3-pillow py3-cryptography"
             npm: "cf@1.0.0-beta.6 @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-memory @modelcontextprotocol/server-everything @upstash/context7-mcp mcp-remote firecrawl-mcp @modelcontextprotocol/server-github"
+          - group: pcre2
+            images: "pcre2"
+            apk: "python3 git ripgrep"
+            npm: ""
           - group: tools
             images: "rg gh"
             apk: "ripgrep github-cli python3"
@@ -111,6 +115,9 @@ jobs:
           $I /bin/sh -c 'cd /opt/aojit/net && tar -xf -' < /tmp/net.tar
           rm -rf /tmp/rec-cert
           $I /bin/sh -c 'mkdir -p /tmp/aojit && sh /opt/aojit/setup.sh' || true
+          # pcre2 workload (upstream deps/aot/workloads): its own dir, no /tmp dependency
+          mkdir -p /tmp/minisw && cp deps/aot/workloads/pcre_train.sh /tmp/minisw/ && (cd /tmp/minisw && tar -cf /tmp/minisw.tar .)
+          $I /bin/sh -c 'mkdir -p /opt/aojit/minis && cd /opt/aojit/minis && tar -xf -' < /tmp/minisw.tar
           $I /bin/sh -c 'ls /opt/aojit/net /opt/aojit/zlib'
       - name: Start sshd (ssh group)
         if: env.SKIP != '1' && matrix.group == 'ssh'
@@ -134,7 +141,8 @@ jobs:
           rg_() { :; }
           fail=0
           for name in ${{ github.event.inputs.names != '' && github.event.inputs.names || matrix.images }}; do
-            set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
+            if [ "$name" = pcre2 ]; then set -- libpcre2-8.so ../minis/pcre_train.sh; else
+            set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])"); fi
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
               perl -e 'alarm 1500; exec @ARGV' sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" > $OUT/$name.out 2>&1 || echo "TIMEOUT/FAIL $name rc=$?"
