@@ -50,11 +50,12 @@ jobs:
       - name: Tools
         if: env.SKIP != '1'
         run: |
-          brew install ninja meson libarchive pkg-config
+          brew install ninja meson libarchive pkg-config llvm lld
           pip3 install --break-system-packages tqdm || pip3 install tqdm
       - name: Build CLI ish (JIT emit)
         if: env.SKIP != '1'
         run: |
+          export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
           export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
           cd deps/ish
           git log -1 --format=%H
@@ -66,6 +67,7 @@ jobs:
       - name: Shipped rootfs
         if: env.SKIP != '1'
         run: |
+          export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
           export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
           ./deps/prepare_alpine_rootfs.sh
           mkdir -p /tmp/rec-A
