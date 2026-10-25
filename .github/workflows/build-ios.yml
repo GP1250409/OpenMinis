@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p deps/aot && cd deps/aot
           B=https://github.com/GP1250409/OpenMinis/releases/download/aot-1f3bb5a0
-          for g in core core-cryptossl imaging node python ssh tools; do
+          for g in core core-cryptossl imaging node python ssh tools pcre2; do
             curl -fsSL -o aot-$g.tar.xz $B/aot-$g.tar.xz && tar -xJf aot-$g.tar.xz && rm aot-$g.tar.xz
           done
           # file names the app catalog expects (AOJITImage.catalog); symbols inside need no change
@@ -32,9 +32,9 @@ jobs:
           mv_ crypto libcrypto_3.3.2-r4;     mv_ ssl libssl_3.3.2-r4;         mv_ python python3_3.12.15-r0
           mv_ node nodejs_22.23.4-r0;        mv_ sqlite sqlite_3.48.0-r4;     mv_ imaging pillow_11.0.0-r0
           mv_ webp libwebp_1.4.0-r0;         mv_ jpeg libjpeg_3.0.4-r0;       mv_ numpy numpy_2.1.3-r0
-          mv_ ssh ssh_9.9_p2-r0;             mv_ scp scp_9.9_p2-r0
+          mv_ pcre2 pcre2_10.43-r1;          mv_ ssh ssh_9.9_p2-r0;             mv_ scp scp_9.9_p2-r0
           for m in json hashlib blake2 struct datetime binascii math zlib socket select; do mv_ py$m py_${m}_3.12.15-r0; done
-          rm -rf core core-cryptossl imaging node python ssh tools
+          rm -rf core core-cryptossl imaging node python ssh tools pcre2
           ls -la aot_*.S | wc -l; du -sh .
       - name: Cache native deps
         id: cache
@@ -46,7 +46,7 @@ jobs:
             deps/frameworks
             deps/resources
             deps/lame-build
-          key: deps-${{ runner.os }}-${{ hashFiles('deps/*.sh', '.gitmodules') }}-${{ hashFiles('deps/ish/**') }}-aot1f3bb5a0-v1
+          key: deps-${{ runner.os }}-${{ hashFiles('deps/*.sh', '.gitmodules') }}-${{ hashFiles('deps/ish/**') }}-aot1f3bb5a0-v2
       - name: Build native deps
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
