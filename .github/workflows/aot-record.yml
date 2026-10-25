@@ -16,7 +16,7 @@ jobs:
         include:
           - group: core
             images: "musl busybox zlib crypto ssl sqlite"
-            apk: "python3 sqlite-libs"
+            apk: "python3 sqlite-libs py3-requests"
             npm: ""
           - group: python
             images: "python pyjson pyhashlib pyblake2 pystruct pydatetime pybinascii pymath pyzlib pysocket pyselect pyssl"
@@ -115,6 +115,15 @@ jobs:
           ls $R/data/root/.ssh
           nohup /tmp/ish-rec/ish -f /tmp/rec-srv /bin/sh /opt/aojit/ssh/server.sh 2222 < /tmp/pubkeys.txt > /tmp/sshd.log 2>&1 &
           sleep 20; cat /tmp/sshd.log | head
+      - name: Debug TLS
+        if: env.SKIP != '1' && matrix.group == 'core'
+        run: |
+          R=/tmp/rec-A/alpine-rootfs
+          I="/tmp/ish-rec/ish -f $R"
+          $I /bin/sh -c 'ls -la /opt/aojit/net | head -30; python3 -c "import ssl;print(ssl.OPENSSL_VERSION)"' 2>&1 | tail -40
+          $I /bin/sh -c 'cd /opt/aojit/net; timeout 60 python3 tls_server.py 8499 rsa & sleep 15; ls server_8499.ready; kill %1' 2>&1 | tail -20
+          perl -e 'alarm 120; exec @ARGV' $I /bin/sh -c 'cd /opt/aojit/net; sh tls_run.sh 8450 rsa 2 4 1 1 1 ECDHE-RSA-CHACHA20-POLY1305' 2>&1 | tail -20 || true
+          pkill -f /tmp/ish-rec/ish || true
       - name: Record images
         if: env.SKIP != '1'
         run: |
@@ -131,7 +140,7 @@ jobs:
             set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
-              perl -e 'alarm 600; exec @ARGV' sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" > $OUT/$name.out 2>&1 || echo "TIMEOUT/FAIL $name rc=$?"
+              perl -e 'alarm 1500; exec @ARGV' sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" > $OUT/$name.out 2>&1 || echo "TIMEOUT/FAIL $name rc=$?"
               tail -12 $OUT/$name.out; pkill -f /tmp/ish-rec/ish.*aojit || true
             ls -la $OUT/aot_$name.S 2>&1 || { echo "MISSING $name"; fail=1; }
             cp $OUT/rec/$name.jsonl.log $OUT/$name.log 2>/dev/null || true; tail -15 $OUT/$name.log 2>/dev/null || true
