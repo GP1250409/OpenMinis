@@ -113,7 +113,6 @@ jobs:
         run: |
           R=/tmp/rec-A/alpine-rootfs
           T=deps/ish/tools/jit_aot
-          sed -e 's|"\$ish" -r "\$rootfs"|"$ish" -f "$rootfs"|' $T/record.sh | rg -n 'ISH_JIT|ish" -' 
           I="/tmp/ish-rec/ish -f $R"
           echo "--- plain run"; $I /bin/sh /opt/aojit/zlib/zlib_train.sh 2>&1 | tail -15
           echo "--- record run"; rm -f /tmp/d.jsonl; ISH_JIT_PIC=1 ISH_JIT_RECORD=/tmp/d.jsonl ISH_JIT_RECORD_MOD=libz.so $I /bin/sh /opt/aojit/zlib/zlib_train.sh 2>&1 | tail -15
