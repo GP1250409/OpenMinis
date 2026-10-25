@@ -1,0 +1,137 @@
+name: Record AOJIT images
+on:
+  push:
+    branches: [aot-record]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "matrix group to run (empty = all)"
+        required: false
+        default: ""
+jobs:
+  record:
+    runs-on: macos-26
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core
+            images: "musl busybox zlib crypto ssl sqlite"
+            apk: "python3 sqlite-libs openssl"
+            npm: ""
+          - group: python
+            images: "python pyjson pyhashlib pyblake2 pystruct pydatetime pybinascii pymath pyzlib pysocket pyselect pyssl"
+            apk: "python3 py3-pip openssl"
+            npm: ""
+          - group: imaging
+            images: "imaging webp jpeg numpy"
+            apk: "python3 py3-pip py3-pillow py3-numpy py3-pandas py3-matplotlib py3-reportlab py3-lxml py3-cryptography"
+            npm: ""
+          - group: ssh
+            images: "ssh scp"
+            apk: "openssh-client-default openssh-server openssh-sftp-server"
+            npm: ""
+          - group: node
+            images: "node"
+            apk: "nodejs npm python3 py3-pillow py3-cryptography"
+            npm: "cf@1.0.0-beta.6 @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-memory @modelcontextprotocol/server-everything @upstash/context7-mcp mcp-remote firecrawl-mcp @modelcontextprotocol/server-github"
+          - group: tools
+            images: "rg gh"
+            apk: "ripgrep github-cli python3"
+            npm: ""
+    steps:
+      - name: Skip other groups
+        if: ${{ github.event.inputs.only != '' && github.event.inputs.only != matrix.group }}
+        run: echo "SKIP=1" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        if: env.SKIP != '1'
+        with: { submodules: recursive }
+      - name: Tools
+        if: env.SKIP != '1'
+        run: |
+          brew install ninja meson libarchive pkg-config
+          pip3 install --break-system-packages tqdm || pip3 install tqdm
+      - name: Build CLI ish (JIT emit)
+        if: env.SKIP != '1'
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
+          cd deps/ish
+          git log -1 --format=%H
+          meson setup /tmp/ish-rec -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Db_ndebug=true --buildtype=release
+          ninja -C /tmp/ish-rec || ninja -C /tmp/ish-rec
+          # fakefsify for the rootfs
+          meson setup build-native -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish || true
+          ninja -C build-native tools/fakefsify
+      - name: Shipped rootfs
+        if: env.SKIP != '1'
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
+          ./deps/prepare_alpine_rootfs.sh
+          mkdir -p /tmp/rec-A
+          cp -R deps/resources/alpine-rootfs /tmp/rec-A/alpine-rootfs
+          ls /tmp/rec-A/alpine-rootfs | head
+          ISH_JIT_PIC=1 /tmp/ish-rec/ish -f /tmp/rec-A/alpine-rootfs /bin/sh -c 'grep abi /proc/ish/jit'
+      - name: Install packages in rootfs
+        if: env.SKIP != '1'
+        run: |
+          R=/tmp/rec-A/alpine-rootfs
+          sh_() { /tmp/ish-rec/ish -f $R /bin/sh -c "$1"; }
+          sh_ 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk update; apk add ${{ matrix.apk }}'
+          if [ -n "${{ matrix.npm }}" ]; then sh_ 'npm i -g ${{ matrix.npm }}'; fi
+          sh_ 'apk info -v | sort' > /tmp/pkgs-${{ matrix.group }}.txt || true
+      - name: Install workload suite
+        if: env.SKIP != '1'
+        run: |
+          R=/tmp/rec-A/alpine-rootfs
+          B=deps/ish/benchmark/aojit
+          mkdir -p $R/data/tmp/aojit
+          cp -R $B/guest/. $R/data/tmp/aojit/
+          cp $B/images.json $R/data/tmp/aojit/
+          /tmp/ish-rec/ish -f $R /bin/sh /tmp/aojit/setup.sh || true
+      - name: Start sshd (ssh group)
+        if: env.SKIP != '1' && matrix.group == 'ssh'
+        run: |
+          R=/tmp/rec-A/alpine-rootfs
+          cp -R $R /tmp/rec-srv
+          /tmp/ish-rec/ish -f $R /bin/sh -c 'mkdir -p /root/.ssh; [ -f /root/.ssh/id_rsa ] || ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa; ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519 || true; cat /root/.ssh/*.pub' > /tmp/pubkeys.txt
+          ls $R/data/root/.ssh
+          nohup /tmp/ish-rec/ish -f /tmp/rec-srv /bin/sh /tmp/aojit/ssh/server.sh 2222 < /tmp/pubkeys.txt > /tmp/sshd.log 2>&1 &
+          sleep 20; cat /tmp/sshd.log | head
+      - name: Record images
+        if: env.SKIP != '1'
+        run: |
+          R=/tmp/rec-A/alpine-rootfs
+          B=deps/ish/benchmark/aojit
+          T=deps/ish/tools/jit_aot
+          OUT=$PWD/aot-out/${{ matrix.group }}; mkdir -p $OUT/rec
+          # record.sh uses realfs (-r); the shipped rootfs is fakefs: use -f and the data dir for gen.py
+          sed -e 's|"\$ish" -r "\$rootfs"|"$ish" -f "$rootfs"|' \
+              -e 's|gen.py" "\$rec" "\$ish" "\$rootfs" "\$out"|gen.py" "$rec" "$ish" "$rootfs/data" "$out"|' $T/record.sh > $T/record_fakefs.sh
+          rg_() { :; }
+          fail=0
+          for name in ${{ matrix.images }}; do
+            set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
+            echo "=== $name  module=$1 workload=$2"
+            ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
+              sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /tmp/aojit/$2 $OUT/aot_$name.S "$1" 2>&1 | tail -15 || fail=1
+            ls -la $OUT/aot_$name.S 2>&1 || { echo "MISSING $name"; fail=1; }
+            cp $OUT/rec/$name.jsonl.log $OUT/rec/$name.log 2>/dev/null || true
+          done
+          cp /tmp/pkgs-${{ matrix.group }}.txt $OUT/ || true
+          ISH_JIT_PIC=1 /tmp/ish-rec/ish -f $R /bin/sh -c 'grep abi /proc/ish/jit' > $OUT/abi.txt || true
+          du -sh $OUT
+          exit 0
+      - name: Compress
+        if: env.SKIP != '1'
+        run: |
+          cd aot-out/${{ matrix.group }}
+          rm -f rec/*.jsonl
+          cd .. && tar -cf - ${{ matrix.group }} | xz -T0 -6 > ${{ matrix.group }}.tar.xz
+          ls -la
+      - uses: actions/upload-artifact@v4
+        if: env.SKIP != '1'
+        with:
+          name: aot-${{ matrix.group }}
+          path: aot-out/${{ matrix.group }}.tar.xz
+          retention-days: 14
