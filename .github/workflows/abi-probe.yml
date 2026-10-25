@@ -1,5 +1,9 @@
 name: ABI probe
-on: { workflow_dispatch: {} }
+on:
+  push:
+    paths: [".github/workflows/abi-probe.yml"]
+    branches: [aot-record]
+  workflow_dispatch:
 jobs:
   probe:
     runs-on: macos-26
