@@ -7,7 +7,7 @@ on:
 jobs:
   probe:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
@@ -15,22 +15,29 @@ jobs:
         run: |
           brew install ninja meson libarchive pkg-config llvm lld
           pip3 install --break-system-packages tqdm || true
-      - name: Build CLI with app options (jit_emit=false)
+      - name: Fetch recorded images
+        run: |
+          mkdir -p /tmp/img && cd /tmp/img
+          for n in aot-core aot-core-cryptossl; do
+            curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o $n.tar.xz https://github.com/GP1250409/OpenMinis/releases/download/aot-1f3bb5a0/$n.tar.xz
+            ls -la $n.tar.xz; tar -xJf $n.tar.xz
+          done
+          ls -la */aot_*.S core/aot_*.S 2>/dev/null
+      - name: Build noemit CLI with images linked
         run: |
           export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
           export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
           cd deps/ish
           sed -i '' 's|strcpy(uts->hostname, hostname);|strlcpy(uts->hostname, hostname, sizeof(uts->hostname));|' kernel/uname.c
-          meson setup /tmp/ish-noemit -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Djit_emit=false -Db_ndebug=true --buildtype=release
-          ninja -C /tmp/ish-noemit || ninja -C /tmp/ish-noemit
-          meson setup /tmp/ish-emit -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Db_ndebug=true --buildtype=release
-          ninja -C /tmp/ish-emit || ninja -C /tmp/ish-emit
-      - name: Report abi
+          mkdir -p aotimg && cp /tmp/img/core/aot_musl.S /tmp/img/core/aot_busybox.S /tmp/img/core/aot_zlib.S aotimg/
+          meson setup /tmp/ish-img -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Djit_emit=false -Db_ndebug=true --buildtype=release \
+            -Dcli_aot=aotimg/aot_musl.S,aotimg/aot_busybox.S,aotimg/aot_zlib.S
+          ninja -C /tmp/ish-img || ninja -C /tmp/ish-img
+      - name: Report
         run: |
           ./deps/prepare_alpine_rootfs.sh >/dev/null 2>&1
           R=deps/resources/alpine-rootfs
-          for b in noemit emit; do
-            echo "== $b (no env)";          /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
-            echo "== $b ISH_JIT_PIC=1";    ISH_JIT_PIC=1 /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
-            echo "== $b ISH_JIT_PIC=0";    ISH_JIT_PIC=0 /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
-          done
+          echo "== images linked, AOT-only"
+          /tmp/ish-img/ish -f $R /bin/sh -c 'seq 1 200000 | gzip | wc -c; grep -E "^(mode|AOT|images|blocks|modules)" /proc/ish/jit; sed -n "/modules with an image/,\$p" /proc/ish/jit'
+          echo "== AOT off"
+          /tmp/ish-img/ish -f $R /bin/sh -c 'echo off > /proc/ish/jit; seq 1 200000 | gzip | wc -c; grep -E "^(mode|AOT|images|blocks)" /proc/ish/jit'
