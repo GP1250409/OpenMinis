@@ -1,0 +1,32 @@
+name: ABI probe
+on: { workflow_dispatch: {} }
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Tools
+        run: |
+          brew install ninja meson libarchive pkg-config llvm lld
+          pip3 install --break-system-packages tqdm || true
+      - name: Build CLI with app options (jit_emit=false)
+        run: |
+          export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
+          export PKG_CONFIG_PATH="$(brew --prefix libarchive)/lib/pkgconfig:$PKG_CONFIG_PATH"
+          cd deps/ish
+          sed -i '' 's|strcpy(uts->hostname, hostname);|strlcpy(uts->hostname, hostname, sizeof(uts->hostname));|' kernel/uname.c
+          meson setup /tmp/ish-noemit -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Djit_emit=false -Db_ndebug=true --buildtype=release
+          ninja -C /tmp/ish-noemit || ninja -C /tmp/ish-noemit
+          meson setup /tmp/ish-emit -Dguest_arch=arm64 -Dengine=asbestos -Dkernel=ish -Djit=true -Db_ndebug=true --buildtype=release
+          ninja -C /tmp/ish-emit || ninja -C /tmp/ish-emit
+      - name: Report abi
+        run: |
+          ./deps/prepare_alpine_rootfs.sh >/dev/null 2>&1
+          R=deps/resources/alpine-rootfs
+          for b in noemit emit; do
+            echo "== $b (no env)";          /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
+            echo "== $b ISH_JIT_PIC=1";    ISH_JIT_PIC=1 /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
+            echo "== $b ISH_JIT_PIC=0";    ISH_JIT_PIC=0 /tmp/ish-$b/ish -f $R /bin/sh -c 'grep -E "^(mode|images)" /proc/ish/jit'
+          done
