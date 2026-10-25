@@ -16,7 +16,7 @@ jobs:
         include:
           - group: core
             images: "musl busybox zlib crypto ssl sqlite"
-            apk: "python3 sqlite-libs openssl"
+            apk: "python3 sqlite-libs"
             npm: ""
           - group: python
             images: "python pyjson pyhashlib pyblake2 pystruct pydatetime pybinascii pymath pyzlib pysocket pyselect pyssl"
@@ -88,10 +88,17 @@ jobs:
         run: |
           R=/tmp/rec-A/alpine-rootfs
           B=deps/ish/benchmark/aojit
-          mkdir -p $R/data/tmp/aojit
-          cp -R $B/guest/. $R/data/tmp/aojit/
-          cp $B/images.json $R/data/tmp/aojit/
-          /tmp/ish-rec/ish -f $R /bin/sh /tmp/aojit/setup.sh || true
+          # /tmp is fresh on every ish run, so the suite lives in /opt/aojit
+          rm -rf /tmp/suite && mkdir -p /tmp/suite && cp -R $B/guest/. /tmp/suite/ && cp $B/images.json /tmp/suite/
+          rg_files=$(grep -rl '/tmp/aojit' /tmp/suite || true)
+          for f in $rg_files; do sed -i '' 's|/tmp/aojit|/opt/aojit|g' "$f"; done
+          mkdir -p $R/data/opt && rm -rf $R/data/opt/aojit && cp -R /tmp/suite $R/data/opt/aojit
+          # certificates: made in a clone that has openssl, so the shipped libcrypto/libssl stay untouched
+          rm -rf /tmp/rec-cert && cp -R $R /tmp/rec-cert
+          /tmp/ish-rec/ish -f /tmp/rec-cert /bin/sh -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk add openssl >/dev/null; mkdir -p /opt/aojit/net; sh /opt/aojit/net/gen_certs.sh' || true
+          cp -R /tmp/rec-cert/data/opt/aojit/net/. $R/data/opt/aojit/net/ || true
+          rm -rf /tmp/rec-cert
+          /tmp/ish-rec/ish -f $R /bin/sh -c 'mkdir -p /tmp/aojit && sh /opt/aojit/setup.sh' || true
       - name: Start sshd (ssh group)
         if: env.SKIP != '1' && matrix.group == 'ssh'
         run: |
@@ -99,18 +106,8 @@ jobs:
           cp -R $R /tmp/rec-srv
           /tmp/ish-rec/ish -f $R /bin/sh -c 'mkdir -p /root/.ssh; [ -f /root/.ssh/id_rsa ] || ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa; ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/id_ed25519 || true; cat /root/.ssh/*.pub' > /tmp/pubkeys.txt
           ls $R/data/root/.ssh
-          nohup /tmp/ish-rec/ish -f /tmp/rec-srv /bin/sh /tmp/aojit/ssh/server.sh 2222 < /tmp/pubkeys.txt > /tmp/sshd.log 2>&1 &
+          nohup /tmp/ish-rec/ish -f /tmp/rec-srv /bin/sh /opt/aojit/ssh/server.sh 2222 < /tmp/pubkeys.txt > /tmp/sshd.log 2>&1 &
           sleep 20; cat /tmp/sshd.log | head
-      - name: Debug workload
-        if: env.SKIP != '1'
-        run: |
-          R=/tmp/rec-A/alpine-rootfs
-          I="/tmp/ish-rec/ish -f $R"
-          echo "--- python3 version"; $I /usr/bin/python3 -c "print(1+1)" 2>&1 | tail -20
-          echo "--- zlib workload (no record)"; $I /bin/sh /tmp/aojit/zlib/zlib_train.sh 2>&1 | tail -20
-          echo "--- zlib workload (record)"; ISH_JIT_PIC=1 ISH_JIT_RECORD=/tmp/dbg.jsonl ISH_JIT_RECORD_MOD=libz.so $I /bin/sh /tmp/aojit/zlib/zlib_train.sh 2>&1 | tail -20
-          ls -la /tmp/dbg.jsonl 2>&1; head -c 600 /tmp/dbg.jsonl 2>&1
-          echo "--- libz maps"; $I /bin/sh -c 'ls -la /usr/lib/libz* /lib/libz*; cat /proc/ish/jit | head -20' 2>&1
       - name: Record images
         if: env.SKIP != '1'
         run: |
@@ -127,7 +124,7 @@ jobs:
             set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
-              sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /tmp/aojit/$2 $OUT/aot_$name.S "$1" 2>&1 | tail -15 || fail=1
+              sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" 2>&1 | tail -15 || fail=1
             ls -la $OUT/aot_$name.S 2>&1 || { echo "MISSING $name"; fail=1; }
             cp $OUT/rec/$name.jsonl.log $OUT/$name.log 2>/dev/null || ls -la $OUT/rec; tail -25 $OUT/$name.log 2>/dev/null || true
           done
