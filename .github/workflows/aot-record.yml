@@ -6,6 +6,10 @@ on:
         description: "matrix group to run (empty = all)"
         required: false
         default: ""
+      names:
+        description: "record only these images (space separated, empty = whole group)"
+        required: false
+        default: ""
 jobs:
   record:
     runs-on: macos-26
@@ -100,9 +104,11 @@ jobs:
           $I /bin/sh -c 'ls /opt/aojit | head -30; ls /opt/aojit/zlib'
           # certificates need openssl; make them in a clone so the shipped libcrypto/libssl stay untouched
           rm -rf /tmp/rec-cert && cp -R $R /tmp/rec-cert
-          /tmp/ish-rec/ish -f /tmp/rec-cert /bin/sh -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk add openssl >/dev/null; sh /opt/aojit/net/gen_certs.sh; cd /opt/aojit && tar -cf - net' > /tmp/net.tar || true
+          /tmp/ish-rec/ish -f /tmp/rec-cert /bin/sh -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk add openssl ca-certificates >&2; cd /opt/aojit/net && sh gen_certs.sh >&2; cp /etc/ssl/certs/ca-certificates.crt /opt/aojit/net/ 2>/dev/null; tar -cf /opt/aojit/net-out.tar rsa.crt rsa.key ec.crt ec.key ca_bundle.pem' 2>&1 | tail -5
+          # fakefs: read the tar back out of the clone's data dir
+          cp /tmp/rec-cert/data/opt/aojit/net-out.tar /tmp/net.tar
           ls -la /tmp/net.tar
-          $I /bin/sh -c 'cd /opt/aojit && tar -xf -' < /tmp/net.tar || true
+          $I /bin/sh -c 'cd /opt/aojit/net && tar -xf -' < /tmp/net.tar
           rm -rf /tmp/rec-cert
           $I /bin/sh -c 'mkdir -p /tmp/aojit && sh /opt/aojit/setup.sh' || true
           $I /bin/sh -c 'ls /opt/aojit/net /opt/aojit/zlib'
@@ -115,14 +121,6 @@ jobs:
           ls $R/data/root/.ssh
           nohup /tmp/ish-rec/ish -f /tmp/rec-srv /bin/sh /opt/aojit/ssh/server.sh 2222 < /tmp/pubkeys.txt > /tmp/sshd.log 2>&1 &
           sleep 20; cat /tmp/sshd.log | head
-      - name: Debug TLS
-        if: env.SKIP != '1' && matrix.group == 'core'
-        run: |
-          R=/tmp/rec-A/alpine-rootfs
-          I="/tmp/ish-rec/ish -f $R"
-          tar -tvf /tmp/net.tar | head -20
-          rm -rf /tmp/rec-cert && cp -R $R /tmp/rec-cert
-          /tmp/ish-rec/ish -f /tmp/rec-cert /bin/sh -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf; apk add openssl ca-certificates 2>&1 | tail -3; cd /opt/aojit/net; sh gen_certs.sh; ls -la' 2>&1 | tail -30
       - name: Record images
         if: env.SKIP != '1'
         run: |
@@ -135,7 +133,7 @@ jobs:
               -e 's|gen.py" "\$rec" "\$ish" "\$rootfs" "\$out"|gen.py" "$rec" "$ish" "$rootfs/data" "$out"|' $T/record.sh > $T/record_fakefs.sh
           rg_() { :; }
           fail=0
-          for name in ${{ matrix.images }}; do
+          for name in ${{ github.event.inputs.names != '' && github.event.inputs.names || matrix.images }}; do
             set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
