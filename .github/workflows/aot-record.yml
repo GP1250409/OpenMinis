@@ -9,7 +9,7 @@ on:
 jobs:
   record:
     runs-on: macos-26
-    timeout-minutes: 340
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
@@ -131,9 +131,10 @@ jobs:
             set -- $(python3 -c "import json; i=json.load(open('$B/images.json'))['images']['$name']; print(i['module'], i['workload'])")
             echo "=== $name  module=$1 workload=$2"
             ISH_JIT_PIC=1 RECORDING=$OUT/rec/$name.jsonl AOJIT_SSH=127.0.0.1:2222 \
-              sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" 2>&1 | tail -15 || fail=1
+              perl -e 'alarm 600; exec @ARGV' sh $T/record_fakefs.sh /tmp/ish-rec/ish $R /opt/aojit/$2 $OUT/aot_$name.S "$1" > $OUT/$name.out 2>&1 || echo "TIMEOUT/FAIL $name rc=$?"
+              tail -12 $OUT/$name.out; pkill -f /tmp/ish-rec/ish.*aojit || true
             ls -la $OUT/aot_$name.S 2>&1 || { echo "MISSING $name"; fail=1; }
-            cp $OUT/rec/$name.jsonl.log $OUT/$name.log 2>/dev/null || ls -la $OUT/rec; tail -25 $OUT/$name.log 2>/dev/null || true
+            cp $OUT/rec/$name.jsonl.log $OUT/$name.log 2>/dev/null || true; tail -15 $OUT/$name.log 2>/dev/null || true
           done
           cp /tmp/pkgs-${{ matrix.group }}.txt $OUT/ || true
           ISH_JIT_PIC=1 /tmp/ish-rec/ish -f $R /bin/sh -c 'grep abi /proc/ish/jit' > $OUT/abi.txt || true
