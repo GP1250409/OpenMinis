@@ -61,39 +61,6 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
     /// Markdown surfaces: fenced code block, inline code, table border.
     let codeBg, codeText, inlineCodeBg, inlineCodeText, tableBorder: ChatThemePair
 
-    // Codex: Catppuccin Latte (day) / Mocha (night) — Codex's default theme.
-    static let codex = ChatTheme(
-        id: "codex", name: "Codex",
-        background: .init(0xEFF1F5, 0x1E1E2E), secondaryBg: .init(0xE6E9EF, 0x181825),
-        inputIconBorder: .init(0xCCD0DA, 0x45475A), inputBg: .init(0xFFFFFF, 0x313244),
-        inputBorder: .init(0xCCD0DA, 0x45475A),
-        primaryText: .init(0x4C4F69, 0xCDD6F4), secondaryText: .init(0x6C6F85, 0xA6ADC8),
-        tertiaryText: .init(0x9CA0B0, 0x6C7086),
-        userBubble: .init(0xDCE0E8, 0x313244), toolBg: .init(0xE6E9EF, 0x181825),
-        toolBorder: .init(0xCCD0DA, 0x45475A),
-        accent: .init(0x8839EF, 0xCBA6F7), sendButton: .init(0x8839EF, 0xCBA6F7),
-        sendButtonDisabled: .init(0xBCC0CC, 0x45475A),
-        codeBg: .init(0xE6E9EF, 0x11111B), codeText: .init(0x4C4F69, 0xCDD6F4),
-        inlineCodeBg: .init(0xDCE0E8, 0x313244), inlineCodeText: .init(0x8839EF, 0xCBA6F7),
-        tableBorder: .init(0xCCD0DA, 0x45475A))
-
-    // Claude Code: colours from the CLI's own `dark` / `light` theme tables
-    // (text, accent 0xD77757 day / 0xFF9933 night, user message 0xF0F0F0 / 0x373737).
-    static let claudeCode = ChatTheme(
-        id: "claudecode", name: "Claude Code",
-        background: .init(0xFFFFFF, 0x000000), secondaryBg: .init(0xF0F0F0, 0x1A1A1A),
-        inputIconBorder: .init(0xD4D4D4, 0x3A3A3A), inputBg: .init(0xFFFFFF, 0x000000),
-        inputBorder: .init(0xD4D4D4, 0x3A3A3A),
-        primaryText: .init(0x000000, 0xFFFFFF), secondaryText: .init(0x666666, 0x999999),
-        tertiaryText: .init(0xAFAFAF, 0x505050),
-        userBubble: .init(0xF0F0F0, 0x373737), toolBg: .init(0xF0F0F0, 0x1A1A1A),
-        toolBorder: .init(0xD4D4D4, 0x3A3A3A),
-        accent: .init(0xD77757, 0xFF9933), sendButton: .init(0xD77757, 0xFF9933),
-        sendButtonDisabled: .init(0xD4D4D4, 0x3A3A3A),
-        codeBg: .init(0xF0F0F0, 0x1A1A1A), codeText: .init(0x000000, 0xFFFFFF),
-        inlineCodeBg: .init(0xF0F0F0, 0x373737), inlineCodeText: .init(0xD77757, 0xFF9933),
-        tableBorder: .init(0xD4D4D4, 0x3A3A3A))
-
     // ChatGPT: neutral white / graphite.
     static let chatgpt = ChatTheme(
         id: "chatgpt", name: "ChatGPT",
@@ -142,13 +109,24 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
         inlineCodeBg: .init(0xEEF1F7, 0x2B2D33), inlineCodeText: .init(0x4D6BFE, 0x8EA2FF),
         tableBorder: .init(0xE3E6EC, 0x3A3C41))
 
-    static let custom: [ChatTheme] = [.codex, .claudeCode, .chatgpt, .claude, .deepseek]
+    static let custom: [ChatTheme] = [.chatgpt, .claude, .deepseek]
+
+    /// Ids of themes that were removed. A preference still holding one is reset
+    /// to the default theme (""), so the settings list shows a checked row.
+    static let retiredIds: Set<String> = ["codex", "claudecode"]
 }
 
 enum ChatThemeStore {
     static let key = "chatThemeId"
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var cachedId: String? = UserDefaults.standard.string(forKey: key)
+    nonisolated(unsafe) private static var cachedId: String? = {
+        let v = UserDefaults.standard.string(forKey: key)
+        if let v, ChatTheme.retiredIds.contains(v) {
+            UserDefaults.standard.set("", forKey: key)
+            return ""
+        }
+        return v
+    }()
     nonisolated(unsafe) private static var observer: NSObjectProtocol? = {
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { _ in
             let v = UserDefaults.standard.string(forKey: ChatThemeStore.key)
