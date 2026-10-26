@@ -46,7 +46,11 @@ enum DeepLinkRouter {
 
     @MainActor
     static func handle(url: URL, shareCoordinator: ShareCoordinator) {
-        guard url.scheme == "minis", let host = url.host else {
+        // MOD: the app registers `minismod` so it never competes with the
+        // official Minis for `minis://`; links already written as `minis://`
+        // (openminis.app launcher, model output) are still routed here.
+        guard let scheme = url.scheme?.lowercased(), scheme == "minis" || scheme == "minismod",
+              let host = url.host else {
             deepLinkLog.info("ignored — non-minis or missing host: \(url.absoluteString)")
             return
         }
