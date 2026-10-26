@@ -3608,6 +3608,7 @@
 					"$(SRCROOT)/../../deps/frameworks/FFmpeg.framework/Headers",
 					"$(SRCROOT)/Vendor/cppjieba/include",
 				);
+				INFOPLIST_KEY_CFBundleDisplayName = "MinisTest";
 				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VM requires network access for SLIRP networking";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -3628,7 +3629,7 @@
 					"-lfakefs",
 				);
 				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MinisApp-Bridging-Header.h";
@@ -3682,7 +3683,7 @@
 					"-lfakefs",
 				);
 				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MinisApp-Bridging-Header.h";
@@ -3709,7 +3710,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3736,7 +3737,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3763,7 +3764,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.FileProvider;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.FileProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3790,7 +3791,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.FileProvider;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.FileProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3817,7 +3818,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.AgentWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.AgentWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -3844,7 +3845,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.14;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.AgentWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismodtest.AgentWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

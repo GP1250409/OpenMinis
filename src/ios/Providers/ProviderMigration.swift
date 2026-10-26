@@ -9,8 +9,8 @@ private let logger = AppLogger(category: "ProviderMigration")
 @MainActor
 enum ProviderMigration {
 
-    private static let migrationKey = "com.gonepaul.minismod.provider-migration-v1-done"
-    private static let oauthMigrationKey = "com.gonepaul.minismod.provider-migration-oauth-v2-done"
+    private static let migrationKey = "com.gonepaul.minismodtest.provider-migration-v1-done"
+    private static let oauthMigrationKey = "com.gonepaul.minismodtest.provider-migration-oauth-v2-done"
 
     /// Run migration if it hasn't been performed yet.
     static func migrateIfNeeded(store: ProviderConfigStore) {
@@ -108,7 +108,7 @@ enum ProviderMigration {
         // MARK: - Anthropic
 
         // API Key
-        if let key = readLegacyKeychain(service: "com.gonepaul.minismod.anthropic-api-key") {
+        if let key = readLegacyKeychain(service: "com.gonepaul.minismodtest.anthropic-api-key") {
             let instance = ProviderInstance(
                 label: "Anthropic API Key",
                 providerType: .anthropic,
@@ -148,7 +148,7 @@ enum ProviderMigration {
         // MARK: - Gemini
 
         // API Key
-        if let key = readLegacyKeychain(service: "com.gonepaul.minismod.gemini-api-key") {
+        if let key = readLegacyKeychain(service: "com.gonepaul.minismodtest.gemini-api-key") {
             let instance = ProviderInstance(
                 label: "Gemini API Key",
                 providerType: .gemini,
@@ -187,7 +187,7 @@ enum ProviderMigration {
         // MARK: - OpenAI
 
         // API Key
-        if let key = readLegacyKeychain(service: "com.gonepaul.minismod.openai-api-key") {
+        if let key = readLegacyKeychain(service: "com.gonepaul.minismodtest.openai-api-key") {
             let instance = ProviderInstance(
                 label: "OpenAI API Key",
                 providerType: .openAI,
@@ -292,7 +292,7 @@ enum ProviderMigration {
     }
 
     private static func loadLegacyAgentModelSettings() -> LegacyAgentModelSettings {
-        let key = "com.gonepaul.minismod.agent-model-settings"
+        let key = "com.gonepaul.minismodtest.agent-model-settings"
         guard let data = UserDefaults.standard.data(forKey: key),
               let settings = try? JSONDecoder().decode(LegacyAgentModelSettings.self, from: data)
         else {
@@ -305,7 +305,7 @@ enum ProviderMigration {
     private static func isLegacyActiveProvider(_ rawValue: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.gonepaul.minismod.active-provider",
+            kSecAttrService as String: "com.gonepaul.minismodtest.active-provider",
             kSecAttrAccount as String: "auth-mode",
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,

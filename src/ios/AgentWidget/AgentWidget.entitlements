@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.gonepaul.minismod</string>
+		<string>group.com.gonepaul.minismodtest</string>
 	</array>
 </dict>
 </plist>

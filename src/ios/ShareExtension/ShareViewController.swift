@@ -5,6 +5,17 @@ class ShareViewController: UIViewController {
 
     /// Set to true once async processing + redirect is done, so viewDidAppear can dismiss.
     private var processingDone = false
+    private var appeared = false
+    private var completed = false
+
+    /// Complete the extension request exactly once, and only after the view
+    /// has appeared (completing before presentation or twice can leave the
+    /// host app's share sheet stuck, freezing the host on iOS 16).
+    private func finishOnce() {
+        guard !completed, processingDone, appeared else { return }
+        completed = true
+        extensionContext?.completeRequest(returningItems: [])
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -50,17 +61,22 @@ class ShareViewController: UIViewController {
             // Mark done and dismiss — if viewDidAppear already ran, dismiss now
             processingDone = true
             NSLog("[ShareExt] Processing done, completing request")
-            extensionContext?.completeRequest(returningItems: [])
+            finishOnce()
+        }
+        // Safety net: never leave the host app hanging.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self, !self.completed else { return }
+            self.completed = true
+            self.extensionContext?.completeRequest(returningItems: [])
         }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Only dismiss if async processing is already done.
-        // If not done yet, the Task completion above will dismiss.
+        appeared = true
         if processingDone {
             NSLog("[ShareExt] viewDidAppear — processingDone, completing request")
-            extensionContext?.completeRequest(returningItems: [])
+            finishOnce()
         } else {
             NSLog("[ShareExt] viewDidAppear — processing still in progress, deferring dismiss")
         }
@@ -69,7 +85,7 @@ class ShareViewController: UIViewController {
     // MARK: - Redirect to main app
 
     private func redirectToHostApp() {
-        guard let url = URL(string: "minis://share") else {
+        guard let url = URL(string: "minismodtest://share") else {
             NSLog("[ShareExt] ERROR: Failed to create minis://share URL")
             return
         }

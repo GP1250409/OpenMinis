@@ -6403,8 +6403,10 @@ private struct ExportPreviewSheet: View {
     /// File to read for the on-screen text.
     private var textSourceURL: URL? { previewURL ?? fileURL }
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var exportScenePhase
     @State private var showShareSheet = false
     @State private var showFilePicker = false
+    @State private var shareShownAt: Date?
     @State private var copied = false
     @State private var previewText: String = ""
     @State private var fileSize: String = ""
@@ -6462,6 +6464,8 @@ private struct ExportPreviewSheet: View {
                         }
                     }
                     actionButton(icon: "square.and.arrow.up", label: AppLocalized("Share")) {
+                        NSLog("[ExportShare] share tapped")
+                        shareShownAt = Date()
                         showShareSheet = true
                     }
                     actionButton(icon: "folder", label: AppLocalized("Save to Files")) {
@@ -6480,12 +6484,35 @@ private struct ExportPreviewSheet: View {
             }
             .sheet(isPresented: $showShareSheet) {
                 if let url = fileURL {
-                    ShareSheet(url: url)
+                    ShareSheet(url: url) { completed, error in
+                        // Share extension finished / cancelled / host pulled us
+                        // away: always drop the flag so a half-dismissed
+                        // activity sheet can never keep blocking touches.
+                        NSLog("[ExportShare] completion completed=%d error=%@", completed ? 1 : 0, String(describing: error))
+                        showShareSheet = false
+                    }
                 }
             }
             .sheet(isPresented: $showFilePicker) {
                 if let url = fileURL {
                     DocumentExportPicker(url: url)
+                }
+            }
+            .onChange(of: exportScenePhase) { phase in
+                NSLog("[ExportShare] scenePhase=%@ showShare=%d", String(describing: phase), showShareSheet ? 1 : 0)
+                guard phase == .active, showShareSheet else { return }
+                // Back from another app while the share sheet is flagged as
+                // shown. If UIKit no longer has a live activity controller the
+                // sheet is a ghost that eats touches (intermittent iOS 16 hang
+                // after sharing to an app whose extension openURL's us back).
+                for delay in [0.6, 1.5, 3.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        guard showShareSheet else { return }
+                        if !ExportShareGhost.hasLiveActivityController() {
+                            NSLog("[ExportShare] ghost share sheet detected after %.1fs — resetting", delay)
+                            showShareSheet = false
+                        }
+                    }
                 }
             }
             .task {
@@ -6624,14 +6651,37 @@ private struct ExportPreviewSheet: View {
 
 // MARK: - Share Sheet
 
+private enum ExportShareGhost {
+    /// True when some window still presents a live UIActivityViewController.
+    @MainActor static func hasLiveActivityController() -> Bool {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene else { continue }
+            for w in ws.windows {
+                var vc = w.rootViewController
+                while let v = vc {
+                    if v is UIActivityViewController { return true }
+                    vc = v.presentedViewController
+                }
+            }
+        }
+        return false
+    }
+}
+
 private struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var onFinish: ((Bool, Error?) -> Void)? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
         // [T-share-sheet-uti] Defense against ShareKit's
         // UTTypeGetForIdentifier assert on Mac Catalyst — see
         // MinisShareSheet.sanitizedShareURL for context.
         let safeURL = MinisShareSheet.sanitizedShareURL(url) ?? url
-        return UIActivityViewController(activityItems: [safeURL], applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: [safeURL], applicationActivities: nil)
+        let finish = onFinish
+        vc.completionWithItemsHandler = { _, completed, _, error in
+            DispatchQueue.main.async { finish?(completed, error) }
+        }
+        return vc
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

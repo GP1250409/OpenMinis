@@ -4,7 +4,7 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.gonepaul.minismod.liveactivity-refresh</string>
+		<string>com.gonepaul.minismodtest.liveactivity-refresh</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -29,7 +29,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.gonepaul.minismod.minisbak</string>
+				<string>com.gonepaul.minismodtest.minisbak</string>
 			</array>
 		</dict>
 	</array>
@@ -163,7 +163,7 @@
 			<string>Claude OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.gonepaul.minismod</string>
+				<string>com.gonepaul.minismodtest</string>
 			</array>
 		</dict>
 		<dict>
@@ -171,7 +171,7 @@
 			<string>Minis Share</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>minis</string>
+				<string>minismodtest</string>
 			</array>
 		</dict>
 		<dict>
@@ -256,7 +256,7 @@
 			<key>UTTypeDescription</key>
 			<string>Minis Backup</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.gonepaul.minismod.minisbak</string>
+			<string>com.gonepaul.minismodtest.minisbak</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
