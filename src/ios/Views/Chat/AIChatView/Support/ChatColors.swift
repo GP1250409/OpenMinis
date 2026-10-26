@@ -81,17 +81,17 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
     static let claude = ChatTheme(
         id: "claude", name: "Claude",
         background: .init(0xFAF9F5, 0x262624), secondaryBg: .init(0xF0EEE6, 0x30302E),
-        inputIconBorder: .init(0xE3E0D3, 0x43423F), inputBg: .init(0xFFFFFF, 0x30302E),
-        inputBorder: .init(0xE3E0D3, 0x43423F),
-        primaryText: .init(0x141413, 0xF4F3EE), secondaryText: .init(0x73726C, 0xB0AEA5),
-        tertiaryText: .init(0xA3A199, 0x7D7B74),
-        userBubble: .init(0xEFE9DE, 0x3A3937), toolBg: .init(0xF0EEE6, 0x30302E),
-        toolBorder: .init(0xE3E0D3, 0x43423F),
-        accent: .init(0xD97757, 0xD97757), sendButton: .init(0xD97757, 0xD97757),
+        inputIconBorder: .init(0x999999, 0x888888), inputBg: .init(0xFFFFFF, 0x30302E),
+        inputBorder: .init(0x999999, 0x888888),
+        primaryText: .init(0x141413, 0xF4F3EE), secondaryText: .init(0x666666, 0x999999),
+        tertiaryText: .init(0xAFAFAF, 0x6E6D68),
+        userBubble: .init(0xF0EEE6, 0x373737), toolBg: .init(0xF0EEE6, 0x30302E),
+        toolBorder: .init(0xD9D6C8, 0x43423F),
+        accent: .init(0xD77757, 0xD77757), sendButton: .init(0xD77757, 0xD77757),
         sendButtonDisabled: .init(0xDDD9CB, 0x43423F),
         codeBg: .init(0xF0EEE6, 0x1F1E1D), codeText: .init(0x3D3929, 0xE6E3D8),
-        inlineCodeBg: .init(0xEDE9DD, 0x3A3937), inlineCodeText: .init(0xB8532F, 0xE8956F),
-        tableBorder: .init(0xE3E0D3, 0x43423F))
+        inlineCodeBg: .init(0xEDE9DD, 0x373737), inlineCodeText: .init(0x5769F7, 0xB1B9F9),
+        tableBorder: .init(0xD9D6C8, 0x43423F))
 
     // DeepSeek: white / graphite with the blue brand accent.
     static let deepseek = ChatTheme(
