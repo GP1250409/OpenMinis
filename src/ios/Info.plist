@@ -172,7 +172,7 @@
 			<string>Minis Share</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>minis</string>
+				<string>minismod</string>
 			</array>
 		</dict>
 		<dict>
