@@ -456,7 +456,7 @@ struct ChatMessageRow: View {
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.system(size: 22))
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(ChatColors.danger)
                                 }
                             }
                         }
@@ -826,7 +826,7 @@ struct ChatMessageRow: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.danger)
                 // [T-error-detail-visible issue #368] Was lineLimit(2), which
                 // could not show the reason at all: a group failure composes one
                 // "⚠️ <model> (<instance>): <reason>" line per attempted entry and
@@ -845,7 +845,7 @@ struct ChatMessageRow: View {
                 // limit is measured correctly at first layout and cannot desync.
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.danger)
                     .lineLimit(8)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -887,7 +887,7 @@ struct ChatMessageRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.12))
+        .background(ChatColors.danger.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -896,7 +896,7 @@ struct ChatMessageRow: View {
             HStack(spacing: 6) {
                 Image(systemName: "pause.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatColors.warning)
                 Text("Interrupted — tap Resume to continue")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -912,17 +912,17 @@ struct ChatMessageRow: View {
                         Text("Resume")
                             .font(.caption.weight(.semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ChatColors.onTint)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(Color.orange)
+                    .background(ChatColors.warning)
                     .clipShape(Capsule())
                 }
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08))
+        .background(ChatColors.warning.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 

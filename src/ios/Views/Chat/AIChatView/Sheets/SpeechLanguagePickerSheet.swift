@@ -94,7 +94,7 @@ private struct SpeechLanguagePickerSheet: View {
                 Spacer()
                 if loc.identifier == speechManager.locale.identifier {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(ChatColors.tint)
                         .fontWeight(.semibold)
                 }
             }

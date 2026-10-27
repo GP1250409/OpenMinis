@@ -52,10 +52,10 @@ extension AIChatView {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.circle.fill")
                         .font(.title2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ChatColors.danger)
                     Text(msg)
                         .font(.subheadline)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ChatColors.danger)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
                 }
@@ -124,10 +124,10 @@ extension AIChatView {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.danger)
             Text(error)
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.danger)
                 .lineLimit(8)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -159,11 +159,11 @@ extension AIChatView {
         .padding(.vertical, 8)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.regularMaterial)
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.red.opacity(0.08))
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(ChatColors.danger.opacity(0.08))
         }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.red.opacity(0.28), lineWidth: 0.75)
+                .strokeBorder(ChatColors.danger.opacity(0.28), lineWidth: 0.75)
         )
         .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 3)
         .padding(.horizontal, 12)

@@ -113,7 +113,7 @@ struct AssistantBlockView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.orange.opacity(0.8))
+                            .foregroundStyle(ChatColors.warning.opacity(0.8))
                         SearchHighlightText(switchedLine, blockId: block.id, field: .title, messageId: message.id)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(ChatColors.primaryText.opacity(0.75))
@@ -124,9 +124,9 @@ struct AssistantBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color.orange.opacity(0.08))
+            .background(ChatColors.warning.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.14), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.warning.opacity(0.14), lineWidth: 0.5))
             .contextMenu {
                 Button {
                     UIPasteboard.general.string = block.content
@@ -440,7 +440,7 @@ struct ToolCapsuleView: View {
                         // padding pins the *layout* footprint back to 18×18 so the
                         // capsule width/height is identical to before.
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(.red)
+                            .fill(ChatColors.danger)
                             .frame(width: 10, height: 10)
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
@@ -550,7 +550,7 @@ struct ToolCapsuleView: View {
                 } label: {
                     Image(systemName: "info.circle.fill")
                         .font(.system(size: 15))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(ChatColors.caution)
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 6)
@@ -729,7 +729,7 @@ struct ToolGroupRowView: View {
                 }
                 if failedCount > 0 {
                     Text(verbatim: "·")
-                    Text(failedText).foregroundStyle(.red)
+                    Text(failedText).foregroundStyle(ChatColors.danger)
                 }
                 if cancelledCount > 0 {
                     Text(verbatim: "·")
@@ -964,14 +964,14 @@ struct ThinkingBlockView: View {
                 Image("ThinkingIcon")
                     .resizable()
                     .frame(width: 14, height: 14)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChatColors.thinkingAccent)
                 Text(AppLocalized("Deep Thinking"))
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChatColors.thinkingAccent)
                 if isStreaming {
                     ProgressView()
                         .controlSize(.mini)
-                        .tint(.blue)
+                        .tint(ChatColors.thinkingAccent)
                 }
                 Spacer()
                 // [T-thinking-count-beside-chevron] The character count sits at
@@ -988,11 +988,11 @@ struct ThinkingBlockView: View {
                         let charCount = max(block.content.count, block.thinkingContentBuffer.count)
                         Text(charCount > 1000 ? "\(charCount / 1000)K" : "\(charCount)")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.blue.opacity(0.6))
+                            .foregroundStyle(ChatColors.thinkingAccent.opacity(0.6))
                     }
                     Image(systemName: isExpanded.wrappedValue ? "chevron.up" : "chevron.down")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.blue.opacity(0.5))
+                        .foregroundStyle(ChatColors.thinkingAccent.opacity(0.5))
                 }
             }
             .padding(.horizontal, 12)
@@ -1164,11 +1164,11 @@ struct ThinkingBlockView: View {
         .onDisappear {
             ThinkingHitchMonitor.shared.stop(owner: block.id)
         }
-        .background(Color.blue.opacity(0.06))
+        .background(ChatColors.thinkingBg)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.blue.opacity(0.15), lineWidth: 0.5)
+                .stroke(ChatColors.thinkingBorder, lineWidth: 0.5)
         )
         .task(id: block.id) {
             // One-shot per-block auto-expand. Runs when this cell first hosts
@@ -1371,7 +1371,7 @@ struct ThinkingLevelSheetView: View {
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(ChatColors.thinkingAccent)
                         .fontWeight(.semibold)
                 }
             }

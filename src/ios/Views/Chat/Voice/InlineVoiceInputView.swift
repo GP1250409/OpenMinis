@@ -702,7 +702,7 @@ struct InlineVoiceInputView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(ChatColors.warning)
                     Text(error)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -711,7 +711,7 @@ struct InlineVoiceInputView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(Color.orange.opacity(0.12)))
+                .background(Capsule().fill(ChatColors.warning.opacity(0.12)))
                 .transition(.opacity)
             }
             // [voice-correction] Non-error one-off status ("No corrections
@@ -1264,8 +1264,8 @@ struct InlineVoiceInputView: View {
     static func usageTint(for tier: ContextUsage.Tier) -> Color? {
         switch tier {
         case .normal: return nil
-        case .warning: return Color(UIColor.systemOrange).opacity(0.70)
-        case .critical: return Color(UIColor.systemRed).opacity(0.78)
+        case .warning: return ChatColors.warning.opacity(0.70)
+        case .critical: return ChatColors.danger.opacity(0.78)
         }
     }
 

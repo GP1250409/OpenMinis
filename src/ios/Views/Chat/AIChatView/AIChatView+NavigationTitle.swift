@@ -382,7 +382,7 @@ extension AIChatView {
                                 .resizable()
                                 .scaledToFit()
                                 .frame(height: ceil(UIFont.systemFont(ofSize: 9).capHeight))
-                                .foregroundStyle(Color.orange)
+                                .foregroundStyle(ChatColors.warning)
                                 // Match the row text's descender clearance so
                                 // the badge centers on the same visual band.
                                 .padding(.bottom, legacyLayout ? 1 : 4)
@@ -447,7 +447,7 @@ extension AIChatView {
             .padding(.vertical, legacyLayout ? 2 : 3)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.red.opacity(0.35 * fallbackPulseOpacity))
+                    .fill(ChatColors.danger.opacity(0.35 * fallbackPulseOpacity))
             )
             .onChange(of: vm.fallbackTrigger) { _ in
                 // 3× pulse: fade in then out, repeated 3 times

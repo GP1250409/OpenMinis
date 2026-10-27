@@ -196,7 +196,7 @@ struct HelperTranscriptPage: View {
                         } label: {
                             Image(systemName: "stop.circle")
                                 .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(ChatColors.danger)
                         }
                         .accessibilityLabel(AppLocalized("Stop"))
                     }
@@ -325,7 +325,7 @@ struct HelperTranscriptPage: View {
                 if isRunning {
                     ReattachingSpinner(size: 12, lineWidth: 1.8, color: HelperAccent.color)
                 } else {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 13))
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatColors.success).font(.system(size: 13))
                 }
                 Text(AgentJobRegistry.childSessionTitle(target.title))
                     .font(.system(size: 15, weight: .semibold))

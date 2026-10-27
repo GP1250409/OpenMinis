@@ -284,11 +284,11 @@ struct SubAgentStatChips: View {
                      String(format: AppLocalized("%lld tool calls"), digest.total))
             }
             if digest.okCount > 0 {
-                chip("checkmark.circle.fill", "\(digest.okCount)", tint: .green,
+                chip("checkmark.circle.fill", "\(digest.okCount)", tint: ChatColors.success,
                      label: String(format: AppLocalized("%lld succeeded"), digest.okCount))
             }
             if digest.failedCount > 0 {
-                chip("xmark.circle.fill", "\(digest.failedCount)", tint: .red,
+                chip("xmark.circle.fill", "\(digest.failedCount)", tint: ChatColors.danger,
                      label: String(format: AppLocalized("%lld failed"), digest.failedCount))
             }
             if digest.turns > 0 {
@@ -325,7 +325,7 @@ struct SubAgentStatChips: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Capsule().fill(Color(UIColor.secondarySystemFill)))
+        .background(Capsule().fill(ChatColors.fieldBg(.secondarySystemFill)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label ?? text)
     }
@@ -504,9 +504,9 @@ struct SubAgentToolTimelineCard: View {
         case .running:
             ReattachingSpinner(size: 11, lineWidth: 1.6, color: HelperAccent.color)
         case .ok:
-            Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(ChatColors.success)
         case .failed:
-            Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(.red)
+            Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(ChatColors.danger)
         case .cancelled:
             Image(systemName: "minus.circle.fill").font(.system(size: 12))
                 .foregroundStyle(Color(UIColor.tertiaryLabel))
@@ -536,7 +536,7 @@ struct SubAgentActionsCard: View {
                             .lineLimit(1...4)
                             .focused($focused)
                             .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color(UIColor.tertiarySystemFill)))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(ChatColors.fieldBg(.tertiarySystemFill)))
                         Button {
                             if SubAgentUserSteer.send(draft, childSessionId: childSessionId) {
                                 draft = ""
@@ -567,8 +567,8 @@ struct SubAgentActionsCard: View {
                     .font(.system(size: 13, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
-                    .foregroundStyle(.red)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(ChatColors.danger.opacity(0.12)))
+                    .foregroundStyle(ChatColors.danger)
                 }
                 .buttonStyle(.plain)
             }

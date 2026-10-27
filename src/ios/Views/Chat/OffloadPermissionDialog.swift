@@ -34,7 +34,7 @@ private struct OffloadPermissionDialogContent: View {
                     VStack(spacing: 8) {
                         Image(systemName: "shield.lefthalf.filled")
                             .font(.system(size: 36))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ChatColors.warning)
 
                         Text("Permission Request")
                             .font(.title3.bold())
@@ -99,7 +99,7 @@ private struct OffloadPermissionDialogContent: View {
                         .padding(.vertical, 12)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.blue)
+                .tint(ChatColors.tint)
 
                 Button {
                     OffloadPermissionManager.shared.respond(to: request.id, allowed: false)
@@ -110,7 +110,7 @@ private struct OffloadPermissionDialogContent: View {
                         .padding(.vertical, 12)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(ChatColors.danger)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)

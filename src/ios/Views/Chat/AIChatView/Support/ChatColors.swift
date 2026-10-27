@@ -60,6 +60,15 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
     let userBubble, toolBg, toolBorder, accent, sendButton, sendButtonDisabled: ChatThemePair
     /// Markdown surfaces: fenced code block, inline code, table border.
     let codeBg, codeText, inlineCodeBg, inlineCodeText, tableBorder: ChatThemePair
+    /// [MOD theme-tokens] Colours that used to be hard-coded system colours.
+    /// link: Markdown links. tint: interactive accent (Color.accentColor before).
+    /// onTint: glyphs/text on a tint (or status) fill. thinkingBg/Border: the
+    /// Deep Thinking block (its header uses tint). success/warning/danger/caution:
+    /// status colours, call sites apply their own opacity. codeChrome: code-block
+    /// language label + copy button. sheetBg: tool / ask full-screen sheets.
+    /// fieldBg: search field, callback card, sub-agent chips.
+    let link, tint, onTint, thinkingBg, thinkingBorder: ChatThemePair
+    let success, warning, danger, caution, codeChrome, sheetBg, fieldBg: ChatThemePair
 
     // ChatGPT: neutral white / graphite.
     static let chatgpt = ChatTheme(
@@ -75,7 +84,13 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
         sendButtonDisabled: .init(0xD7D7D7, 0x4A4A4A),
         codeBg: .init(0xF9F9F9, 0x171717), codeText: .init(0x0D0D0D, 0xECECEC),
         inlineCodeBg: .init(0xF0F0F0, 0x171717), inlineCodeText: .init(0x0D0D0D, 0xECECEC),
-        tableBorder: .init(0xE5E5E5, 0x3A3A3A))
+        tableBorder: .init(0xE5E5E5, 0x3A3A3A),
+        link: .init(0x2964AA, 0x7AB7FF), tint: .init(0x0D0D0D, 0xECECEC), onTint: .init(0xFFFFFF, 0x0D0D0D),
+        thinkingBg: .init(0xF7F7F8, 0x262626), thinkingBorder: .init(0xE5E5E5, 0x3A3A3A),
+        success: .init(0x10A37F, 0x19C37D), warning: .init(0xD97706, 0xF59E0B),
+        danger: .init(0xE02E2A, 0xF87171), caution: .init(0xCA8A04, 0xFACC15),
+        codeChrome: .init(0x8F8F8F, 0x8E8E8E), sheetBg: .init(0xFFFFFF, 0x212121),
+        fieldBg: .init(0xF0F0F0, 0x2F2F2F))
 
     // Claude (claude.ai): warm paper, clay accent.
     static let claude = ChatTheme(
@@ -91,7 +106,13 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
         sendButtonDisabled: .init(0xDDD9CB, 0x43423F),
         codeBg: .init(0xF0EEE6, 0x1F1E1D), codeText: .init(0x3D3929, 0xE6E3D8),
         inlineCodeBg: .init(0xEDE9DD, 0x3A3937), inlineCodeText: .init(0xB8532F, 0xE8956F),
-        tableBorder: .init(0xE3E0D3, 0x43423F))
+        tableBorder: .init(0xE3E0D3, 0x43423F),
+        link: .init(0x2C6FB7, 0x7FB2E5), tint: .init(0xD97757, 0xD97757), onTint: .init(0xFFFFFF, 0xFFFFFF),
+        thinkingBg: .init(0xF5F2EA, 0x2C2B29), thinkingBorder: .init(0xE3E0D3, 0x43423F),
+        success: .init(0x5A8F4E, 0x7FB069), warning: .init(0xC7802F, 0xE0A458),
+        danger: .init(0xC6463A, 0xE07A6E), caution: .init(0xB8962E, 0xD9B95A),
+        codeChrome: .init(0x8A8778, 0x8A877E), sheetBg: .init(0xFAF9F5, 0x262624),
+        fieldBg: .init(0xF0EEE6, 0x30302E))
 
     // DeepSeek: white / graphite with the blue brand accent.
     static let deepseek = ChatTheme(
@@ -107,7 +128,13 @@ struct ChatTheme: Identifiable, @unchecked Sendable {
         sendButtonDisabled: .init(0xC9D1F5, 0x3A3C41),
         codeBg: .init(0xF6F7FA, 0x161719), codeText: .init(0x1F2430, 0xE8EAED),
         inlineCodeBg: .init(0xEEF1F7, 0x2B2D33), inlineCodeText: .init(0x4D6BFE, 0x8EA2FF),
-        tableBorder: .init(0xE3E6EC, 0x3A3C41))
+        tableBorder: .init(0xE3E6EC, 0x3A3C41),
+        link: .init(0x4D6BFE, 0x8EA2FF), tint: .init(0x4D6BFE, 0x4D6BFE), onTint: .init(0xFFFFFF, 0xFFFFFF),
+        thinkingBg: .init(0xF4F6FF, 0x23262E), thinkingBorder: .init(0xDCE2FB, 0x353A4A),
+        success: .init(0x16A34A, 0x4ADE80), warning: .init(0xEA8A00, 0xF5A524),
+        danger: .init(0xE5484D, 0xFF6B6E), caution: .init(0xD4A106, 0xF2C94C),
+        codeChrome: .init(0x8A93A3, 0x6F7480), sheetBg: .init(0xFFFFFF, 0x1E1F22),
+        fieldBg: .init(0xF0F2F7, 0x2A2B2F))
 
     static let custom: [ChatTheme] = [.chatgpt, .claude, .deepseek]
 
@@ -185,6 +212,25 @@ enum ChatColors {
     static var accent: Color { pick({ $0.accent }, Color(UIColor.label)) }
     static var sendButton: Color { pick({ $0.sendButton }, Color(UIColor.label)) }
     static var sendButtonDisabled: Color { pick({ $0.sendButtonDisabled }, Color(UIColor.quaternaryLabel)) }
+    // [MOD theme-tokens] Fallbacks are exactly the values these call sites
+    // hard-coded before, so the Default Theme is unchanged.
+    static var link: Color { pick({ $0.link }, Color(UIColor.systemBlue)) }
+    static var tint: Color { pick({ $0.tint }, Color.accentColor) }
+    static var onTint: Color { pick({ $0.onTint }, Color.white) }
+    /// Deep Thinking header (icon, title, count, chevron, spinner).
+    static var thinkingAccent: Color { pick({ $0.tint }, Color.blue) }
+    static var thinkingBg: Color { pick({ $0.thinkingBg }, Color.blue.opacity(0.06)) }
+    static var thinkingBorder: Color { pick({ $0.thinkingBorder }, Color.blue.opacity(0.15)) }
+    static var success: Color { pick({ $0.success }, Color.green) }
+    static var warning: Color { pick({ $0.warning }, Color.orange) }
+    static var danger: Color { pick({ $0.danger }, Color.red) }
+    static var caution: Color { pick({ $0.caution }, Color.yellow) }
+    static var sheetBg: Color { pick({ $0.sheetBg }, Color(UIColor.systemBackground)) }
+    static var groupedSheetBg: Color { pick({ $0.sheetBg }, Color(UIColor.systemGroupedBackground)) }
+    static func fieldBg(_ fallback: UIColor = .tertiarySystemFill) -> Color { pick({ $0.fieldBg }, Color(fallback)) }
+    /// UIKit status colours (nil-theme = the given system colour).
+    static func uiWarning(_ fallback: UIColor = .systemOrange) -> UIColor { ChatThemeStore.current?.warning.uiColor ?? fallback }
+    static func uiDanger(_ fallback: UIColor = .systemRed) -> UIColor { ChatThemeStore.current?.danger.uiColor ?? fallback }
 }
 
 /// UIKit-side colours for the Markdown renderer. `nil` = keep the renderer's
@@ -198,6 +244,11 @@ enum ChatMarkdownColors {
     static var inlineCodeBackground: UIColor? { ChatThemeStore.current?.inlineCodeBg.uiColor }
     static var inlineCodeText: UIColor? { ChatThemeStore.current?.inlineCodeText.uiColor }
     static var tableBorder: UIColor? { ChatThemeStore.current?.tableBorder.uiColor }
+    static var link: UIColor? { ChatThemeStore.current?.link.uiColor }
+    static var tint: UIColor? { ChatThemeStore.current?.tint.uiColor }
+    static var success: UIColor? { ChatThemeStore.current?.success.uiColor }
+    static var codeChrome: UIColor? { ChatThemeStore.current?.codeChrome.uiColor }
+    static var background: UIColor? { ChatThemeStore.current?.background.uiColor }
 }
 
 extension Notification.Name {

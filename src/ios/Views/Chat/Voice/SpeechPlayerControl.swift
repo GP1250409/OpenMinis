@@ -465,8 +465,8 @@ struct SpeechPlayerControl: View {
     @ViewBuilder
     private func speakerGlyph(size: CGFloat, ring: CGFloat) -> some View {
         // Muted → dimmed slashed speaker; otherwise active accent speaker.
-        let tint: Color = showFailureFlash ? .red
-            : (state.isMuted ? Color.secondary : Color.accentColor)
+        let tint: Color = showFailureFlash ? ChatColors.danger
+            : (state.isMuted ? Color.secondary : ChatColors.tint)
         Image(systemName: state.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
             .font(.system(size: size, weight: .medium))
             .foregroundStyle(tint)
@@ -491,9 +491,9 @@ struct SpeechPlayerControl: View {
             if state.speechSpeed > 1.0 {
                 Text(Self.speedLabel(state.speechSpeed))
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ChatColors.onTint)
                     .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(ChatColors.tint))
                     .offset(x: 6, y: 4)
             }
         }
@@ -595,7 +595,7 @@ struct SpeechPlayerControl: View {
                 Text(Self.speedLabel(state.speechSpeed))
                     .font(.caption2.weight(.bold))
                     .lineLimit(1)
-                    .foregroundStyle(state.speechSpeed > 1.0 ? Color.accentColor : .secondary)
+                    .foregroundStyle(state.speechSpeed > 1.0 ? ChatColors.tint : .secondary)
                     // Fixed width sized for the widest label ("1.25×") so cycling
                     // through speeds doesn't change the chip width (→ no jitter).
                     .frame(width: 34)
@@ -668,7 +668,7 @@ private struct RotatingArc: View {
             let angle = Angle(degrees: (t / period).truncatingRemainder(dividingBy: 1) * 360)
             Circle()
                 .trim(from: 0, to: arcFraction)
-                .stroke(Color.blue, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .stroke(ChatColors.tint, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 .frame(width: diameter, height: diameter)
                 .rotationEffect(angle)
         }

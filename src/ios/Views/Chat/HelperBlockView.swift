@@ -513,8 +513,8 @@ struct HelperBlockView: View {
                     if stopped == 0 { ViewModelCache.shared.get(for: childId)?.cancel() }
                 } label: {
                     ZStack {
-                        Circle().fill(Color.red).frame(width: 24, height: 24)
-                        RoundedRectangle(cornerRadius: 2).fill(Color.white).frame(width: 9, height: 9)
+                        Circle().fill(ChatColors.danger).frame(width: 24, height: 24)
+                        RoundedRectangle(cornerRadius: 2).fill(ChatColors.onTint).frame(width: 9, height: 9)
                     }
                     .contentShape(Circle())
                 }
@@ -665,7 +665,7 @@ struct HelperBlockView: View {
                         .fixedSize()
                 }
                 if escalation {
-                    Image(systemName: "arrow.up.circle").font(.system(size: 11)).foregroundStyle(.orange)
+                    Image(systemName: "arrow.up.circle").font(.system(size: 11)).foregroundStyle(ChatColors.warning)
                 }
                 if background {
                     Image(systemName: "arrow.turn.down.left").font(.system(size: 10)).foregroundStyle(ChatColors.tertiaryText)
@@ -734,7 +734,7 @@ struct HelperThumbnailView: View {
                     if info.model?.modelGroupUnavailable == true {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 6, weight: .bold))
-                            .foregroundStyle(.yellow.opacity(0.9))
+                            .foregroundStyle(ChatColors.caution.opacity(0.9))
                     }
                     Text(modelLine)
                         .font(.system(size: 6, design: .monospaced))

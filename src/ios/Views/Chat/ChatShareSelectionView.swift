@@ -191,7 +191,7 @@ struct ChatShareSelectionView: View {
             // Selected: a tint plus a check badge floating at the leading edge
             // (not a column, so the row keeps the chat's layout); unselected rows
             // show nothing extra.
-            .background(isOn ? Color.accentColor.opacity(0.18) : Color.clear)
+            .background(isOn ? ChatColors.tint.opacity(0.18) : Color.clear)
             .overlay(alignment: .leading) {
                 if isOn {
                     // Small, tucked into the 16pt side margin and centred on the row's
@@ -199,7 +199,7 @@ struct ChatShareSelectionView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 13))
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color.accentColor)
+                        .foregroundStyle(ChatColors.onTint, ChatColors.tint)
                         .padding(.leading, 1)
                         .allowsHitTesting(false)
                 }
@@ -345,7 +345,7 @@ struct ChatShareSelectionView: View {
                             .rotationEffect(.degrees(-45))
                     }
                 }
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(ChatColors.tint)
             Text(title)
                 .foregroundStyle(.primary)
         }
@@ -549,7 +549,7 @@ private struct ChatSharePreviewSheet: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(active ? Color.accentColor : Color.primary)
+            .foregroundStyle(active ? ChatColors.tint : Color.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
@@ -583,7 +583,7 @@ private struct ChatSharePreviewSheet: View {
                         .padding(20)
                         .background(RoundedRectangle(cornerRadius: 14).fill(.regularMaterial))
                     } else if let errorText, rendered[key] == nil {
-                        Text(errorText).foregroundStyle(.red).padding()
+                        Text(errorText).foregroundStyle(ChatColors.danger).padding()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -896,7 +896,7 @@ private struct ChatShareFormatSwitch: View {
         } label: {
             Label(title, systemImage: icon)
                 .font(.footnote.weight(isOn ? .semibold : .medium))
-                .foregroundStyle(isOn ? Color.accentColor : Color.primary)
+                .foregroundStyle(isOn ? ChatColors.tint : Color.primary)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 14)

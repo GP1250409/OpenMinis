@@ -118,6 +118,9 @@ struct ComposerSurface: ViewModifier {
             content
                 .background(shape.fill(ChatColors.inputBg))
                 .clipShape(shape)
+                // [MOD theme-tokens] inputBorder: only themes draw it, so the
+                // Default Theme keeps its original borderless composer.
+                .overlay(shape.strokeBorder(ChatThemeStore.current != nil ? ChatColors.inputBorder : Color.clear, lineWidth: 0.5))
                 .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 2)
                 .shadow(color: Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(white: 0, alpha: 0) }), radius: 8, x: 0, y: -4)
         }
@@ -162,7 +165,7 @@ struct ComposerContextGlow: View {
         RoundedRectangle(cornerRadius: ComposerGeometry.cornerRadius, style: .continuous)
     }
     private var color: Color {
-        tier == .critical ? Color(UIColor.systemRed) : Color(UIColor.systemOrange)
+        tier == .critical ? ChatColors.danger : ChatColors.warning
     }
     /// Overall visibility of the glow. Light mode needs more: a normal-blend
     /// tint on a pale wall reads weaker than additive light on a dark one.

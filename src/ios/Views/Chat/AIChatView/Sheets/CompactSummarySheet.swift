@@ -53,7 +53,7 @@ struct CompactSummarySheet: View {
                         .padding(.vertical, 14)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChatColors.danger)
                 }
             }
             .navigationTitle("Compact Summary")

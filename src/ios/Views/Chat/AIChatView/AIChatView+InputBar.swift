@@ -81,14 +81,14 @@ extension AIChatView {
             if vm.isSuspended {
                 HStack(spacing: 8) {
                     ProgressView()
-                        .tint(.yellow)
+                        .tint(ChatColors.caution)
                     Text("Waiting for other tasks to complete...")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Color.yellow.opacity(0.08))
+                .background(ChatColors.caution.opacity(0.08))
             }
 
             // [T-ios-chat-body-stack-erase] Same as body: erase the composer

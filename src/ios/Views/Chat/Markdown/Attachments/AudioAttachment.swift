@@ -99,13 +99,13 @@ final class AudioAttachment: NSTextAttachment {
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
         let playBtn = UIButton(type: .system)
         playBtn.setImage(UIImage(systemName: "play.circle.fill", withConfiguration: iconConfig), for: .normal)
-        playBtn.tintColor = .systemOrange
+        playBtn.tintColor = ChatMarkdownColors.accent ?? .systemOrange
         playBtn.frame = CGRect(x: 10, y: 30, width: 30, height: 30)
         bg.addSubview(playBtn)
 
         // Slider
         let slider = UISlider()
-        slider.minimumTrackTintColor = .systemOrange
+        slider.minimumTrackTintColor = ChatMarkdownColors.accent ?? .systemOrange
         slider.frame = CGRect(x: 46, y: 34, width: maxW - 100, height: 22)
         slider.value = 0
         bg.addSubview(slider)

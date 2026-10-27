@@ -187,7 +187,7 @@ final class CodeBlockAttachment: NSTextAttachment {
             let langLabel = UILabel()
             langLabel.text = language.lowercased()
             langLabel.font = .systemFont(ofSize: 11, weight: .medium)
-            langLabel.textColor = .white.withAlphaComponent(0.4)
+            langLabel.textColor = ChatMarkdownColors.codeChrome ?? .white.withAlphaComponent(0.4)
             langLabel.frame = CGRect(x: 12, y: 8, width: contentWidth - 60, height: 16)
             container.addSubview(langLabel)
             topOffset = 28
@@ -270,7 +270,7 @@ final class CodeBlockAttachment: NSTextAttachment {
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 9, weight: .medium)
         let copyButton = UIButton(type: .system)
         copyButton.setImage(UIImage(systemName: "doc.on.doc", withConfiguration: iconConfig), for: .normal)
-        copyButton.tintColor = .white.withAlphaComponent(0.5)
+        copyButton.tintColor = ChatMarkdownColors.codeChrome ?? .white.withAlphaComponent(0.5)
         copyButton.frame = CGRect(x: contentWidth - 44, y: 0, width: 44, height: 44)
         let debounce = CopyDebounce()
         let performCopy: () -> Void = { [weak codeTextView, weak copyButton] in
@@ -285,10 +285,10 @@ final class CodeBlockAttachment: NSTextAttachment {
             // content, even after updateExistingView replaced the attributed text.
             UIPasteboard.general.string = codeTextView?.text
             copyButton?.setImage(UIImage(systemName: "checkmark", withConfiguration: iconConfig), for: .normal)
-            copyButton?.tintColor = .systemGreen
+            copyButton?.tintColor = ChatMarkdownColors.success ?? .systemGreen
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 copyButton?.setImage(UIImage(systemName: "doc.on.doc", withConfiguration: iconConfig), for: .normal)
-                copyButton?.tintColor = .white.withAlphaComponent(0.5)
+                copyButton?.tintColor = ChatMarkdownColors.codeChrome ?? .white.withAlphaComponent(0.5)
             }
         }
         copyButton.addAction(UIAction { _ in performCopy() }, for: .touchUpInside)

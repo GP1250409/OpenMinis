@@ -654,7 +654,7 @@ final class SelectableMarkdownTextView: UITextView, UIGestureRecognizerDelegate 
         let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
 
         let flash = UIView(frame: rect.insetBy(dx: -2, dy: -1))
-        flash.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.18)
+        flash.backgroundColor = (ChatMarkdownColors.tint ?? UIColor.systemBlue).withAlphaComponent(0.18)
         flash.layer.cornerRadius = 4
         flash.isUserInteractionEnabled = false
         addSubview(flash)

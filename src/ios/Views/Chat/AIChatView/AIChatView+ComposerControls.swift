@@ -180,11 +180,11 @@ extension AIChatView {
                         .transition(.opacity)
                 }
             }
-            .foregroundStyle(on ? Color.accentColor : .secondary)
+            .foregroundStyle(on ? ChatColors.tint : .secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
-                Capsule().fill(on ? Color.accentColor.opacity(0.15)
+                Capsule().fill(on ? ChatColors.tint.opacity(0.15)
                                   : Color.secondary.opacity(0.10))
             )
         }

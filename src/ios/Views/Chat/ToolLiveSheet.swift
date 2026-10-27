@@ -877,7 +877,7 @@ private struct CopyableURLCapsule: View {
             .truncationMode(.middle)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(showCopied ? Color.green : Color(white: 0.85))
+            .background(showCopied ? ChatColors.success : Color(white: 0.85))
             .clipShape(Capsule())
             .animation(.easeInOut(duration: 0.2), value: showCopied)
             .onTapGesture {
@@ -1051,7 +1051,7 @@ struct ToolLiveSheet: View {
         // distribute space between the fixed chrome and the flexible content.
         // On iPhone `.infinity` just fills the sheet detent as before.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(UIColor.systemGroupedBackground))
+        .background(ChatColors.groupedSheetBg)
         .onAppear {
             startBrowserTimer()
             if isLive && isCurrentShell { resourceMonitor.start() }
@@ -1202,7 +1202,7 @@ struct ToolLiveSheet: View {
                     } label: {
                         Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 14))
-                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .foregroundStyle(navCopyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 32, height: 32)
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
@@ -1215,7 +1215,7 @@ struct ToolLiveSheet: View {
                     } label: {
                         Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 14))
-                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .foregroundStyle(navCopyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 32, height: 32)
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
@@ -1230,7 +1230,7 @@ struct ToolLiveSheet: View {
                     } label: {
                         Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 14))
-                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .foregroundStyle(navCopyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 32, height: 32)
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
@@ -1245,7 +1245,7 @@ struct ToolLiveSheet: View {
                     } label: {
                         Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 14))
-                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .foregroundStyle(navCopyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 32, height: 32)
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
@@ -1259,7 +1259,7 @@ struct ToolLiveSheet: View {
                     } label: {
                         Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 14))
-                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .foregroundStyle(navCopyDone ? ChatColors.success : ChatColors.primaryText)
                             .frame(width: 32, height: 32)
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
@@ -1347,7 +1347,7 @@ struct ToolLiveSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(UIColor.systemBackground))
+        .background(ChatColors.sheetBg)
         .fullScreenCover(isPresented: $showTerminal) {
             NavigationStack {
                 // Pre-fill the shell command the tool is currently running,
@@ -1553,10 +1553,10 @@ struct ToolLiveSheet: View {
                         if !action.isEmpty {
                             Text(action)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(ChatColors.onTint)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(Color.blue)
+                                .background(ChatColors.tint)
                                 .clipShape(Capsule())
                         }
                         if !url.isEmpty {
@@ -1657,10 +1657,10 @@ struct ToolLiveSheet: View {
                         if !action.isEmpty {
                             Text(action)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(ChatColors.onTint)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(Color.blue)
+                                .background(ChatColors.tint)
                                 .clipShape(Capsule())
                         }
                         if !url.isEmpty {
@@ -1889,14 +1889,14 @@ struct ToolLiveSheet: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "square.and.pencil")
                                     .font(.system(size: 12))
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(ChatColors.warning)
                                 Text(fileName)
                                     .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(Color(UIColor.label))
                                     .lineLimit(1)
                                 Text("(\(sizeLabel))")
                                     .font(.system(size: 11))
-                                    .foregroundStyle(isStreaming ? Color.orange.opacity(0.8) : Color(UIColor.tertiaryLabel))
+                                    .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : Color(UIColor.tertiaryLabel))
                                     .lineLimit(1)
                             }
                             .frame(maxWidth: .infinity)
@@ -1956,8 +1956,8 @@ struct ToolLiveSheet: View {
                                 // cancelled → "Cancelled".
                                 let (label, labelColor): (String, Color) = {
                                     switch block.toolStatus {
-                                    case .failed:    return (AppLocalized("Failed to edit"), .red)
-                                    case .cancelled: return (AppLocalized("Cancelled"),     .orange)
+                                    case .failed:    return (AppLocalized("Failed to edit"), ChatColors.danger)
+                                    case .cancelled: return (AppLocalized("Cancelled"),     ChatColors.warning)
                                     default:         return (AppLocalized("Edited"),        Color(UIColor.label))
                                     }
                                 }()
@@ -2088,10 +2088,10 @@ struct ToolLiveSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange.opacity(0.7))
+                    .foregroundStyle(ChatColors.warning.opacity(0.7))
                 Text("JavaScript")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatColors.warning)
                     .lineLimit(1)
                 Spacer()
                 Text(Self.formatBytes(script.utf8.count))
@@ -2145,7 +2145,7 @@ struct ToolLiveSheet: View {
                             .lineLimit(1)
                         Text("(\(sizeLabel))")
                             .font(.system(size: 11))
-                            .foregroundStyle(isStreaming ? Color.orange.opacity(0.8) : .pink.opacity(0.5))
+                            .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : .pink.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
@@ -2213,7 +2213,7 @@ struct ToolLiveSheet: View {
                     HStack(spacing: 6) {
                         Image(systemName: failed ? "exclamationmark.triangle.fill" : "photo")
                             .font(.system(size: 12))
-                            .foregroundStyle(failed ? Color.red : Color(UIColor.secondaryLabel))
+                            .foregroundStyle(failed ? ChatColors.danger : Color(UIColor.secondaryLabel))
                         Text(fileName)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Color(UIColor.label))
@@ -2221,7 +2221,7 @@ struct ToolLiveSheet: View {
                         if failed {
                             Text("Failed")
                                 .font(.system(size: 11))
-                                .foregroundStyle(Color.red.opacity(0.9))
+                                .foregroundStyle(ChatColors.danger.opacity(0.9))
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -2232,7 +2232,7 @@ struct ToolLiveSheet: View {
 
                     Text(body)
                         .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(failed ? Color.red : Color(UIColor.label))
+                        .foregroundStyle(failed ? ChatColors.danger : Color(UIColor.label))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 14)
@@ -2301,7 +2301,7 @@ struct ToolLiveSheet: View {
                             .lineLimit(1)
                         Text("(\(sizeLabel))")
                             .font(.system(size: 11))
-                            .foregroundStyle(isStreaming ? Color.orange.opacity(0.8) : Color(UIColor.tertiaryLabel))
+                            .foregroundStyle(isStreaming ? ChatColors.warning.opacity(0.8) : Color(UIColor.tertiaryLabel))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
@@ -2541,9 +2541,9 @@ struct ToolLiveSheet: View {
                         if isLive {
                             HStack(spacing: 12) {
                                 Text(resourceMonitor.formattedCPU)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(ChatColors.success)
                                 Text(resourceMonitor.formattedMem())
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(ChatColors.success)
                             }
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .frame(maxWidth: .infinity)
@@ -2634,10 +2634,10 @@ struct ToolLiveSheet: View {
                                 if !action.isEmpty {
                                     Text(action)
                                         .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(ChatColors.onTint)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.blue)
+                                        .background(ChatColors.tint)
                                         .clipShape(Capsule())
                                 }
                                 if !url.isEmpty {
@@ -2683,10 +2683,10 @@ struct ToolLiveSheet: View {
                             if !action.isEmpty {
                                 Text(action)
                                     .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(ChatColors.onTint)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
-                                    .background(Color.blue)
+                                    .background(ChatColors.tint)
                                     .clipShape(Capsule())
                             }
                             if !url.isEmpty {
@@ -2784,7 +2784,7 @@ struct ToolLiveSheet: View {
                 if isLive {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(.green)
+                            .fill(ChatColors.success)
                             .frame(width: 7, height: 7)
                         Text("Live")
                             .font(.system(size: 13, weight: .medium))
@@ -2810,7 +2810,7 @@ struct ToolLiveSheet: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
-        .background(Color(UIColor.systemBackground))
+        .background(ChatColors.sheetBg)
     }
 
     // MARK: - Helpers
@@ -2825,15 +2825,15 @@ struct ToolLiveSheet: View {
         case .success:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(.green)
+                .foregroundStyle(ChatColors.success)
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.danger)
         case .cancelled:
             Image(systemName: "stop.circle.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(ChatColors.caution)
         case nil:
             EmptyView()
         }
@@ -3506,15 +3506,15 @@ private struct ToolStatusBar: View {
         case .success:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(.green)
+                .foregroundStyle(ChatColors.success)
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.danger)
         case .cancelled:
             Image(systemName: "stop.circle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(ChatColors.caution)
         case nil:
             EmptyView()
         }

@@ -61,7 +61,7 @@ struct ChatSearchBar: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 36)
-            .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(ChatColors.fieldBg(), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             navButton(systemName: "chevron.up", label: AppLocalized("Previous Result")) { search.previous() }
                 .keyboardShortcut(.return, modifiers: .shift)
@@ -78,7 +78,7 @@ struct ChatSearchBar: View {
                     .font(.system(size: 15, weight: .semibold))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(ChatColors.tint)
             .padding(.leading, 2)
             .accessibilityIdentifier("chatSearchDone")
         }
@@ -124,7 +124,7 @@ struct ChatSearchBar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(hasResults ? Color.accentColor : ChatColors.tertiaryText)
+        .foregroundStyle(hasResults ? ChatColors.tint : ChatColors.tertiaryText)
         .disabled(!hasResults)
         .accessibilityLabel(label)
     }

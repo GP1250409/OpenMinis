@@ -346,7 +346,7 @@ struct MessageImageGallery: View {
                     case .saving:
                         ProgressView().tint(ChatColors.primaryText)
                     case .saved:
-                        Image(systemName: "checkmark").foregroundStyle(.green)
+                        Image(systemName: "checkmark").foregroundStyle(ChatColors.success)
                     case .failed:
                         Image(systemName: "exclamationmark.triangle")
                     }

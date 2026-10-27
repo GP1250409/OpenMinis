@@ -365,29 +365,29 @@ extension AIChatView {
             HStack(spacing: 10) {
                 Image(systemName: iconName)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? ChatColors.onTint : ChatColors.secondaryText)
                     .frame(width: 20)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(entry.basename)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.white : ChatColors.primaryText)
+                        .foregroundStyle(isSelected ? ChatColors.onTint : ChatColors.primaryText)
                         .lineLimit(1)
                     Text(entry.displayPath)
                         .font(.system(size: 11))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.75) : ChatColors.secondaryText)
+                        .foregroundStyle(isSelected ? ChatColors.onTint.opacity(0.75) : ChatColors.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 Spacer()
                 Text(entry.mountName ?? entry.scope.displayLabel)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.9) : ChatColors.secondaryText)
+                    .foregroundStyle(isSelected ? ChatColors.onTint.opacity(0.9) : ChatColors.secondaryText)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(
                         Capsule().fill(
                             isSelected
-                            ? Color.white.opacity(0.2)
+                            ? ChatColors.onTint.opacity(0.2)
                             : Color.primary.opacity(0.07)
                         )
                     )
@@ -452,7 +452,7 @@ extension AIChatView {
         }
 
         private var fill: Color {
-            if isSelected { return Color.accentColor }
+            if isSelected { return ChatColors.tint }
             if isPressed { return Color.primary.opacity(0.08) }
             return Color.clear
         }
@@ -495,13 +495,13 @@ extension AIChatView {
                     VStack(alignment: .leading, spacing: 1) {
                         let isThinkingActive = cmd.id == "thinking" && thinkingLevel.isEnabled && thinkingSupported
                         let titleColor: Color = isThinkingActive
-                            ? .blue : (isSelected ? .white : ChatColors.primaryText)
+                            ? ChatColors.thinkingAccent : (isSelected ? ChatColors.onTint : ChatColors.primaryText)
                         let subtitleText = (cmd.id == "thinking" && !thinkingSupported)
                             ? AppLocalized("Not supported by current model")
                             : cmd.subtitle
                         let subtitleColor: Color = (cmd.id == "thinking" && !thinkingSupported)
                             ? .secondary
-                            : (isThinkingActive ? .blue.opacity(0.7) : (isSelected ? .white.opacity(0.7) : ChatColors.secondaryText))
+                            : (isThinkingActive ? ChatColors.thinkingAccent.opacity(0.7) : (isSelected ? ChatColors.onTint.opacity(0.7) : ChatColors.secondaryText))
                         // [T-slash-picker-product-rules] Title + subtitle
                         // each clamped to a single line. Long skill names
                         // and descriptions used to wrap and pump the row
@@ -529,7 +529,7 @@ extension AIChatView {
                     // VoiceOver read "checkmark circle fill" / "slash circle".
                     Image(systemName: memoryEnabled ? "checkmark.circle.fill" : "slash.circle")
                         .font(.system(size: 16))
-                        .foregroundStyle(memoryEnabled ? (isSelected ? .white : .green) : (isSelected ? .white.opacity(0.6) : .secondary))
+                        .foregroundStyle(memoryEnabled ? (isSelected ? ChatColors.onTint : ChatColors.success) : (isSelected ? ChatColors.onTint.opacity(0.6) : .secondary))
                         .accessibilityLabel(Text(
                             memoryEnabled
                                 ? AppLocalized("Memory on", comment: "VoiceOver label for the memory status icon when enabled")
@@ -547,10 +547,10 @@ extension AIChatView {
 
         private var thinkingIconColor: Color {
             guard cmd.id == "thinking" else {
-                return isSelected ? .white.opacity(0.8) : ChatColors.secondaryText
+                return isSelected ? ChatColors.onTint.opacity(0.8) : ChatColors.secondaryText
             }
             if !thinkingSupported { return .secondary }
-            return thinkingLevel.isEnabled ? .blue : (isSelected ? .white.opacity(0.8) : ChatColors.secondaryText)
+            return thinkingLevel.isEnabled ? ChatColors.thinkingAccent : (isSelected ? ChatColors.onTint.opacity(0.8) : ChatColors.secondaryText)
         }
 
         private var thinkingLevelPicker: some View {
@@ -572,7 +572,7 @@ extension AIChatView {
                                 .font(.system(size: 8, weight: .bold))
                         }
                     }
-                    .foregroundStyle(isHighlighted ? .white : (isSelected ? .white.opacity(0.75) : .secondary))
+                    .foregroundStyle(isHighlighted ? ChatColors.onTint : (isSelected ? ChatColors.onTint.opacity(0.75) : .secondary))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
                     .background(
@@ -580,8 +580,8 @@ extension AIChatView {
                             .fill(
                                 isHighlighted
                                     ? (isClampedHighlight
-                                        ? Color.orange.opacity(0.85)
-                                        : Color.blue)
+                                        ? ChatColors.warning.opacity(0.85)
+                                        : ChatColors.tint)
                                     : Color.clear
                             )
                             .shadow(color: isHighlighted ? Color.black.opacity(0.15) : .clear, radius: 1.5, x: 0, y: 1)
@@ -594,7 +594,7 @@ extension AIChatView {
             .padding(2)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.18) : Color.primary.opacity(0.07))
+                    .fill(isSelected ? ChatColors.onTint.opacity(0.18) : Color.primary.opacity(0.07))
             )
         }
     }

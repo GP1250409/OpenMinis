@@ -72,10 +72,17 @@ enum UserAskCardModel {
 
 // MARK: - Palette
 
+private struct UserAskDarkTileScheme: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        content.environment(\.colorScheme, ChatThemeStore.current != nil ? .dark : scheme)
+    }
+}
+
 private enum UserAskTint {
     static func color(for q: UserAskQuestion?) -> Color {
-        guard let q, q.type == .confirm else { return Color.accentColor }
-        return q.risk == .high ? .red : .orange
+        guard let q, q.type == .confirm else { return ChatColors.tint }
+        return q.risk == .high ? ChatColors.danger : ChatColors.warning
     }
 }
 
@@ -541,16 +548,16 @@ struct UserAskCardView: View {
     private var waitingPlaceholder: some View {
         HStack(spacing: 10) {
             Image(systemName: "questionmark.bubble")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(ChatColors.tint)
             Text(AppLocalized("Waiting for your answer…"))
                 .font(.system(size: t.secondary))
                 .foregroundStyle(ChatColors.secondaryText)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(Color.accentColor.opacity(0.07))
+        .background(ChatColors.tint.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.accentColor.opacity(0.35), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ChatColors.tint.opacity(0.35), lineWidth: 0.8))
     }
 }
 
@@ -687,7 +694,7 @@ private struct UserAskPendingCard: View {
                     let left = max(0, Int(expires.timeIntervalSince(ctx.date)))
                     Label(String(format: "%d:%02d", left / 60, left % 60), systemImage: "timer")
                         .font(.system(size: t.meta, weight: .medium).monospacedDigit())
-                        .foregroundStyle(left <= 30 ? Color.orange : ChatColors.secondaryText)
+                        .foregroundStyle(left <= 30 ? ChatColors.warning : ChatColors.secondaryText)
                         .accessibilityLabel(left <= 30 ? AppLocalized("\(left) seconds left") : AppLocalized("Time left"))
                 }
             }
@@ -752,7 +759,7 @@ private struct UserAskPendingCard: View {
                     if abs(h - questionFullHeight) > 0.5 { questionFullHeight = h }
                 }
                 .padding(q.type == .confirm ? 8 : 0)
-                .background(q.type == .confirm ? AnyShapeStyle(Color(UIColor.tertiarySystemFill)) : AnyShapeStyle(Color.clear),
+                .background(q.type == .confirm ? AnyShapeStyle(ChatColors.fieldBg()) : AnyShapeStyle(Color.clear),
                             in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .textSelection(.enabled)
                 .padding(.bottom, 6)
@@ -1447,7 +1454,7 @@ private struct UserAskInputSheet: View {
             // The same opaque sheet background in both input modes (light and
             // dark follow the system colour).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(UIColor.systemBackground).ignoresSafeArea())
+            .background(ChatColors.sheetBg.ignoresSafeArea())
             .onChange(of: text) { t in onChange(t) }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -1817,10 +1824,10 @@ struct UserAskSummaryView: View {
             return (UserAskSummary.pendingTile(questions: q, current: 0, answer: nil), UserAskTint.color(for: first))
         case .resolvedLive:
             guard let live else { return nil }
-            return (UserAskSummary.resolvedTile(live.questions, results: Self.entries(live.resultJSON ?? "")), Color.accentColor)
+            return (UserAskSummary.resolvedTile(live.questions, results: Self.entries(live.resultJSON ?? "")), ChatColors.tint)
         case .resolvedStored:
             return (UserAskSummary.resolvedTile(request?.questions ?? [], results: Self.entries(block.content)),
-                    Color.accentColor)
+                    ChatColors.tint)
         case .notAsked:
             return nil
         }
@@ -1828,11 +1835,16 @@ struct UserAskSummaryView: View {
 
     @ViewBuilder
     private var tile: some View {
-        if let rich = tileContent {
-            richTile(rich.content, tint: rich.tint)
-        } else {
-            listTile
+        Group {
+            if let rich = tileContent {
+                richTile(rich.content, tint: rich.tint)
+            } else {
+                listTile
+            }
         }
+        // [MOD theme-tokens] The tile is always a dark slab, so theme colours
+        // inside it resolve as dark (ChatGPT's light tint is near-black).
+        .modifier(UserAskDarkTileScheme())
     }
 
     private func richTile(_ content: UserAskTileContent, tint: Color) -> some View {
@@ -1930,12 +1942,12 @@ struct UserAskSummaryView: View {
     private func rowText(_ row: UserAskSummaryRow, size: CGFloat) -> Text {
         let topic = Text(row.topic)
             .font(.system(size: size, weight: row.value.isEmpty && !row.muted ? .semibold : .regular))
-            .foregroundColor(row.value.isEmpty && !row.muted ? Color.accentColor : Color.white.opacity(0.6))
+            .foregroundColor(row.value.isEmpty && !row.muted ? ChatColors.tint : Color.white.opacity(0.6))
         guard !row.value.isEmpty else { return topic }
         return topic
             + Text(verbatim: " → ").font(.system(size: size)).foregroundColor(Color.white.opacity(0.35))
             + Text(row.value).font(.system(size: size, weight: .medium))
-                .foregroundColor(row.muted ? Color.white.opacity(0.45) : Color.accentColor)
+                .foregroundColor(row.muted ? Color.white.opacity(0.45) : ChatColors.tint)
     }
 
     // MARK: Sheet (system colours, card sizes)
@@ -1950,7 +1962,7 @@ struct UserAskSummaryView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.topic)
                             .font(.system(size: t.secondary, weight: row.value.isEmpty && !row.muted ? .semibold : .regular))
-                            .foregroundStyle(row.value.isEmpty && !row.muted ? Color.accentColor : ChatColors.secondaryText)
+                            .foregroundStyle(row.value.isEmpty && !row.muted ? ChatColors.tint : ChatColors.secondaryText)
                         if !row.value.isEmpty {
                             Text(row.value)
                                 .font(.system(size: t.question, weight: .medium))

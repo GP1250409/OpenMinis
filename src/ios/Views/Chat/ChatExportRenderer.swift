@@ -221,7 +221,7 @@ struct ChatShareCellContent: View {
         case .note:
             Label(message.error ?? "", systemImage: "exclamationmark.triangle")
                 .font(.footnote)
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatColors.danger)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
         }

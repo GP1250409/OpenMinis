@@ -385,7 +385,7 @@ final class TableCellLabel: UILabel, UIGestureRecognizerDelegate, UIContextMenuI
         let usedHeight = manager.usedRect(for: container).height
         let yOffset = max(0, (bounds.height - usedHeight) / 2)
 
-        let bgColor = minisInlineCodeBackgroundColor.resolvedColor(with: traitCollection)
+        let bgColor = (ChatMarkdownColors.inlineCodeBackground ?? minisInlineCodeBackgroundColor).resolvedColor(with: traitCollection)
         ctx.saveGState()
         ctx.setFillColor(bgColor.cgColor)
         for range in codeRanges {

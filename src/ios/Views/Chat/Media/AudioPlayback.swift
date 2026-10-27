@@ -417,7 +417,7 @@ struct MinisAudioPlayerView: View {
                         ),
                         in: 0...max(player.duration, 0.01)
                     )
-                    .tint(.accentColor)
+                    .tint(ChatColors.tint)
 
                     Text(formatTime(player.duration))
                         .font(.caption2)
@@ -426,7 +426,7 @@ struct MinisAudioPlayerView: View {
                 } else {
                     // Idle state — show empty slider
                     Slider(value: .constant(0), in: 0...1)
-                        .tint(.accentColor)
+                        .tint(ChatColors.tint)
                         .disabled(true)
 
                     Text(formatTime(0))

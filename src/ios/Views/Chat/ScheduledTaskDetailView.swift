@@ -238,7 +238,7 @@ enum ScheduledTaskDetailModel {
 /// Amber accent shared with the chat card (`AgentCallbackCellView` uses
 /// `.orange` for `kind == .scheduled`).
 enum ScheduledAccent {
-    static let color = Color.orange
+    static var color: Color { ChatColors.warning }
     static let icon = "calendar.badge.clock"
 }
 
@@ -823,9 +823,9 @@ struct ScheduledTaskDetailView: View {
             Circle().fill(ScheduledAccent.color).frame(width: 8, height: 8)
                 .modifier(PulseModifier())
         } else if r.ok == false {
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.subheadline)
+            Image(systemName: "xmark.circle.fill").foregroundStyle(ChatColors.danger).font(.subheadline)
         } else {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.subheadline)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatColors.success).font(.subheadline)
         }
     }
 
@@ -850,9 +850,9 @@ struct ScheduledTaskDetailView: View {
         case .running: return (AppLocalized("Running now"), ScheduledAccent.color)
         case .disabled: return (AppLocalized("Paused"), .secondary)
         case .cancelled: return (AppLocalized("Cancelled"), .secondary)
-        case .failed: return (AppLocalized("Failed"), .red)
-        case .timedOut: return (AppLocalized("Timed out"), .red)
-        case .completed: return (AppLocalized("Completed"), .green)
+        case .failed: return (AppLocalized("Failed"), ChatColors.danger)
+        case .timedOut: return (AppLocalized("Timed out"), ChatColors.danger)
+        case .completed: return (AppLocalized("Completed"), ChatColors.success)
         case .stopped: return (AppLocalized("Stopped"), .secondary)
         }
     }

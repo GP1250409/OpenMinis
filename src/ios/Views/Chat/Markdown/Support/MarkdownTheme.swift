@@ -62,7 +62,7 @@ struct SelectableMarkdownTheme {
     var labelColor: UIColor { ChatMarkdownColors.label ?? .label }
     var secondaryLabelColor: UIColor { ChatMarkdownColors.secondaryLabel ?? .secondaryLabel }
     var accentColor: UIColor { ChatMarkdownColors.accent ?? .systemOrange }
-    var linkColor: UIColor { .systemBlue }
+    var linkColor: UIColor { ChatMarkdownColors.link ?? .systemBlue }
     var codeBlockBackground: UIColor {
         if let c = ChatMarkdownColors.codeBackground { return c }
         return UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .black }

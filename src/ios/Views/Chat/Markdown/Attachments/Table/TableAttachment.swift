@@ -759,7 +759,7 @@ final class TableAttachment: NSTextAttachment {
     }
 
     private func renderCellInline(_ node: InlineNode, font: UIFont) -> NSAttributedString {
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: theme.labelColor]
         switch node {
         case .text(let text):
             return NSAttributedString(string: text, attributes: attrs)
@@ -786,7 +786,7 @@ final class TableAttachment: NSTextAttachment {
             // Both resolve minisInlineCodeBackgroundColor at draw time and
             // repaint on trait changes, so light/dark stay correct.
             codeAttrs[.inlineCodeBackground] = true
-            codeAttrs[.backgroundColor] = minisInlineCodeBackgroundColor
+            codeAttrs[.backgroundColor] = theme.inlineCodeBackground
             return NSAttributedString(string: code, attributes: codeAttrs)
         case .html(let h):
             return NSAttributedString(string: h, attributes: attrs)
@@ -946,7 +946,7 @@ final class TableAttachment: NSTextAttachment {
         // No dedicated table-background in the theme; use the system background
         // so the copied image is legible (adapts to light/dark) behind the
         // cell text, which carries its own foreground colors.
-        let tableBg = UIColor.systemBackground
+        let tableBg = ChatMarkdownColors.background ?? UIColor.systemBackground
         let tableBorder = theme.tableBorderColor
         let copyTableImage: () -> Void = { [weak stack] in
             guard let stack, stack.bounds.width > 0, stack.bounds.height > 0 else { return }

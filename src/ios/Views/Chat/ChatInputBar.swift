@@ -36,7 +36,7 @@ struct SwipeToSendHint: View {
             // (`UIColor.systemBackground`), otherwise dark mode renders
             // white-on-white and the indicator vanishes (bug 2026-05-18).
             let chipBg = ChatColors.sendButton
-            let chipFg = Color(UIColor.systemBackground)
+            let chipFg = ChatThemeStore.current != nil ? ChatColors.onTint : Color(UIColor.systemBackground)
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 34))
@@ -317,7 +317,7 @@ private struct AttachmentChip: View {
             VStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 18))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatColors.warning)
                 Text("Failed")
                     .font(.caption2)
                     .foregroundStyle(ChatColors.secondaryText)
@@ -325,7 +325,7 @@ private struct AttachmentChip: View {
             .frame(width: 64, height: 64)
             .background(ChatColors.secondaryBg)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.5), lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(ChatColors.warning.opacity(0.5), lineWidth: 0.5))
 
             Button {
                 onRemove()
@@ -2903,8 +2903,8 @@ private extension ContextUsage.Tier {
         // Orange is the lighter hue, so it needs the lower alpha to sit at the
         // same restraint as the red — on device 0.65 still read brighter than
         // the 0.60 red beside it.
-        case .warning: return UIColor.systemOrange.withAlphaComponent(0.50)
-        case .critical: return UIColor.systemRed.withAlphaComponent(0.60)
+        case .warning: return ChatColors.uiWarning().withAlphaComponent(0.50)
+        case .critical: return ChatColors.uiDanger().withAlphaComponent(0.60)
         }
     }
 }

@@ -260,7 +260,7 @@ struct MinisVideoFullscreenPlayer: View {
                                         .tint(ChatColors.primaryText)
                                 case .saved:
                                     Image(systemName: "checkmark")
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(ChatColors.success)
                                 case .failed:
                                     Image(systemName: "exclamationmark.triangle")
                                 }
