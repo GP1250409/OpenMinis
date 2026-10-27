@@ -117,6 +117,7 @@ struct ChatSendButton: View {
                 ZStack {
                     Image(systemName: "circle.fill")
                         .font(.system(size: 34))
+                        .frame(width: ComposerGeometry.buttonDiameter, height: ComposerGeometry.buttonDiameter)
                         .foregroundStyle(ChatColors.sendButtonDisabled)
                     ProgressView()
                         .controlSize(.small)
@@ -127,6 +128,7 @@ struct ChatSendButton: View {
                 returnModeMenu(primaryAction: onEnqueue) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 34))
+                        .frame(width: ComposerGeometry.buttonDiameter, height: ComposerGeometry.buttonDiameter)
                         .foregroundStyle(ChatColors.sendButton)
                 }
                 .accessibilityLabel(Text("Add to queue", comment: "VoiceOver label for the send button while a reply is generating"))
@@ -161,6 +163,7 @@ struct ChatSendButton: View {
                 }) {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 34))
+                        .frame(width: ComposerGeometry.buttonDiameter, height: ComposerGeometry.buttonDiameter)
                         .foregroundStyle(ChatColors.danger)
                 }
                 // Hosted here rather than on the chat root: this button owns the
@@ -207,6 +210,7 @@ struct ChatSendButton: View {
                 returnModeMenu(primaryAction: { if canSend { onSend() } }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 34))
+                        .frame(width: ComposerGeometry.buttonDiameter, height: ComposerGeometry.buttonDiameter)
                         .foregroundStyle(canSend ? ChatColors.sendButton : ChatColors.sendButtonDisabled)
                 }
                 .accessibilityLabel(Text("Send", comment: "VoiceOver label for the send button"))

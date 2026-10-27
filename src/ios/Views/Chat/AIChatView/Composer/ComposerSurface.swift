@@ -100,7 +100,9 @@ struct FloatingCircleButtonSurface: ViewModifier {
 /// that lifts the bar off the message list.
 enum ComposerGeometry {
     static let buttonDiameter: CGFloat = 34
-    static let edgeInset: CGFloat = 12
+    // [MOD composer-inset] 12 -> 8: button row sits closer to the frame;
+    // corner radius follows (17 + 8 = 25) so the curves stay concentric.
+    static let edgeInset: CGFloat = 8
     static let cornerRadius: CGFloat = buttonDiameter / 2 + edgeInset
 }
 
