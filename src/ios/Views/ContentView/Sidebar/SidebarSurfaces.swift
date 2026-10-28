@@ -231,31 +231,17 @@ private struct FolderSurface: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        Group {
-            // Two states, two deliberate treatments (user decision):
-            // - COLLAPSED lone card: the sampled constant. glassEffect is a
-            //   live material and a collapsed card scrolls past heterogeneous
-            //   content (blurred colorful pinned rows), so live glass
-            //   flickered frame to frame; the constant is what that glass
-            //   rendered over the flat background anyway.
-            // - EXPANDED segments: a real material for translucency. Member
-            //   rows sit over the STABLE list background only — nothing
-            //   colorful ever passes behind them — so the flicker mechanism
-            //   doesn't apply, and the material keeps the container from
-            //   reading as a dull solid slab. regularMaterial (the brighter
-            //   tier; ultraThin ran too dark here before).
-            if kind == .lone {
-                if #available(iOS 26.0, *) {
-                    content.background(shape.fill(Self.sampledGlassColor))
+        content
+        .background {
+            // Keep the content on one structural path. Only the paint varies.
+            if #available(iOS 26.0, *) {
+                if kind == .lone {
+                    shape.fill(Self.sampledGlassColor)
                 } else {
-                    content.background(shape.fill(Color(UIColor.secondarySystemBackground)))
+                    shape.fill(.regularMaterial)
                 }
             } else {
-                if #available(iOS 26.0, *) {
-                    content.background(shape.fill(.regularMaterial))
-                } else {
-                    content.background(shape.fill(Color(UIColor.secondarySystemBackground)))
-                }
+                shape.fill(Color(UIColor.secondarySystemBackground))
             }
         }
         .overlay {

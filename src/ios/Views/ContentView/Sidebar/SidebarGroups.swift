@@ -109,6 +109,8 @@ struct SidebarGroup: Equatable, Identifiable {
         return out
     }
     var folderId: String? = nil
+    // Retain IDs only, never eager row views, for the native virtualized accordion.
+    var accordionMemberIDs: [String] = []
     var totalCount: Int = 0      // member count incl. hidden-by-collapse rows
     var glyphs: [FolderGlyph] = []   // top-3 distinct member category glyphs
     var anyUnread = false

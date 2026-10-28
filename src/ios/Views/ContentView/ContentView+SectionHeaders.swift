@@ -158,7 +158,8 @@ extension ContentView {
     /// `scrollProxy` is forwarded to `toggleFolderCollapsed` so an expand can
     /// re-anchor this header after the accordion removes the previously-open
     /// folder's rows ([T-ios-folder-accordion-scroll-anchor]).
-    func folderSectionHeader(_ group: SidebarGroup, scrollProxy: ScrollViewProxy? = nil) -> some View {
+    func folderSectionHeader(_ group: SidebarGroup, scrollProxy: ScrollViewProxy? = nil,
+                             nativeAccordion: Bool = false) -> some View {
         // Content + onTapGesture instead of a Button: the Button's own
         // long-press handling raced the contextMenu recognizer on some
         // platforms (long-press on the card did not reliably pop the menu).
@@ -271,7 +272,7 @@ extension ContentView {
             // Mini-bar trigger: only an EXPANDED, populated group needs its
             // header tracked (a collapsed card scrolling away is just a card).
             .background {
-                if let fid = group.folderId, !group.isCollapsed, !group.ids.isEmpty {
+                if !nativeAccordion, let fid = group.folderId, !group.isCollapsed, !group.ids.isEmpty {
                     FolderHeaderVisibilityProbe(
                         folderId: fid,
                         thresholdY: folderMiniBarTopY,
@@ -294,7 +295,7 @@ extension ContentView {
             .padding(.top, 4)
             // Expanded: no bottom gap — the card welds onto the first member
             // row's container segment.
-            .padding(.bottom, (group.isCollapsed || group.ids.isEmpty) ? 4 : 0)
+            .padding(.bottom, nativeAccordion ? 0 : ((group.isCollapsed || group.ids.isEmpty) ? 4 : 0))
         .onTapGesture {
             if let fid = group.folderId { toggleFolderCollapsed(fid, scrollProxy: scrollProxy) }
         }
@@ -312,7 +313,7 @@ extension ContentView {
         // A background GeometryReader: it reads the row's own frame without
         // participating in its layout, so no sizing behaviour changes.
         .background {
-            if let fid = group.folderId {
+            if !nativeAccordion, let fid = group.folderId {
                 GeometryReader { geo in
                     Color.clear
                         .onAppear { folderHeaderTopY[fid] = geo.frame(in: .global).minY }

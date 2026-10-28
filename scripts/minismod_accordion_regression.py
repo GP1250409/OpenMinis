@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Compile the actual accordion UIKit code and run a real simulator app."""
+import json,plistlib,subprocess,pathlib,sys
+root=pathlib.Path(__file__).resolve().parents[1]
+out=root/'build/accordion-regression';out.mkdir(parents=True,exist_ok=True)
+app=out/'AccordionRegression.app';app.mkdir(exist_ok=True)
+ios=root/'src/ios/Views/ContentView/Sidebar'
+devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
+choices=[d for ds in devices.values() for d in ds if 'iPhone' in d['name'] and d.get('isAvailable')]
+assert choices,'No iPhone simulator'
+d=next((d for d in choices if d['state']=='Booted'),choices[0]);uid=d['udid']
+if d['state']!='Booted':subprocess.run(['xcrun','simctl','boot',uid],check=True)
+subprocess.run(['xcrun','simctl','bootstatus',uid,'-b'],check=True)
+sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
+arch=subprocess.check_output(['uname','-m'],text=True).strip()
+subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
+ '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
+ str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
+info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
+ 'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',
+ 'LSRequiresIPhoneOS':True,'MinimumOSVersion':'16.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
+(app/'Info.plist').write_bytes(plistlib.dumps(info))
+subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
+subprocess.run(['xcrun','simctl','install',uid,str(app)],check=True)
+r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=100)
+print(r.stdout)
+(out/'results.log').write_text(r.stdout)
+assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'

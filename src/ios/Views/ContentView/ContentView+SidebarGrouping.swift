@@ -314,6 +314,7 @@ extension ContentView {
             g.latestDate = m.first?.updatedAt
             g.summaryTitle = m.first?.title
             g.summarySessionId = m.first?.id
+            g.accordionMemberIDs = g.ids
             if g.isCollapsed { g.ids = [] }
             folderGroups.append(g)
         }

@@ -102,7 +102,7 @@ extension ContentView {
     /// `SessionStackRow` (one view, fixed type). Runs only for rows the List
     /// actually builds, so the lookups below are per visible row, not per
     /// session in the library.
-    private func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {
+    func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {
         let session = sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId)
         return SessionStackRow(
             session: session,
@@ -196,10 +196,15 @@ extension ContentView {
         )
     }
 
+    @ViewBuilder
     private var stackList: some View {
-        ScrollViewReader { scrollProxy in
-        stackListBody(scrollProxy: scrollProxy)
-    }
+        if !isSelecting && !isSearching {
+            nativeAccordionSidebar
+        } else {
+            ScrollViewReader { scrollProxy in
+                stackListBody(scrollProxy: scrollProxy)
+            }
+        }
     }
 
     /// The list itself. Split from `stackList` so the outer chrome chain
