@@ -180,14 +180,13 @@ struct FABGlassMorphID: ViewModifier {
 private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
-    private var edgeColor: Color {
-        if #available(iOS 26.0, *) { return folderEdgeHighlight }
-        return Color(UIColor.separator).opacity(0.5)
-    }
-    private var edgeWidth: CGFloat {
-        if #available(iOS 26.0, *) { return 0.75 }
-        return 0.5
-    }
+    // MOD sub-26 unified edge [2026-10-28]: was separator×0.5 below iOS 26
+    // while .top segments used folderEdgeHighlight×0.75 — the top hairline
+    // changed colour/width the frame a folder folded/unfolded (the flashing
+    // grey line). Both branches now resolve identically so the lone card's
+    // perimeter and the expanded tiles are the same stroke everywhere.
+    private var edgeColor: Color { folderEdgeHighlight }
+    private var edgeWidth: CGFloat { 0.75 }
 
     /// The collapsed card's ACTUAL rendered color, eyedropper-sampled from
     /// device screenshots. Dark: RGB 18/18/18 — re-sampled with a probe
@@ -263,18 +262,20 @@ private struct FolderSurface: ViewModifier {
             // only — glass carries its own edge); tiled outer-perimeter
             // segments on expanded rows so the pieces read as one outline
             // without horizontal lines at the row boundaries.
+            //
+            // MOD sub-26 unified edge [2026-10-28]: the collapsed card used to
+            // stroke separator×0.5 while the expanded .top segment stroked
+            // folderEdgeHighlight×0.75 — the sub-26 fallback edge colour/width
+            // now resolves to the SAME values for every kind, so the top edge
+            // does not visibly re-stroke (the "flashing grey line" at the card
+            // top) the frame the folder folds/unfolds.
             switch kind {
             case .lone:
                 // With glass gone the card needs an explicit edge for
                 // definition — the same highlight the expanded segments tile,
                 // as a full perimeter here.
-                if #available(iOS 26.0, *) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(edgeColor, lineWidth: edgeWidth)
-                } else {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(UIColor.separator).opacity(0.5), lineWidth: 0.5)
-                }
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(edgeColor, lineWidth: edgeWidth)
             case .top:
                 FolderSegmentBorder(kind: .top)
                     .stroke(edgeColor, lineWidth: edgeWidth)
