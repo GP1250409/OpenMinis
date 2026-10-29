@@ -33,8 +33,18 @@ struct NativeAccordionList: UIViewControllerRepresentable {
     }
 }
 
+/// Row renderer. A plain UIHostingController added as a child inherits the
+/// enclosing navigation controller and, on iOS 16-18, bridges ITS OWN (empty)
+/// toolbar / bar-visibility preferences to it when it (re)enters a window.
+/// Upstream documents the same failure for a nested host: an empty state
+/// bridged to the navigation controller removes the whole bar until relaunch.
+/// Rows never own navigation chrome, so cut them off from it entirely.
+final class AccordionRowHostingController: UIHostingController<AnyView> {
+    override var navigationController: UINavigationController? { nil }
+}
+
 final class AccordionHostingCell: UICollectionViewCell {
-    private var host: UIHostingController<AnyView>?
+    private var host: AccordionRowHostingController?
     private var fullHeight: CGFloat = 0
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -48,7 +58,7 @@ final class AccordionHostingCell: UICollectionViewCell {
         let root = AnyView(content.frame(maxWidth: .infinity).frame(height: height, alignment: .top))
         if let host { host.rootView = root }
         else {
-            let next = UIHostingController(rootView: root)
+            let next = AccordionRowHostingController(rootView: root)
             next.view.backgroundColor = .clear
             owner.addChild(next)
             contentView.addSubview(next.view)
@@ -129,6 +139,12 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
                 MainActor.assumeIsolated { self?.finishMotion() }
             }
         }
+        observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.probeNavigationBar("active")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.probeNavigationBar("active+0.6") }
+            }
+        })
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -157,6 +173,31 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     override func viewWillDisappear(_ animated: Bool) {
         finishMotion(); viewport.offset = collection.contentOffset.y
         super.viewWillDisappear(animated)
+    }
+    /// MOD diagnostics: record the home navigation bar state into crash
+    /// breadcrumbs (Library/Application Support/Crumbs) whenever the sidebar
+    /// reappears or the app returns to foreground, and only on CHANGE.
+    /// The bar going missing leaves no other trace; this lets the next
+    /// occurrence be matched to the exact preceding page/sheet transition.
+    private var lastNavProbe = ""
+    func probeNavigationBar(_ why: String) {
+        guard let nav = parent?.navigationController ?? navigationController else {
+            if lastNavProbe != "nonav" { lastNavProbe = "nonav"; CrashBreadcrumbs.record("navbar", detail: "\(why) no-nav") }
+            return
+        }
+        let bar = nav.navigationBar
+        let item = nav.topViewController?.navigationItem
+        let left = (item?.leftBarButtonItems?.count ?? 0)
+        let right = (item?.rightBarButtonItems?.count ?? 0)
+        let state = "hidden=\(nav.isNavigationBarHidden ? 1 : 0) barHidden=\(bar.isHidden ? 1 : 0) inWin=\(bar.window != nil ? 1 : 0) alpha=\(String(format: "%.2f", bar.alpha)) h=\(Int(bar.bounds.height)) L=\(left) R=\(right) title=\(item?.titleView != nil ? 1 : 0) depth=\(nav.viewControllers.count)"
+        guard state != lastNavProbe else { return }
+        lastNavProbe = state
+        CrashBreadcrumbs.record("navbar", detail: "\(why) \(state)")
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        probeNavigationBar("appear")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.probeNavigationBar("appear+0.6") }
     }
     func stop() {
         pending = nil
@@ -355,6 +396,19 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
 }
 
 private final class AccordionDisplayTarget: NSObject {
+    weak var owner: NativeAccordionController?
+    init(owner: NativeAccordionController) { self.owner = owner }
+    @objc func tick(_ link: CADisplayLink) {
+        // CADisplayLink fires on the main run loop; use the same explicit
+        // isolation the StablePinnedTitle KVO observer already uses, instead of
+        // annotating the class @MainActor (whose deinit was implicated in a
+        // flaky test teardown after gesture interruption).
+        MainActor.assumeIsolated {
+            owner?.advance(link.timestamp)
+        }
+    }
+}
+ final class AccordionDisplayTarget: NSObject {
     weak var owner: NativeAccordionController?
     init(owner: NativeAccordionController) { self.owner = owner }
     @objc func tick(_ link: CADisplayLink) {

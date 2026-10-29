@@ -10,6 +10,11 @@ struct SidebarGroup {
     var isCollapsed: Bool
 }
 func AppLocalized(_ s: String) -> String { s }
+/// Test double for the app's ObjC breadcrumb recorder.
+enum CrashBreadcrumbs {
+    static var recorded: [String] = []
+    static func record(_ kind: String, detail: String) { recorded.append("\(kind) \(detail)") }
+}
 
 @main
 final class AccordionTestApp: UIResponder, UIApplicationDelegate {

@@ -74,6 +74,13 @@ extension AccordionTestApp {
             check(item?.titleView != nil || !(item?.title?.isEmpty ?? true) || !(item?.centerItemGroups.isEmpty ?? true), "principal title retained: \(reason)")
         }
         verify("initial native")
+        if let native = findNative(host) {
+            let rowHosts = native.children.compactMap { $0 as? AccordionRowHostingController }
+            check(!rowHosts.isEmpty, "native rows are hosted by the isolated row controller")
+            check(rowHosts.allSatisfy { $0.navigationController == nil }, "row hosts cannot reach the home navigation controller")
+            native.probeNavigationBar("test")
+            check(CrashBreadcrumbs.recorded.contains { $0.hasPrefix("navbar test hidden=0") }, "navbar diagnostic breadcrumb records visible state")
+        }
         for n in 0..<4 {
             state.mode = 1; pump(0.2); verify("search \(n)")
             state.mode = 2; pump(0.2); verify("selection \(n)")
