@@ -812,7 +812,17 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
 enum ChatNavMenuBarItem {
     static let logger = AppLogger(category: "NavMenu")
     static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: "chat.navMenu.barItem") as? Bool ?? true
+        if let explicit = UserDefaults.standard.object(forKey: "chat.navMenu.barItem") as? Bool {
+            return explicit
+        }
+        // MOD: the installer adds the item only once the page is in a window,
+        // i.e. AFTER the push transition. On iOS 16-25 the principal title then
+        // settles off-centre and jumps left when "..." lands (device video,
+        // frames 77->80). The bar-item path exists for iOS 26+/27 placement and
+        // glass chrome; earlier systems get the ToolbarItem-hosted UIKit button,
+        // which is part of the navigation item before the push begins.
+        if #available(iOS 26.0, *) { return true }
+        return false
     }
 }
 
