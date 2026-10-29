@@ -156,7 +156,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     }
     deinit { link?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
-    func receive(_ next: [AccordionRenderSection], render: @escaping Renderer) {
+    func receive(_ next: [AccordionRenderSection], render: @escaping Renderer, allowAnimation: Bool = true) {
         loadViewIfNeeded()
         if link != nil { pending = (next, render); return } // latest intent wins
         let sameMembers = sections.count == next.count && zip(sections, next).allSatisfy { pair in
@@ -171,7 +171,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         }
         accordionLayout.sections = next.map(\.geometry)
         let target: [CGFloat] = next.map { $0.expanded ? 1 : 0 }
-        if sameMembers, old != target, view.window != nil, !UIAccessibility.isReduceMotionEnabled,
+        if allowAnimation, sameMembers, old != target, view.window != nil, !UIAccessibility.isReduceMotionEnabled,
            !collection.isTracking, !collection.isDragging, !collection.isDecelerating {
             beginMotion(from: old, to: target)
         } else {
@@ -223,7 +223,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     fileprivate func advance(_ timestamp: CFTimeInterval) {
         guard link != nil else { return }
         let elapsed = timestamp - animationStart
-        if elapsed >= duration { finishMotion(); return }
+        if elapsed >= duration { finishMotion(allowPendingAnimation: true); return }
         let p = AccordionMotion.ease(CGFloat(elapsed / duration))
         accordionLayout.reveal = zip(from, to).map { pair in pair.0 + (pair.1 - pair.0) * p }
         accordionLayout.prepare()
@@ -236,7 +236,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         }
     }
 
-    private func finishMotion() {
+    private func finishMotion(allowPendingAnimation: Bool = false) {
         guard let running = link else { return }
         running.invalidate(); link = nil; tickTarget = nil
         UIView.performWithoutAnimation {
@@ -252,7 +252,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         refreshVisible(); updateMiniBar()
         if let latest = pending {
             pending = nil
-            receive(latest.0, render: latest.1)
+            receive(latest.0, render: latest.1, allowAnimation: allowPendingAnimation)
         }
     }
 
@@ -266,7 +266,9 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         return cell
     }
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        (cell as? AccordionHostingCell)?.clear()
+        if collectionView.indexPath(for: cell) == nil {
+            (cell as? AccordionHostingCell)?.clear()
+        }
     }
     private func configure(_ cell: AccordionHostingCell, at path: IndexPath) {
         guard sections.indices.contains(path.section), let renderer else { return }
@@ -339,7 +341,8 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     @objc private func collapseFromBar() { if let id = miniFolderID { onToggle?(id) } }
 }
 
-private final class AccordionDisplayTarget {
+@MainActor
+private final class AccordionDisplayTarget: NSObject {
     weak var owner: NativeAccordionController?
     init(owner: NativeAccordionController) { self.owner = owner }
     @objc func tick(_ link: CADisplayLink) { owner?.advance(link.timestamp) }

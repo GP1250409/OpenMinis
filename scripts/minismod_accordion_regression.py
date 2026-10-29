@@ -24,5 +24,13 @@ subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 subprocess.run(['xcrun','simctl','install',uid,str(app)],check=True)
 r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=100)
 print(r.stdout)
+print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 (out/'results.log').write_text(r.stdout)
+if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
+ import shutil
+ diagnostic=pathlib.Path.home()/'Library/Logs/DiagnosticReports'
+ for p in diagnostic.glob('AccordionRegression*'):
+  if p.is_file():shutil.copy2(p,out/p.name)
+ diagnostic_run=subprocess.run(['xcrun','simctl','spawn',uid,'log','show','--style','compact','--last','2m','--predicate','process == "AccordionRegression"'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=30)
+ (out/'diagnostic.log').write_text(diagnostic_run.stdout)
 assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'

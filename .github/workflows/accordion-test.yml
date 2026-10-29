@@ -19,4 +19,6 @@ jobs:
           name: accordion-regression
           path: |
             accordion-regression.log
-            build/accordion-regression/results.log
+            build/accordion-regression/*.log
+            build/accordion-regression/*.ips
+            build/accordion-regression/*.crash
