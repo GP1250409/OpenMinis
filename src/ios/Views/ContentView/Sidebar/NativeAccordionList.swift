@@ -74,7 +74,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var renderer: Renderer?
     private var pending: ([AccordionRenderSection], Renderer)?
     private let viewport: AccordionViewportState
-    private(set) var bottomInset: CGFloat
+    var bottomInset: CGFloat
     var onToggle: ((String) -> Void)?
     private var restored = false
     private var link: CADisplayLink?
