@@ -30,7 +30,12 @@ if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
  import shutil
  diagnostic=pathlib.Path.home()/'Library/Logs/DiagnosticReports'
  for p in diagnostic.glob('AccordionRegression*'):
-  if p.is_file():shutil.copy2(p,out/p.name)
- diagnostic_run=subprocess.run(['xcrun','simctl','spawn',uid,'log','show','--style','compact','--last','2m','--predicate','process == "AccordionRegression"'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=30)
- (out/'diagnostic.log').write_text(diagnostic_run.stdout)
+  if p.is_file():
+   try: shutil.copy2(p,out/p.name)
+   except Exception: pass
+ try:
+  diagnostic_run=subprocess.run(['xcrun','simctl','spawn',uid,'log','show','--style','compact','--last','1m','--predicate','process == "AccordionRegression"'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=90)
+  (out/'diagnostic.log').write_text(diagnostic_run.stdout)
+ except subprocess.TimeoutExpired:
+  (out/'diagnostic.log').write_text('log show timed out')
 assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'

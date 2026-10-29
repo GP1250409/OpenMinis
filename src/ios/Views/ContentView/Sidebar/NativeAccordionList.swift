@@ -354,9 +354,16 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     @objc private func collapseFromBar() { if let id = miniFolderID { onToggle?(id) } }
 }
 
-@MainActor
 private final class AccordionDisplayTarget: NSObject {
     weak var owner: NativeAccordionController?
     init(owner: NativeAccordionController) { self.owner = owner }
-    @objc func tick(_ link: CADisplayLink) { owner?.advance(link.timestamp) }
+    @objc func tick(_ link: CADisplayLink) {
+        // CADisplayLink fires on the main run loop; use the same explicit
+        // isolation the StablePinnedTitle KVO observer already uses, instead of
+        // annotating the class @MainActor (whose deinit was implicated in a
+        // flaky test teardown after gesture interruption).
+        MainActor.assumeIsolated {
+            owner?.advance(link.timestamp)
+        }
+    }
 }
