@@ -15,6 +15,7 @@ sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'
 arch=subprocess.check_output(['uname','-m'],text=True).strip()
 subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
+ str(ios/'FloatingSidebarSurface.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
  'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',
@@ -26,6 +27,11 @@ r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdenti
 print(r.stdout)
 print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 (out/'results.log').write_text(r.stdout)
+import shutil
+try:
+ container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
+ for p in (container/'tmp').glob('fab-*.png'): shutil.copy2(p,out/p.name)
+except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
 if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
  import shutil
  diagnostic=pathlib.Path.home()/'Library/Logs/DiagnosticReports'

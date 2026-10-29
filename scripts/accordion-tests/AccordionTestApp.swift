@@ -128,6 +128,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(controller.accordionLayout.translation == 0, "user drag stops the transition cleanly")
         controller.stop()
         check(controller.accordionLayout.minimumContentHeight == 0, "teardown leaves no animation state")
+        floatingBarTest()
         print("ACCORDION_UIKIT_PASS \(passed)"); fflush(stdout); exit(0)
     }
     func checkSilent(_ condition: Bool) { if !condition { check(false, "anchor geometry"); } }

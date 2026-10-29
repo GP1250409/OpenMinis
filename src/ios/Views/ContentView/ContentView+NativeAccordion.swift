@@ -21,14 +21,15 @@ extension ContentView {
                     footerHeight: folder ? 4 : 0))
         }
         return AnyView(
-            NativeAccordionList(sections: items, viewport: accordionViewport, bottomInset: nativeFabInset,
-                toggle: { id in toggleFolderCollapsed(id) },
-                render: { group, index, role in
-                    nativeAccordionCell(group, index: index, role: role)
-                })
-            .opacity(didInitialLoad ? 1 : 0)
-            .overlay { if didInitialLoad, filteredSessions.isEmpty { emptyState } }
-            .safeAreaInset(edge: .bottom) {
+            FloatingSidebarSurface {
+                NativeAccordionList(sections: items, viewport: accordionViewport, bottomInset: nativeFabInset,
+                    toggle: { id in toggleFolderCollapsed(id) },
+                    render: { group, index, role in
+                        nativeAccordionCell(group, index: index, role: role)
+                    })
+                .opacity(didInitialLoad ? 1 : 0)
+                .overlay { if didInitialLoad, filteredSessions.isEmpty { emptyState } }
+            } controls: {
                 if !hidesFABForOnboarding(listIsEmpty: filteredSessions.isEmpty) {
                     fabRow
                         .background {

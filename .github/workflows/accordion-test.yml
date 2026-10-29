@@ -22,3 +22,4 @@ jobs:
             build/accordion-regression/*.log
             build/accordion-regression/*.ips
             build/accordion-regression/*.crash
+            build/accordion-regression/fab-*.png

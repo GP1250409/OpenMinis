@@ -134,15 +134,11 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         super.viewDidLayoutSubviews()
         if link != nil, abs(motionWidth - view.bounds.width) > 0.5 { finishMotion() }
         collection.frame = view.bounds
-        // The FAB row sits in a SwiftUI safeAreaInset, which raises this view's
-        // bottom safe area by the FAB height. `.automatic` would mirror that into
-        // the collection's contentInset and stop rows ABOVE the FAB, leaving the
-        // collection's opaque background visible behind the buttons (the "opaque
-        // bottom bar" bug). Instead, scroll rows all the way behind the FAB and
-        // reserve only the home-indicator safe area, so content is visible through
-        // the floating bar exactly like the old List.
+        // FloatingSidebarSurface gives the collection a full-height viewport.
+        // Insets provide end-of-scroll clearance, NOT a permanently empty panel:
+        // rows still draw through this region at intermediate scroll positions.
         let top = view.safeAreaInsets.top
-        let bottom = max(0, view.safeAreaInsets.bottom - bottomInset)
+        let bottom = max(0, view.safeAreaInsets.bottom) + max(0, bottomInset)
         if collection.contentInset.top != top || collection.contentInset.bottom != bottom {
             collection.contentInset.top = top
             collection.contentInset.bottom = bottom
