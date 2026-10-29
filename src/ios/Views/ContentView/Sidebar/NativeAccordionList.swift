@@ -186,9 +186,13 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             return
         }
         let bar = nav.navigationBar
-        let item = nav.topViewController?.navigationItem
-        let left = (item?.leftBarButtonItems?.count ?? 0)
-        let right = (item?.rightBarButtonItems?.count ?? 0)
+        let item = bar.topItem ?? nav.topViewController?.navigationItem
+        var left = (item?.leftBarButtonItems?.count ?? 0)
+        var right = (item?.rightBarButtonItems?.count ?? 0)
+        if #available(iOS 16.0, *) {
+            left += item?.leadingItemGroups.reduce(0) { $0 + $1.barButtonItems.count } ?? 0
+            right += item?.trailingItemGroups.reduce(0) { $0 + $1.barButtonItems.count } ?? 0
+        }
         let state = "hidden=\(nav.isNavigationBarHidden ? 1 : 0) barHidden=\(bar.isHidden ? 1 : 0) inWin=\(bar.window != nil ? 1 : 0) alpha=\(String(format: "%.2f", bar.alpha)) h=\(Int(bar.bounds.height)) L=\(left) R=\(right) title=\(item?.titleView != nil ? 1 : 0) depth=\(nav.viewControllers.count)"
         guard state != lastNavProbe else { return }
         lastNavProbe = state
@@ -396,19 +400,6 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
 }
 
 private final class AccordionDisplayTarget: NSObject {
-    weak var owner: NativeAccordionController?
-    init(owner: NativeAccordionController) { self.owner = owner }
-    @objc func tick(_ link: CADisplayLink) {
-        // CADisplayLink fires on the main run loop; use the same explicit
-        // isolation the StablePinnedTitle KVO observer already uses, instead of
-        // annotating the class @MainActor (whose deinit was implicated in a
-        // flaky test teardown after gesture interruption).
-        MainActor.assumeIsolated {
-            owner?.advance(link.timestamp)
-        }
-    }
-}
- final class AccordionDisplayTarget: NSObject {
     weak var owner: NativeAccordionController?
     init(owner: NativeAccordionController) { self.owner = owner }
     @objc func tick(_ link: CADisplayLink) {
