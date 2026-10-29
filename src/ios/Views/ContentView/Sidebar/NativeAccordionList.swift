@@ -107,7 +107,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         collection.delegate = self
         collection.alwaysBounceVertical = true
         collection.keyboardDismissMode = .onDrag
-        collection.contentInsetAdjustmentBehavior = .automatic
+        collection.contentInsetAdjustmentBehavior = .never
         collection.register(AccordionHostingCell.self, forCellWithReuseIdentifier: "row")
         view.addSubview(collection)
         miniBar.backgroundColor = .secondarySystemBackground
@@ -134,15 +134,19 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         super.viewDidLayoutSubviews()
         if link != nil, abs(motionWidth - view.bounds.width) > 0.5 { finishMotion() }
         collection.frame = view.bounds
-        // The FAB row sits in a SwiftUI safeAreaInset. SwiftUI does not translate
-        // that inset into a UICollectionView content inset through a representable,
-        // so rows would stop above the FAB and the collection's opaque background
-        // would show behind the floating buttons. Apply the FAB height explicitly
-        // (contentInsetAdjustmentBehavior=.automatic still adds the home-indicator
-        // safe area on top of this manual inset).
-        if collection.contentInset.bottom != bottomInset {
-            collection.contentInset.bottom = bottomInset
-            collection.verticalScrollIndicatorInsets.bottom = bottomInset
+        // The FAB row sits in a SwiftUI safeAreaInset, which raises this view's
+        // bottom safe area by the FAB height. `.automatic` would mirror that into
+        // the collection's contentInset and stop rows ABOVE the FAB, leaving the
+        // collection's opaque background visible behind the buttons (the "opaque
+        // bottom bar" bug). Instead, scroll rows all the way behind the FAB and
+        // reserve only the home-indicator safe area, so content is visible through
+        // the floating bar exactly like the old List.
+        let top = view.safeAreaInsets.top
+        let bottom = max(0, view.safeAreaInsets.bottom - bottomInset)
+        if collection.contentInset.top != top || collection.contentInset.bottom != bottom {
+            collection.contentInset.top = top
+            collection.contentInset.bottom = bottom
+            collection.scrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         }
         if !restored, !sections.isEmpty, collection.bounds.height > 0 {
             restored = true
