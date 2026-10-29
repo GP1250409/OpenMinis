@@ -73,7 +73,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(AccordionMotion.clampedOffset(-100, contentHeight: 20, viewportHeight: 800, inset: .zero) == 0,
               "short-content boundary clamp")
 
-        let controller = NativeAccordionController(viewport: AccordionViewportState())
+        let controller = NativeAccordionController(viewport: AccordionViewportState(), bottomInset: 0)
         window!.rootViewController = controller
         let render: NativeAccordionController.Renderer = { group, _, role in
             AnyView(Text(group.label).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.gray.opacity(0.1)))

@@ -21,7 +21,7 @@ extension ContentView {
                     footerHeight: folder ? 4 : 0))
         }
         return AnyView(
-            NativeAccordionList(sections: items, viewport: accordionViewport,
+            NativeAccordionList(sections: items, viewport: accordionViewport, bottomInset: nativeFabInset,
                 toggle: { id in toggleFolderCollapsed(id) },
                 render: { group, index, role in
                     nativeAccordionCell(group, index: index, role: role)
@@ -29,7 +29,16 @@ extension ContentView {
             .opacity(didInitialLoad ? 1 : 0)
             .overlay { if didInitialLoad, filteredSessions.isEmpty { emptyState } }
             .safeAreaInset(edge: .bottom) {
-                if !hidesFABForOnboarding(listIsEmpty: filteredSessions.isEmpty) { fabRow }
+                if !hidesFABForOnboarding(listIsEmpty: filteredSessions.isEmpty) {
+                    fabRow
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { nativeFabInset = geo.size.height }
+                                    .onChange(of: geo.size.height) { nativeFabInset = $0 }
+                            }
+                        }
+                }
             }
             .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
             .navigationBarTitleDisplayMode(.inline)

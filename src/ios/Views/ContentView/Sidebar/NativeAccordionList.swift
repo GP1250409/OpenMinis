@@ -17,12 +17,14 @@ final class AccordionViewportState {
 struct NativeAccordionList: UIViewControllerRepresentable {
     var sections: [AccordionRenderSection]
     var viewport: AccordionViewportState
+    var bottomInset: CGFloat = 76
     var toggle: (String) -> Void
     var render: (SidebarGroup, Int, AccordionCellRole) -> AnyView
     func makeUIViewController(context: Context) -> NativeAccordionController {
-        NativeAccordionController(viewport: viewport)
+        NativeAccordionController(viewport: viewport, bottomInset: bottomInset)
     }
     func updateUIViewController(_ controller: NativeAccordionController, context: Context) {
+        controller.bottomInset = bottomInset
         controller.onToggle = toggle
         controller.receive(sections, render: render)
     }
@@ -72,6 +74,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var renderer: Renderer?
     private var pending: ([AccordionRenderSection], Renderer)?
     private let viewport: AccordionViewportState
+    private(set) var bottomInset: CGFloat
     var onToggle: ((String) -> Void)?
     private var restored = false
     private var link: CADisplayLink?
@@ -94,7 +97,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var observers: [NSObjectProtocol] = []
     private(set) var configuredCellCount = 0 // simulator performance assertions
 
-    init(viewport: AccordionViewportState) { self.viewport = viewport; super.init(nibName: nil, bundle: nil) }
+    init(viewport: AccordionViewportState, bottomInset: CGFloat) { self.viewport = viewport; self.bottomInset = bottomInset; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -131,6 +134,16 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         super.viewDidLayoutSubviews()
         if link != nil, abs(motionWidth - view.bounds.width) > 0.5 { finishMotion() }
         collection.frame = view.bounds
+        // The FAB row sits in a SwiftUI safeAreaInset. SwiftUI does not translate
+        // that inset into a UICollectionView content inset through a representable,
+        // so rows would stop above the FAB and the collection's opaque background
+        // would show behind the floating buttons. Apply the FAB height explicitly
+        // (contentInsetAdjustmentBehavior=.automatic still adds the home-indicator
+        // safe area on top of this manual inset).
+        if collection.contentInset.bottom != bottomInset {
+            collection.contentInset.bottom = bottomInset
+            collection.verticalScrollIndicatorInsets.bottom = bottomInset
+        }
         if !restored, !sections.isEmpty, collection.bounds.height > 0 {
             restored = true
             collection.layoutIfNeeded()

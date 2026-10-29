@@ -84,6 +84,7 @@ struct ContentView: View {
     @StateObject var stablePinnedTitle = StablePinnedTitle()
     @State var accordionViewport = AccordionViewportState()
     @ObservedObject var accordionFontSettings = FontSettings.shared
+    @State var nativeFabInset: CGFloat = 76
     /// Prefix for draft session IDs. Each new chat gets a unique suffix
     /// so SwiftUI's `.id()` correctly destroys old views and creates new ones.
     private static let newSessionPrefix = "__new__"
