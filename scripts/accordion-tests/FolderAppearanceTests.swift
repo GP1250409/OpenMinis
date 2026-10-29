@@ -51,7 +51,7 @@ extension AccordionTestApp {
             let title = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 126))
             let member = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 194))
             print("FOLDER_COLORS style=\(style.rawValue) title=\(title) member=\(member)")
-            check(zip(title, member).contains { abs($0 - $1) >= 5 }, "expanded menu tint differs from member row in both themes")
+            check(zip(title, member).allSatisfy { abs($0 - $1) <= 2 }, "expanded menu shares member background without extra tint")
             let divider = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 160 - 0.25))
             check(zip(divider, title).contains { abs($0 - $1) >= 3 }, "only header-to-member boundary has a visible fine rule")
             let scale = image.scale
@@ -62,9 +62,11 @@ extension AccordionTestApp {
                     return sum + zip(color, base).reduce(0) { $0 + abs($1.0 - $1.1) }
                 }
             }
-            let thin = edgeStrength(34), thick = edgeStrength(194)
-            print("FOLDER_EDGE style=\(style.rawValue) collapsed=\(thin) expanded=\(thick)")
-            check(thick > thin, "expanded outer edge is visibly stronger than collapsed edge")
+            let collapsed = edgeStrength(34), expanded = edgeStrength(194)
+            print("FOLDER_EDGE style=\(style.rawValue) collapsed=\(collapsed) expanded=\(expanded)")
+            // Upstream uses the same 0.75pt highlight on expanded segments;
+            // a stronger-than-collapsed edge is no longer the requested style.
+            check(expanded > 0, "upstream-style expanded outer edge remains visible")
             let filename = style == .light ? "folder-light.png" : "folder-dark.png"
             try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
         }

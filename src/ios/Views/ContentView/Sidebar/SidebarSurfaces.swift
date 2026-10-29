@@ -181,13 +181,15 @@ private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
     private var edgeColor: Color {
+        // Match upstream: expanded segments use the adaptive glass highlight
+        // on every iOS version. Only legacy collapsed cards use separator.
+        if kind != .lone { return folderEdgeHighlight }
         if #available(iOS 26.0, *) { return folderEdgeHighlight }
         return Color(UIColor.separator).opacity(0.5)
     }
     private var edgeWidth: CGFloat {
-        // Expanded top, side walls and bottom share one stronger OUTER edge.
-        // No horizontal row separators; collapsed cards keep their hairline.
-        if kind != .lone { return 1.5 }
+        // Upstream expanded outline is 0.75pt, not the MOD's former 1.5pt.
+        if kind != .lone { return 0.75 }
         if #available(iOS 26.0, *) { return 0.75 }
         return 0.5
     }
@@ -246,15 +248,6 @@ private struct FolderSurface: ViewModifier {
                     }
                 } else {
                     shape.fill(Color(UIColor.secondarySystemBackground))
-                }
-                if kind == .top {
-                    // A subtle adaptive tint separates the group MENU from
-                    // session rows without changing row size or animation.
-                    shape.fill(Color(UIColor { traits in
-                        traits.userInterfaceStyle == .dark
-                            ? UIColor(white: 1, alpha: 0.055)
-                            : UIColor(white: 0, alpha: 0.035)
-                    }))
                 }
             }
         }
