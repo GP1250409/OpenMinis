@@ -43,7 +43,7 @@ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
- for pattern in ('fab-*.png','folder-*.png'):
+ for pattern in ('fab-*.png','folder-*.png','nav-*.png'):
   for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
 if 'ACCORDION_UIKIT_PASS ' not in r.stdout:

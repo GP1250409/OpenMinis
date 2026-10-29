@@ -24,3 +24,4 @@ jobs:
             build/accordion-regression/*.crash
             build/accordion-regression/fab-*.png
             build/accordion-regression/folder-*.png
+            build/accordion-regression/nav-*.png

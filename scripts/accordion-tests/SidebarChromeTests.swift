@@ -58,12 +58,20 @@ extension AccordionTestApp {
         }
         func verify(_ reason: String) {
             host.view.layoutIfNeeded(); pump(0.12)
-            let item = nav.topViewController?.navigationItem
-            print("NAV_CHROME \(reason) hidden=\(nav.isNavigationBarHidden) left=\(item?.leftBarButtonItems?.count ?? 0) right=\(item?.rightBarButtonItems?.count ?? 0)")
+            let item = nav.navigationBar.topItem ?? nav.topViewController?.navigationItem
+            // iOS 26 may expose toolbar controls as item GROUPS rather than
+            // left/rightBarButtonItems. Inspect both public representations.
+            let leading = (item?.leftBarButtonItems?.count ?? 0) + (item?.leadingItemGroups.reduce(0) { $0 + $1.barButtonItems.count } ?? 0)
+            let trailing = (item?.rightBarButtonItems?.count ?? 0) + (item?.trailingItemGroups.reduce(0) { $0 + $1.barButtonItems.count } ?? 0)
+            print("NAV_CHROME \(reason) hidden=\(nav.isNavigationBarHidden) left=\(leading) right=\(trailing) center=\(item?.centerItemGroups.count ?? 0)")
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("nav-current.png"))
             check(!nav.isNavigationBarHidden && !nav.navigationBar.isHidden, "root navigation bar visible: \(reason)")
-            check(!(item?.leftBarButtonItems?.isEmpty ?? true), "settings menu retained: \(reason)")
-            check(!(item?.rightBarButtonItems?.isEmpty ?? true), "terminal menu retained: \(reason)")
-            check(item?.titleView != nil || !(item?.title?.isEmpty ?? true), "principal title retained: \(reason)")
+            check(leading > 0, "settings menu retained: \(reason)")
+            check(trailing > 0, "terminal menu retained: \(reason)")
+            check(item?.titleView != nil || !(item?.title?.isEmpty ?? true) || !(item?.centerItemGroups.isEmpty ?? true), "principal title retained: \(reason)")
         }
         verify("initial native")
         for n in 0..<4 {
