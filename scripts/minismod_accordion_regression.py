@@ -13,9 +13,22 @@ if d['state']!='Booted':subprocess.run(['xcrun','simctl','boot',uid],check=True)
 subprocess.run(['xcrun','simctl','bootstatus',uid,'-b'],check=True)
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
 arch=subprocess.check_output(['uname','-m'],text=True).strip()
+# Compile the production paint declarations verbatim, excluding unrelated
+# legacy scroll probes, search glass and their application-only dependencies.
+surfaces=(ios/'SidebarSurfaces.swift').read_text()
+paint='import SwiftUI\nimport UIKit\n'+surfaces[surfaces.index('private struct FolderSegmentBorder:'):surfaces.index('/// Background for the expanded FAB search bar.')]
+paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('/// Rename + dissolve alerts')]
+paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
+# The toolbar must have ONE stable owner, outside all three renderer branches.
+session_source=(ios.parent/'ContentView+SessionList.swift').read_text()
+assert session_source.count('SidebarNavigationChrome { sidebarToolbarContent }') == 1
+assert '.toolbar { sidebarToolbarContent }' not in session_source
+assert '.toolbar { sidebarToolbarContent }' not in (ios.parent/'ContentView+NativeAccordion.swift').read_text()
 subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
- str(ios/'FloatingSidebarSurface.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
+ str(ios/'FloatingSidebarSurface.swift'), str(ios/'SidebarNavigationChrome.swift'),
+ str(paint_source), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
+ str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
  'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',
@@ -30,7 +43,8 @@ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
- for p in (container/'tmp').glob('fab-*.png'): shutil.copy2(p,out/p.name)
+ for pattern in ('fab-*.png','folder-*.png'):
+  for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
 if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
  import shutil

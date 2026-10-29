@@ -185,6 +185,9 @@ private struct FolderSurface: ViewModifier {
         return Color(UIColor.separator).opacity(0.5)
     }
     private var edgeWidth: CGFloat {
+        // Expanded top, side walls and bottom share one stronger OUTER edge.
+        // No horizontal row separators; collapsed cards keep their hairline.
+        if kind != .lone { return 1.5 }
         if #available(iOS 26.0, *) { return 0.75 }
         return 0.5
     }
@@ -234,14 +237,25 @@ private struct FolderSurface: ViewModifier {
         content
         .background {
             // Keep the content on one structural path. Only the paint varies.
-            if #available(iOS 26.0, *) {
-                if kind == .lone {
-                    shape.fill(Self.sampledGlassColor)
+            ZStack {
+                if #available(iOS 26.0, *) {
+                    if kind == .lone {
+                        shape.fill(Self.sampledGlassColor)
+                    } else {
+                        shape.fill(.regularMaterial)
+                    }
                 } else {
-                    shape.fill(.regularMaterial)
+                    shape.fill(Color(UIColor.secondarySystemBackground))
                 }
-            } else {
-                shape.fill(Color(UIColor.secondarySystemBackground))
+                if kind == .top {
+                    // A subtle adaptive tint separates the group MENU from
+                    // session rows without changing row size or animation.
+                    shape.fill(Color(UIColor { traits in
+                        traits.userInterfaceStyle == .dark
+                            ? UIColor(white: 1, alpha: 0.055)
+                            : UIColor(white: 0, alpha: 0.035)
+                    }))
+                }
             }
         }
         .overlay {
@@ -270,6 +284,15 @@ private struct FolderSurface: ViewModifier {
             case .bottom:
                 FolderSegmentBorder(kind: .bottom)
                     .stroke(edgeColor, lineWidth: edgeWidth)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if kind == .top {
+                Rectangle()
+                    .fill(Color(UIColor.separator).opacity(0.6))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, 16)
+                    .allowsHitTesting(false)
             }
         }
     }

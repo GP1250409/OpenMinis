@@ -42,8 +42,6 @@ extension ContentView {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { sidebarToolbarContent }
         )
     }
 

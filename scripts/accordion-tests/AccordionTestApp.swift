@@ -129,6 +129,8 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         controller.stop()
         check(controller.accordionLayout.minimumContentHeight == 0, "teardown leaves no animation state")
         floatingBarTest()
+        sidebarChromeTest()
+        folderAppearanceTest()
         print("ACCORDION_UIKIT_PASS \(passed)"); fflush(stdout); exit(0)
     }
     func checkSilent(_ condition: Bool) { if !condition { check(false, "anchor geometry"); } }

@@ -23,6 +23,9 @@ extension ContentView {
                 splitList
             }
         }
+        // One stable toolbar owner across native/search/selection renderers.
+        // A renderer swap must not remove the root's navigation preferences.
+        .modifier(SidebarNavigationChrome { sidebarToolbarContent })
         // Hardware ⌘F → focus search, available while the session list is on
         // screen (iPad/Mac keyboards). A zero-opacity button carries the
         // shortcut without affecting layout; it lives in the list's view tree so
@@ -332,8 +335,6 @@ extension ContentView {
         // the search bar open its TextField legitimately rises with the
         // keyboard, so normal avoidance is restored.
         .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { sidebarToolbarContent }
         )
     }
 
@@ -421,8 +422,6 @@ extension ContentView {
         // sidebar column never hosts a keyboard unless the inline search bar
         // is open (the chat column's composer avoidance is its own subtree).
         .ignoresSafeArea(.keyboard, edges: showSearchBar ? [] : .bottom)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { sidebarToolbarContent }
         }
     }
 }
