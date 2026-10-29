@@ -76,7 +76,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var restored = false
     private var link: CADisplayLink?
     private var animationStart: CFTimeInterval = 0
-    private let duration: CFTimeInterval = 0.25
+    private let duration: CFTimeInterval = 0.32
     private var from: [CGFloat] = []
     private var to: [CGFloat] = []
     private var anchorSection = 0
