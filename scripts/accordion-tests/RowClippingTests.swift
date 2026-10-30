@@ -52,7 +52,9 @@ struct SpinningRing: View { let color: Color; var body: some View { Circle().str
 extension AccordionTestApp {
     func rowRaster(_ view: UIView) -> [UInt8] {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-        let image = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+        let image = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { context in
+            context.cgContext.setFillColor(UIColor.systemBackground.resolvedColor(with: view.traitCollection).cgColor)
+            context.cgContext.fill(view.bounds)
             view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
         }
         let cg = image.cgImage!
@@ -105,6 +107,14 @@ extension AccordionTestApp {
                     let legacy = rowRaster(cell)
                     let oldChanged = zip(reference, legacy).filter { abs(Int($0.0) - Int($0.1)) > 8 }.count
                     check(oldChanged > 40, "legacy unisolated root reproduces inset-induced clipping")
+                    if scale == 1 && style == .light {
+                        let image = UIGraphicsImageRenderer(bounds: cell.bounds).image { context in
+                            context.cgContext.setFillColor(UIColor.systemBackground.resolvedColor(with: cell.traitCollection).cgColor)
+                            context.cgContext.fill(cell.bounds)
+                            cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true)
+                        }
+                        try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("row-legacy-\(index).png"))
+                    }
                     // Restore production root, then emulate partial accordion reveal.
                     cell.set(content, height: height, owner: owner)
                     cell.frame.size.height = height / 2
@@ -112,7 +122,9 @@ extension AccordionTestApp {
                     check(abs(host.view.bounds.height - height) < 0.1, "partial reveal clips outside without squeezing text")
                     if scale == 1 && style == .light {
                         cell.frame.size.height = height; cell.layoutIfNeeded(); pump(0.04)
-                        let image = UIGraphicsImageRenderer(bounds: cell.bounds).image { _ in
+                        let image = UIGraphicsImageRenderer(bounds: cell.bounds).image { context in
+                            context.cgContext.setFillColor(UIColor.systemBackground.resolvedColor(with: cell.traitCollection).cgColor)
+                            context.cgContext.fill(cell.bounds)
                             cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true)
                         }
                         try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("row-\(index).png"))
