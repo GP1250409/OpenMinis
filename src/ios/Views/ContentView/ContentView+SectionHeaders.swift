@@ -295,7 +295,7 @@ extension ContentView {
             .padding(.top, 4)
             // Expanded: no bottom gap — the card welds onto the first member
             // row's container segment.
-            .padding(.bottom, nativeAccordion ? 0 : ((group.isCollapsed || group.ids.isEmpty) ? 4 : 0))
+            .padding(.bottom, (group.isCollapsed || group.ids.isEmpty) ? 4 : 0)
         .onTapGesture {
             if let fid = group.folderId { toggleFolderCollapsed(fid, scrollProxy: scrollProxy) }
         }
@@ -343,8 +343,7 @@ extension ContentView {
         // default preview (= host bounds) hugged the card unevenly. Make the
         // preview exactly the card: same insets, card corner shape.
         .contentShape(.contextMenuPreview, FolderCardPreviewShape(
-            expanded: !group.isCollapsed && !group.ids.isEmpty,
-            bottomInset: nativeAccordion ? 0 : ((group.isCollapsed || group.ids.isEmpty) ? 4 : 0)))
+            expanded: !group.isCollapsed && !group.ids.isEmpty))
         .contextMenu {
             if let fid = group.folderId, let folder = folders.first(where: { $0.id == fid }) {
                 Button {
@@ -459,14 +458,20 @@ extension ContentView {
 /// Context-menu preview outline of a folder header card inside its padded row.
 struct FolderCardPreviewShape: Shape {
     let expanded: Bool
-    let bottomInset: CGFloat
+    /// Uniform gap between card and preview outline; outline radius = card
+    /// radius + gap, so both outlines share the same circle centres.
+    static let gap: CGFloat = 4
     func path(in rect: CGRect) -> Path {
-        let r = CGRect(x: rect.minX + 6, y: rect.minY + 4,
-                       width: max(0, rect.width - 12),
-                       height: max(0, rect.height - 4 - bottomInset))
-        let bottom: CGFloat = expanded ? 0 : 16
-        return UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: 16,
+        // Card sits at 6pt sides / 4pt top / 4pt bottom (collapsed) inside rect.
+        let g = Self.gap
+        let top: CGFloat = 4 - g
+        let bottomInset: CGFloat = expanded ? 0 : (4 - g)
+        let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + top,
+                       width: max(0, rect.width - 12 + 2 * g),
+                       height: max(0, rect.height - top - bottomInset))
+        let bottom: CGFloat = expanded ? 0 : 16 + g
+        return UnevenRoundedRectangle(topLeadingRadius: 16 + g, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: 16 + g,
                                       style: .continuous).path(in: r)
     }
 }
