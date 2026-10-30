@@ -79,6 +79,18 @@ struct SessionStackRow: View {
                 }
             }
         }
+        // The context-menu preview is a snapshot of THIS view only. In the
+        // native accordion the row background is applied by the host outside
+        // the row, so the preview came out transparent/translucent (wrong
+        // colour vs. the List cell preview). Paint the same background here,
+        // inside the previewed view, exactly as listRowBackground does.
+        .background {
+            if inFolder {
+                FolderMemberRowBackground(isLast: isLastInFolder)
+            } else {
+                Color(.systemBackground)
+            }
+        }
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Group {
