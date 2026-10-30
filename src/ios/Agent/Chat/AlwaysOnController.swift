@@ -123,6 +123,13 @@ final class AlwaysOnController: ObservableObject {
     private(set) var visibleKey: String?
 
     private var lastActivity = Date()
+    /// When the black screen last came up. Touches/keyboard changes in the first
+    /// moments are the app's own (putting the keyboard away, the menu tap that
+    /// chose Screen Saver) and must not take it straight down again.
+    private var shownAt = Date.distantPast
+    private static let showGrace: TimeInterval = 0.9
+    /// Retry delay when something (alert, dictation, missing window) held it back.
+    private static let retryDelay: TimeInterval = 2
     private var appInBackground = false
     private var appActive = true
     private var idleTask: Task<Void, Never>?
@@ -230,7 +237,10 @@ final class AlwaysOnController: ObservableObject {
     }
 
     private func showNow() {
-        guard isArmed, appActive, !isShowing else { return }
+        guard isArmed, appActive, !isShowing else {
+            logger.info("[AlwaysOn] screen saver now: not showing (armed=\(isArmed) active=\(appActive) showing=\(isShowing) running=\(runningKey != nil))")
+            return
+        }
         if let blocker {
             logger.info("[AlwaysOn] screen saver now: not showing yet (\(blocker)), idle timer takes over")
             return
@@ -300,6 +310,10 @@ final class AlwaysOnController: ObservableObject {
 
     /// Any touch, keystroke or keyboard change; also the tap that closes the overlay.
     func userActivity() {
+        if isShowing, Date().timeIntervalSince(shownAt) < Self.showGrace {
+            logger.info("[AlwaysOn] ignoring activity right after show")
+            return
+        }
         lastActivity = Date()
         if isShowing { hide(reason: "activity") }
         if isArmed { scheduleIdle() }
@@ -438,19 +452,48 @@ final class AlwaysOnController: ObservableObject {
         guard isArmed, appActive, !isShowing, let idle = visibleIdleDelay else { return }
         guard Date().timeIntervalSince(lastActivity) >= idle - 0.05 else { scheduleIdle(); return }
         if let blocker {
-            // Try again a full delay later rather than polling.
-            logger.info("[AlwaysOn] not showing: \(blocker)")
-            lastActivity = Date()
-            scheduleIdle()
+            // Retry soon: the user has been idle all along, a blocker (alert,
+            // dictation) going away should not cost another full idle period.
+            logger.info("[AlwaysOn] not showing: \(blocker), retry in \(Int(Self.retryDelay))s")
+            scheduleRetry()
             return
         }
         show()
+    }
+
+    private func scheduleRetry() {
+        idleTask?.cancel()
+        idleTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.retryDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            AlwaysOnController.shared.retryFired()
+        }
+    }
+
+    private func retryFired() {
+        idleTask = nil
+        guard isArmed, appActive, !isShowing else { return }
+        if blocker != nil { scheduleRetry(); return }
+        show()
+    }
+
+    /// The window presenter could not put the black screen up (no foreground
+    /// scene at that moment). Undo the "showing" state and try again, instead
+    /// of staying in a state with nothing on screen and no timer.
+    func presentationFailed() {
+        guard isShowing else { return }
+        logger.info("[AlwaysOn] presentation failed, retrying")
+        tickTimer?.invalidate()
+        tickTimer = nil
+        isShowing = false
+        if isArmed { scheduleRetry() }
     }
 
     private func show() {
         tick = 0
         lastTitleChange = .distantPast
         updateSnapshot()
+        shownAt = Date()
         isShowing = true
         logger.info("[AlwaysOn] show sid=\(visibleKey?.prefix(8) ?? "nil") idle=\(Int(visibleIdleDelay ?? 0))s now=\(isScreenSaverNow(visibleKey))")
         tickTimer?.invalidate()
