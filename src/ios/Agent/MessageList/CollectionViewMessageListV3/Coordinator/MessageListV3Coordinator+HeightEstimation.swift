@@ -152,7 +152,11 @@ extension CollectionViewMessageListV3.Coordinator {
             case .assistantBlock(let mid, let bid):
                 let block = msg(mid)?.blocks.first(where: { $0.id == bid })
                 let n = block?.content.count ?? 0
-                return "b:\(mid.uuidString):\(bid.uuidString):\(n)"
+                // [T-user-ask-expand-verify] An answered user_ask card is one
+                // row with two heights; its memoized height must not cross
+                // between the collapsed and the opened card.
+                let x = (block?.kind == .userAskTool && block?.isThinkingExpanded == true) ? ":x" : ""
+                return "b:\(mid.uuidString):\(bid.uuidString):\(n)\(x)"
             case .toolGroup(let mid, let first):
                 // Identity only — the list uses `itemContentKey`, which adds
                 // the group's counts and expanded state.
