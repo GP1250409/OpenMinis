@@ -268,7 +268,14 @@ extension CollectionViewMessageListV3.Coordinator {
                     // configureCell clears the cell's height cache; the fresh
                     // root view reads the new state, so the measure is real -
                     // and that correct height is what streaming passes reuse.
-                    withAnimation(duration.map { .easeOut(duration: $0) }) {
+                    // [T-user-ask-expand-ghost] No SwiftUI animation here: the
+                    // height animation is the UIKit pass around this block. A
+                    // second, SwiftUI-driven animation on the same card moved
+                    // and faded its header on its own clock (recording: the
+                    // header drawn twice ~9pt apart, card half transparent).
+                    var noAnim = Transaction(animation: nil)
+                    noAnim.disablesAnimations = true
+                    withTransaction(noAnim) {
                         _ = request?.run()
                         // [T-user-ask-history-seed] Drop this row's cached and
                         // memoized height BEFORE configureCell. The memo is keyed
