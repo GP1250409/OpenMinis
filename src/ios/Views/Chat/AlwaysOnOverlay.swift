@@ -55,7 +55,10 @@ final class AlwaysOnWindowPresenter {
               let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })
                 .first(where: { $0.activationState == .foregroundActive })
-        else { return }
+        else {
+            AlwaysOnController.shared.presentationFailed()
+            return
+        }
         // Q3: the keyboard lives above every app window and cannot be covered;
         // put it away first. The text stays, only the cursor position is lost.
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
