@@ -21,7 +21,16 @@ paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('
 paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
 # Compile the complete production SessionRow, not a replacement Text fixture.
 # Only application services/models are doubled in RowClippingTests.swift.
-row_source=ios/'SessionRow.swift'
+row_source=out/'InstrumentedSessionRow.swift'
+row_text=(ios/'SessionRow.swift').read_text()
+# Diagnostic-only GeometryReader backgrounds do not propose layout sizes.
+row_text=row_text.replace('.frame(width: 44, height: 44)', '.frame(width: 44, height: 44).background(RowDiagnosticProbe(name: "icon"))', 1)
+row_text=row_text.replace('.lineLimit(1)', '.lineLimit(1).background(RowDiagnosticProbe(name: "title"))', 1)
+row_text=row_text.replace('.contentShape(Rectangle())', '.contentShape(Rectangle()).background(RowDiagnosticProbe(name: "body"))', 1)
+row_source.write_text(row_text)
+wrappers=(ios/'SessionListRows.swift').read_text()
+wrapped_source=out/'ProductionStackRow.swift'
+wrapped_source.write_text('import SwiftUI\n'+wrappers[wrappers.index('struct SessionStackRow:'):wrappers.index('/// iPad / Mac')]+wrappers[wrappers.index('struct SessionRowPressStyle:'):])
 header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
 header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
 header=header[:header.index('            // Mini-bar trigger:')]
@@ -39,7 +48,8 @@ assert '.toolbar { sidebarToolbarContent }' not in (ios.parent/'ContentView+Nati
 subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
  str(ios/'FloatingSidebarSurface.swift'), str(ios/'SidebarNavigationChrome.swift'),
- str(paint_source), str(row_source), str(header_source),
+ str(paint_source), str(row_source), str(header_source), str(wrapped_source),
+ str(root/'scripts/accordion-tests/WrappedRowGeometryTests.swift'),
  str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
  str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)

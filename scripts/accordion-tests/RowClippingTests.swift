@@ -11,6 +11,7 @@ struct ChatSession {
     var pinnedAt: Date? = nil
     var category: String? = "support"
     var source: String? = nil
+    var isFiled: Bool = false
     var remoteDeviceId: String? = nil
     var isPinned: Bool { pinnedAt != nil }
     var isRemote: Bool { remoteDeviceId != nil }

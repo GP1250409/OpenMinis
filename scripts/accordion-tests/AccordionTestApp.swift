@@ -143,6 +143,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         controller.stop()
         check(controller.accordionLayout.minimumContentHeight == 0, "teardown leaves no animation state")
         rowClippingTest()
+        wrappedRowGeometryTest()
         floatingBarTest()
         sidebarChromeTest()
         folderAppearanceTest()
