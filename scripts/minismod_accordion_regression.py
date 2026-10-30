@@ -19,6 +19,18 @@ surfaces=(ios/'SidebarSurfaces.swift').read_text()
 paint='import SwiftUI\nimport UIKit\n'+surfaces[surfaces.index('private struct FolderSegmentBorder:'):surfaces.index('/// Background for the expanded FAB search bar.')]
 paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('/// Rename + dissolve alerts')]
 paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
+# Compile the complete production SessionRow, not a replacement Text fixture.
+# Only application services/models are doubled in RowClippingTests.swift.
+row_source=ios/'SessionRow.swift'
+header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
+header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
+header=header[:header.index('            // Mini-bar trigger:')]
+header_source=out/'ProductionFolderHeaderFixture.swift'
+header_source.write_text('import SwiftUI\nimport UIKit\nstruct ProductionFolderHeaderFixture: View {\n'
+    ' let group: SidebarGroup\n let searchResultsActive = false\n let searchQuery = ""\n'
+    ' var body: some View {\n'+header+
+    ' .modifier(FolderCardBackground(isDropTarget: false, isExpanded: !group.isCollapsed && !group.ids.isEmpty))\n'
+    ' .padding(.horizontal, 6).padding(.top, 4)\n }\n}\n')
 # The toolbar must have ONE stable owner, outside all three renderer branches.
 session_source=(ios.parent/'ContentView+SessionList.swift').read_text()
 assert session_source.count('SidebarNavigationChrome { sidebarToolbarContent }') == 1
@@ -27,7 +39,8 @@ assert '.toolbar { sidebarToolbarContent }' not in (ios.parent/'ContentView+Nati
 subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
  str(ios/'FloatingSidebarSurface.swift'), str(ios/'SidebarNavigationChrome.swift'),
- str(paint_source), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
+ str(paint_source), str(row_source), str(header_source),
+ str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
  str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
@@ -43,7 +56,7 @@ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
- for pattern in ('fab-*.png','folder-*.png','nav-*.png'):
+ for pattern in ('fab-*.png','folder-*.png','nav-*.png','row-*.png'):
   for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
 if 'ACCORDION_UIKIT_PASS ' not in r.stdout:

@@ -18,8 +18,13 @@ struct SidebarChromeFixture: View {
                 if state.mode == 0 {
                     FloatingSidebarSurface {
                         NativeAccordionList(sections: state.sections, viewport: state.viewport,
-                            bottomInset: 76, toggle: { _ in }, render: { group, _, _ in
-                                AnyView(Text(group.label).frame(maxWidth: .infinity, maxHeight: .infinity))
+                            bottomInset: 76, toggle: { _ in }, render: { group, _, role in
+                                if case .folder = role {
+                                    return AnyView(ProductionFolderHeaderFixture(group: group))
+                                }
+                                var session = ChatSession()
+                                session.title = "朗文词典 English gypq 标题"
+                                return AnyView(SessionRow(session: session))
                             })
                     } controls: { Text("Floating controls").frame(height: 76) }
                 } else {
@@ -49,7 +54,7 @@ extension AccordionTestApp {
         return nil
     }
     func sidebarChromeTest() {
-        let state = SidebarChromeState(sections: sections(nil, count: 100))
+        let state = SidebarChromeState(sections: sections(1, count: 100))
         let host = UIHostingController(rootView: SidebarChromeFixture(state: state))
         window!.rootViewController = host
         host.view.layoutIfNeeded(); pump(0.6)
@@ -80,6 +85,15 @@ extension AccordionTestApp {
             check(rowHosts.allSatisfy { $0.navigationController == nil }, "row hosts cannot reach the home navigation controller")
             native.probeNavigationBar("test")
             check(CrashBreadcrumbs.recorded.contains { $0.hasPrefix("navbar test hidden=0") }, "navbar diagnostic breadcrumb records visible state")
+            for offset: CGFloat in [680, 1360, 2720, 4080, 1360, 0] {
+                native.collection.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+                native.collection.layoutIfNeeded(); pump(0.12)
+                let visible = native.collection.visibleCells
+                check(!visible.isEmpty && visible.count < 35, "production rows remain virtualized after scrolling \(offset)")
+                let hosts = native.children.compactMap { $0 as? AccordionRowHostingController }
+                check(hosts.allSatisfy { $0.navigationController == nil }, "reused production rows remain isolated from navbar")
+            }
+            verify("production rows scrolled and reused")
         }
         for n in 0..<4 {
             state.mode = 1; pump(0.2); verify("search \(n)")

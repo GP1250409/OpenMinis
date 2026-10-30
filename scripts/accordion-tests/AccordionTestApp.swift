@@ -8,6 +8,15 @@ struct SidebarGroup {
     var ids: [String]
     var label: String
     var isCollapsed: Bool
+    var glyphs: [FolderGlyph] = [FolderGlyph()]
+    var anyActive = false
+    var anyPaused = false
+    var anyUnread = false
+    var totalCount = 5
+    var summaryTitle: String? = nil
+    var summarySessionId: String? = nil
+    var latestDate: Date? = nil
+    var isFolderPinned = false
 }
 func AppLocalized(_ s: String) -> String { s }
 /// Test double for the app's ObjC breadcrumb recorder.
@@ -133,6 +142,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(controller.accordionLayout.translation == 0, "user drag stops the transition cleanly")
         controller.stop()
         check(controller.accordionLayout.minimumContentHeight == 0, "teardown leaves no animation state")
+        rowClippingTest()
         floatingBarTest()
         sidebarChromeTest()
         folderAppearanceTest()

@@ -25,3 +25,4 @@ jobs:
             build/accordion-regression/fab-*.png
             build/accordion-regression/folder-*.png
             build/accordion-regression/nav-*.png
+            build/accordion-regression/row-*.png

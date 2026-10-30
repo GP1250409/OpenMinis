@@ -55,7 +55,17 @@ final class AccordionHostingCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func set(_ content: AnyView, height: CGFloat, owner: UIViewController) {
         fullHeight = height
-        let root = AnyView(content.frame(maxWidth: .infinity).frame(height: height, alignment: .top))
+        // The collection owns screen safe areas. A row host is only a local
+        // drawing surface: inheriting the window's safe area can inset its
+        // SwiftUI content as the cell scrolls/re-enters the viewport, while
+        // the outer cell still clips to the invariant row height (iOS 16).
+        // Ignore container safe areas at the host root, not at the collection;
+        // keep the full-height frame and cell clipping for accordion reveal.
+        let root = AnyView(
+            content.frame(maxWidth: .infinity)
+                .frame(height: height, alignment: .top)
+                .ignoresSafeArea(.container, edges: .all)
+        )
         if let host { host.rootView = root }
         else {
             let next = AccordionRowHostingController(rootView: root)
