@@ -282,16 +282,6 @@ extension ContentView {
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
                 isExpanded: !group.isCollapsed && !group.ids.isEmpty))
-            // The native row host is a fixed 68pt (4pt top inset, 0 bottom;
-            // the 4pt footer gap is layout-only), so the default context-menu
-            // preview was the host bounds: 4pt above the card, 0 below.
-            // Give the preview the card's own shape so the margins are even.
-            .contentShape(.contextMenuPreview,
-                (group.isCollapsed || group.ids.isEmpty)
-                    ? AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    : AnyShape(UnevenRoundedRectangle(
-                        topLeadingRadius: 16, bottomLeadingRadius: 0,
-                        bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous)))
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
@@ -348,6 +338,13 @@ extension ContentView {
                 dropTargetFolderId = nil
             }
         }
+        // The native row host is a fixed 68pt: 6pt side and 4pt top insets
+        // but no bottom inset (the 4pt footer gap is layout-only), so the
+        // default preview (= host bounds) hugged the card unevenly. Make the
+        // preview exactly the card: same insets, card corner shape.
+        .contentShape(.contextMenuPreview, FolderCardPreviewShape(
+            expanded: !group.isCollapsed && !group.ids.isEmpty,
+            bottomInset: nativeAccordion ? 0 : ((group.isCollapsed || group.ids.isEmpty) ? 4 : 0)))
         .contextMenu {
             if let fid = group.folderId, let folder = folders.first(where: { $0.id == fid }) {
                 Button {
@@ -455,5 +452,21 @@ extension ContentView {
             deleteInfo = info
             isComputingDelete = false
         }
+    }
+}
+
+
+/// Context-menu preview outline of a folder header card inside its padded row.
+struct FolderCardPreviewShape: Shape {
+    let expanded: Bool
+    let bottomInset: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let r = CGRect(x: rect.minX + 6, y: rect.minY + 4,
+                       width: max(0, rect.width - 12),
+                       height: max(0, rect.height - 4 - bottomInset))
+        let bottom: CGFloat = expanded ? 0 : 16
+        return UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: 16,
+                                      style: .continuous).path(in: r)
     }
 }
