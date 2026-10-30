@@ -66,13 +66,9 @@ extension ContentView {
         case .member(let row):
             let id = group.ids[row]
             return AnyView(
+                // The row paints its own background (inside the context-menu
+                // preview); nothing is added around it here.
                 stackRow(id, group: group)
-                    .background {
-                        // listRowBackground is ignored outside SwiftUI.List.
-                        if group.folderId != nil {
-                            FolderMemberRowBackground(isLast: row == group.ids.count - 1)
-                        } else { Color(UIColor.systemBackground) }
-                    }
             )
         }
     }
