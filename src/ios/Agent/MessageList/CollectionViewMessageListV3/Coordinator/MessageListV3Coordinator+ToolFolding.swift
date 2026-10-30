@@ -351,6 +351,8 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             let finish = { [weak self, weak layout] in
                 guard let self else { return }
+                // [T-user-ask-expand-verify] Settled: check the height once more.
+                self.verifyToggledHeight(blockId: blockId, attempt: 0)
                 if self.isNearBottom() { self.scrollMode = .autoScrolling }
                 // Keep the anchor through the next runloop turns: a late
                 // SwiftUI re-measure of the same cell must not take the
@@ -358,6 +360,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
                 }
+            }
+            // [T-user-ask-expand-verify] And on the next runloop turn, when the
+            // hosting view has certainly applied the new state.
+            DispatchQueue.main.async { [weak self] in
+                self?.verifyToggledHeight(blockId: blockId, attempt: 0)
             }
             if let duration {
                 // Short ease-out, no spring overshoot; a tap during the
@@ -374,6 +381,70 @@ extension CollectionViewMessageListV3.Coordinator {
             // collapse, not a per-frame path.
             CrashBreadcrumbs.record("think.toggle",
                                     detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) animated=\(duration != nil ? 1 : 0)")
+        }
+
+        /// [T-user-ask-expand-verify] The in-pass measure of a toggled card can
+        /// return the height of the state it just left (device crumbs: the
+        /// first tap after a page show / return to foreground logged
+        /// `think.toggle h=59->59` on an expand, the opened card drawn over the
+        /// row below). Measure the visible cell again once things have settled
+        /// and, if the list holds a different height, move to the real one with
+        /// the card's top kept in place. Bounded retries; logs every fix.
+        func verifyToggledHeight(blockId: UUID, attempt: Int) {
+            guard attempt < 3,
+                  let cv = viewController?.collectionView,
+                  let layout = cv.collectionViewLayout as? MessageListLayout,
+                  let snapshot = dataSource?.snapshot(),
+                  let i = snapshot.itemIdentifiers.firstIndex(where: {
+                      if case .assistantBlock(_, let bid) = $0 { return bid == blockId }
+                      return false
+                  }) else { return }
+            let ip = IndexPath(item: i, section: 0)
+            guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
+                  let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes
+            else { return }
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+            cell.clearCachedHeight()
+            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+            let current = attrs.frame.height
+            guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else { return }
+            AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] VERIFY block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", current, fitted)) attempt=\(attempt)")
+            CrashBreadcrumbs.record("think.verify", detail: "idx=\(i) h=\(Int(current))->\(Int(fitted)) n=\(attempt)")
+            let anchorY = attrs.frame.minY - cv.contentOffset.y
+            layout.topAnchoredIndex = i
+            let duration = ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)
+            let apply = {
+                layout.setMeasuredHeight(fitted, at: i)
+                layout.invalidateLayout()
+                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = duration != nil
+                cv.layoutIfNeeded()
+                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
+                guard let frame = cv.layoutAttributesForItem(at: ip)?.frame else { return }
+                let minOff = -cv.adjustedContentInset.top
+                let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+                let target = ToggleAnchorMath.anchoredOffset(newMinY: frame.minY, anchorY: anchorY,
+                                                             minOffset: minOff, maxOffset: maxOff)
+                if abs(target - cv.contentOffset.y) > 0.5 {
+                    cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
+                }
+            }
+            let done = { [weak self, weak layout] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
+                }
+                DispatchQueue.main.async {
+                    self?.verifyToggledHeight(blockId: blockId, attempt: attempt + 1)
+                }
+            }
+            if duration != nil {
+                UIView.animate(withDuration: 0.2, delay: 0,
+                               options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+                               animations: apply, completion: { _ in done() })
+            } else {
+                apply()
+                done()
+            }
         }
 
         func reconfigureAllCells() {
