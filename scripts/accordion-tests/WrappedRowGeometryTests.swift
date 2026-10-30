@@ -73,7 +73,11 @@ extension AccordionTestApp {
             data["hostBounds"] = rect(host.view.bounds)
             data["hostSafeArea"] = [host.view.safeAreaInsets.top, host.view.safeAreaInsets.bottom]
         }
-        data["swiftUI"] = DiagnosticFrames.current.mapValues { rect($0) }
+        let path = (cell.superview as? UICollectionView)?.indexPath(for: cell)
+        let memberKey = path.map { "wrapped-\($0.item - 2)" }
+        data["swiftUI"] = DiagnosticFrames.current.filter { key, _ in
+            key == "folder-body" || (memberKey.map { key.hasSuffix($0) } ?? false)
+        }.mapValues { rect($0) }
         if let bytes = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]),
            let line = String(data: bytes, encoding: .utf8) { print("ROW_CHAIN \(line)") }
     }

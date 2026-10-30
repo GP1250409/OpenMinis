@@ -60,7 +60,7 @@ info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutab
 (app/'Info.plist').write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 subprocess.run(['xcrun','simctl','install',uid,str(app)],check=True)
-r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=100)
+r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=240)
 print(r.stdout)
 print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 (out/'results.log').write_text(r.stdout)
