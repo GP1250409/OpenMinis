@@ -53,8 +53,14 @@ final class AccordionHostingCell: UICollectionViewCell {
         clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func set(_ content: AnyView, height: CGFloat, owner: UIViewController) {
+    func set(_ content: AnyView, height: CGFloat, overflow: CGFloat = 0, owner: UIViewController) {
+        // `overflow` lets a collapsed folder card own its 4pt bottom gap (the
+        // empty footer slot below it) so the context-menu preview can have
+        // equal margins on all four sides. Nothing else lives in that slot.
+        let height = height + overflow
         fullHeight = height
+        contentView.clipsToBounds = overflow == 0
+        clipsToBounds = overflow == 0
         // The collection owns screen safe areas. A row host is only a local
         // drawing surface: inheriting the window's safe area can inset its
         // SwiftUI content as the cell scrolls/re-enters the viewport, while
@@ -361,7 +367,9 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             guard s.members.indices.contains(index) else { return }
             role = .member(index); height = s.geometry.rowHeight
         }
-        cell.set(renderer(group, path.section, role), height: height, owner: self)
+        var overflow: CGFloat = 0
+        if case .folder = role, group.isCollapsed || group.ids.isEmpty { overflow = s.geometry.footerHeight }
+        cell.set(renderer(group, path.section, role), height: height, overflow: overflow, owner: self)
         // Prevent navigation through a partially clipped row. Header taps stay
         // active so a new request can replace the pending intent.
         if case .member = role {
