@@ -282,6 +282,16 @@ extension ContentView {
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
                 isExpanded: !group.isCollapsed && !group.ids.isEmpty))
+            // The native row host is a fixed 68pt (4pt top inset, 0 bottom;
+            // the 4pt footer gap is layout-only), so the default context-menu
+            // preview was the host bounds: 4pt above the card, 0 below.
+            // Give the preview the card's own shape so the margins are even.
+            .contentShape(.contextMenuPreview,
+                (group.isCollapsed || group.ids.isEmpty)
+                    ? AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    : AnyShape(UnevenRoundedRectangle(
+                        topLeadingRadius: 16, bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous)))
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
