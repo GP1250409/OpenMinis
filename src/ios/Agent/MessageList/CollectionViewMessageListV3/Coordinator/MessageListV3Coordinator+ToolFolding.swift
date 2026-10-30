@@ -256,51 +256,64 @@ extension CollectionViewMessageListV3.Coordinator {
             let changes = {
                 if let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
                    let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes {
-                    // [T-user-ask-expand-overlap] Flip the state AND hand the
-                    // cell a fresh hosting configuration in the same step, then
-                    // measure. Measuring right after the flip alone returned the
-                    // OLD height (the hosting view only picks the new state up
-                    // on its next update): that stale height became the cell's
-                    // cache, and while a message streams the cell serves its
-                    // cache to every later pass - so a card opened under a
-                    // streaming/thinking reply kept its collapsed height and
-                    // overlapped the text above and the thinking row below.
-                    // configureCell clears the cell's height cache; the fresh
-                    // root view reads the new state, so the measure is real -
-                    // and that correct height is what streaming passes reuse.
-                    // [T-user-ask-expand-ghost] No SwiftUI animation here: the
-                    // height animation is the UIKit pass around this block. A
-                    // second, SwiftUI-driven animation on the same card moved
-                    // and faded its header on its own clock (recording: the
-                    // header drawn twice ~9pt apart, card half transparent).
-                    var noAnim = Transaction(animation: nil)
-                    noAnim.disablesAnimations = true
-                    withTransaction(noAnim) {
-                        _ = request?.run()
-                        // [T-user-ask-history-seed] Drop this row's cached and
-                        // memoized height BEFORE configureCell. The memo is keyed
-                        // by content, not by expanded state, so configureCell
-                        // would otherwise seed the height measured for the OLD
-                        // state, and the seed makes the measure below return it
-                        // without measuring (device log on a finished message:
-                        // `[MemoSeed] … h=64.0` then `ANCHORED h=64.0→64.0`, the
-                        // opened card overlapping its neighbours). Streaming
-                        // messages are never seeded, which is why this only
-                        // showed up in history. The new height is memoized by
-                        // that measure, so scrolling back still skips it.
-                        layout.invalidateHeight(at: i)
-                        self.configureCell(cell, item: item, indexPath: ip)
+                    // [T-user-ask-expand-clip] The card's content switches and is
+                    // measured with NO animation (UIKit or Core Animation): it
+                    // lands in its final layout at once, pinned to the top of the
+                    // cell, and the cell's clipping bounds are what animates -
+                    // the same reveal as the sidebar groups. Re-rendering the
+                    // card inside the UIView.animate block cross-faded the old
+                    // and new renders (recording: the header drawn twice ~10pt
+                    // apart while the card faded).
+                    UIView.performWithoutAnimation {
+                        CATransaction.begin()
+                        CATransaction.setDisableActions(true)
+                        // [T-user-ask-expand-overlap] Flip the state AND hand the
+                        // cell a fresh hosting configuration in the same step, then
+                        // measure. Measuring right after the flip alone returned the
+                        // OLD height (the hosting view only picks the new state up
+                        // on its next update): that stale height became the cell's
+                        // cache, and while a message streams the cell serves its
+                        // cache to every later pass - so a card opened under a
+                        // streaming/thinking reply kept its collapsed height and
+                        // overlapped the text above and the thinking row below.
+                        // configureCell clears the cell's height cache; the fresh
+                        // root view reads the new state, so the measure is real -
+                        // and that correct height is what streaming passes reuse.
+                        // [T-user-ask-expand-ghost] No SwiftUI animation here: the
+                        // height animation is the UIKit pass around this block. A
+                        // second, SwiftUI-driven animation on the same card moved
+                        // and faded its header on its own clock (recording: the
+                        // header drawn twice ~9pt apart, card half transparent).
+                        var noAnim = Transaction(animation: nil)
+                        noAnim.disablesAnimations = true
+                        withTransaction(noAnim) {
+                            _ = request?.run()
+                            // [T-user-ask-history-seed] Drop this row's cached and
+                            // memoized height BEFORE configureCell. The memo is keyed
+                            // by content, not by expanded state, so configureCell
+                            // would otherwise seed the height measured for the OLD
+                            // state, and the seed makes the measure below return it
+                            // without measuring (device log on a finished message:
+                            // `[MemoSeed] … h=64.0` then `ANCHORED h=64.0→64.0`, the
+                            // opened card overlapping its neighbours). Streaming
+                            // messages are never seeded, which is why this only
+                            // showed up in history. The new height is memoized by
+                            // that measure, so scrolling back still skips it.
+                            layout.invalidateHeight(at: i)
+                            self.configureCell(cell, item: item, indexPath: ip)
+                        }
+                        // The hosting view applies a new root view on its next
+                        // update; run that update now (a layout pass of the cell's
+                        // content) so the measure below sees the new state rather
+                        // than the previous render (device log: measured heights
+                        // lagged one tap behind without this).
+                        cell.contentView.setNeedsLayout()
+                        cell.contentView.layoutIfNeeded()
+                        cell.clearCachedHeight()
+                        let fitted = cell.preferredLayoutAttributesFitting(attrs)
+                        layout.setMeasuredHeight(fitted.size.height, at: i)
+                        CATransaction.commit()
                     }
-                    // The hosting view applies a new root view on its next
-                    // update; run that update now (a layout pass of the cell's
-                    // content) so the measure below sees the new state rather
-                    // than the previous render (device log: measured heights
-                    // lagged one tap behind without this).
-                    cell.contentView.setNeedsLayout()
-                    cell.contentView.layoutIfNeeded()
-                    cell.clearCachedHeight()
-                    let fitted = cell.preferredLayoutAttributesFitting(attrs)
-                    layout.setMeasuredHeight(fitted.size.height, at: i)
                 } else {
                     _ = request?.run()
                     // Cell not on screen: the old re-measure path.
