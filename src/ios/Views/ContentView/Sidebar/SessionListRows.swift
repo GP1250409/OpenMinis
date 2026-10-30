@@ -93,13 +93,7 @@ struct SessionStackRow: View {
         }
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
-        .listRowBackground(Group {
-            if inFolder {
-                FolderMemberRowBackground(isLast: isLastInFolder)
-            } else {
-                Color(.systemBackground)
-            }
-        })
+        .listRowBackground(Color.clear)
         .contextMenu {
             // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
             SessionContextMenu(
