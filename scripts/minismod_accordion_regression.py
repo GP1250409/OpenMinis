@@ -34,6 +34,7 @@ wrapped_source.write_text('import SwiftUI\n'+wrappers[wrappers.index('struct Ses
 header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
 header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
 header=header[:header.index('            // Mini-bar trigger:')]
+header=header.replace('.textCase(nil)', '.textCase(nil).background(RowDiagnosticProbe(name: "folder-body"))', 1)
 header_source=out/'ProductionFolderHeaderFixture.swift'
 header_source.write_text('import SwiftUI\nimport UIKit\nstruct ProductionFolderHeaderFixture: View {\n'
     ' let group: SidebarGroup\n let searchResultsActive = false\n let searchQuery = ""\n'

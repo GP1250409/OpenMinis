@@ -103,13 +103,52 @@ extension AccordionTestApp {
             printGeometry("region-after", cell, native)
             diagnosticImage(cell, name: "region-after")
             print("ROW_REGION_AB cellY=\(cellY) beforeBodyY=\(String(describing: before)) afterBodyY=\(String(describing: after)) changed=\(changed)")
-            check(host.view.safeAreaInsets == .zero, "host regions disabled really removes UIKit safe-area insets")
+            // safeAreaRegions controls what SwiftUI consumes; UIKit's view
+            // safeAreaInsets may correctly stay 34pt. Assert rendered geometry,
+            // not an unrelated assumption that the UIKit value becomes zero.
+            check(host.safeAreaRegions.isEmpty, "host safe-area forwarding regions are disabled")
             check(changed > 40, "same fully wrapped row changes when host safeAreaRegions changes")
+            if let before, let after {
+                check(abs(after - cellY) < 0.5, "disabled host regions align wrapped body exactly with cell")
+                check(abs((after - before) - 17) < 0.5, "same row A/B removes measured 17pt upward displacement")
+            } else { check(false, "per-session body geometry captured for both A/B states") }
             host.safeAreaRegions = previous
             host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.1)
+            let restored = DiagnosticFrames.current[key]?.minY
+            check(restored == before, "restoring host regions reproduces the original displaced body")
             return
         }
         check(false, "A/B selected a fully visible row with a real inherited bottom safe area")
+    }
+    func folderHostRegionAB() {
+        guard #available(iOS 16.4, *) else { return }
+        let owner = UIViewController()
+        window!.rootViewController = owner
+        owner.overrideUserInterfaceStyle = .light
+        owner.view.backgroundColor = .systemBackground
+        owner.view.layoutIfNeeded(); pump(0.2)
+        let cell = AccordionHostingCell(frame: CGRect(x: 0, y: owner.view.bounds.height - 68,
+            width: owner.view.bounds.width, height: 68))
+        owner.view.addSubview(cell)
+        let group = SidebarGroup(id: "web-test", folderId: "web-test", ids: ["one"],
+            label: "网站开发", isCollapsed: true)
+        cell.set(AnyView(ProductionFolderHeaderFixture(group: group)), height: 68, owner: owner)
+        cell.layoutIfNeeded(); pump(0.2)
+        let host = owner.children.compactMap { $0 as? AccordionRowHostingController }.last!
+        printGeometry("folder-before", cell, owner)
+        diagnosticImage(cell, name: "folder-before")
+        let before = DiagnosticFrames.current["folder-body"]?.minY
+        host.safeAreaRegions = []
+        host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.2)
+        let after = DiagnosticFrames.current["folder-body"]?.minY
+        printGeometry("folder-after", cell, owner)
+        diagnosticImage(cell, name: "folder-after")
+        print("FOLDER_REGION_AB before=\(String(describing: before)) after=\(String(describing: after))")
+        if let before, let after {
+            check(abs(after - before - 17) < 0.5, "website group A/B removes same 17pt upward displacement")
+        } else { check(false, "website group body geometry recorded") }
+        host.willMove(toParent: nil); host.view.removeFromSuperview(); host.removeFromParent()
+        cell.removeFromSuperview()
     }
     func wrappedRowGeometryTest() {
         let baseline = UIHostingController(rootView:
@@ -159,5 +198,6 @@ extension AccordionTestApp {
         diagnosticImage(native.view, name: "expanded-again")
         for cell in native.collection.visibleCells { printGeometry("expanded-again", cell, native) }
         native.stop()
+        folderHostRegionAB()
     }
 }
