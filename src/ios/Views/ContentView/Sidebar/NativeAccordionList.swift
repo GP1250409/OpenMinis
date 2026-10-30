@@ -69,6 +69,9 @@ final class AccordionHostingCell: UICollectionViewCell {
         if let host { host.rootView = root }
         else {
             let next = AccordionRowHostingController(rootView: root)
+            // Collection layout owns the viewport safe area. Forwarding it
+            // again into a fixed-height row can shift its SwiftUI body upward.
+            if #available(iOS 16.4, *) { next.safeAreaRegions = [] }
             next.view.backgroundColor = .clear
             owner.addChild(next)
             contentView.addSubview(next.view)

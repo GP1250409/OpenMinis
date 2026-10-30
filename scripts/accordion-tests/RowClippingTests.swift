@@ -103,6 +103,7 @@ extension AccordionTestApp {
                     check(abs(host.view.bounds.height - height) < 0.1, "row keeps full layout height")
                     // A/B control: the old root must visibly respond to the
                     // same inset, otherwise this fixture has not exercised it.
+                    if #available(iOS 16.4, *) { host.safeAreaRegions = .all }
                     host.rootView = AnyView(content.frame(maxWidth: .infinity).frame(height: height, alignment: .top))
                     host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.08)
                     let legacy = rowRaster(cell)
@@ -117,6 +118,7 @@ extension AccordionTestApp {
                         try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("row-legacy-\(index).png"))
                     }
                     // Restore production root, then emulate partial accordion reveal.
+                    if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
                     cell.set(content, height: height, owner: owner)
                     cell.frame.size.height = height / 2
                     cell.layoutIfNeeded(); pump(0.04)

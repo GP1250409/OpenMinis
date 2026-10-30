@@ -94,6 +94,12 @@ extension AccordionTestApp {
                   cell.convert(cell.bounds, to: native.view).maxY <= native.view.bounds.maxY else { continue }
             let key = "body-wrapped-\(path.item - 2)"
             let cellY = cell.convert(cell.bounds, to: window).minY
+            check(host.safeAreaRegions.isEmpty, "production row host disables forwarding by default")
+            check(abs((DiagnosticFrames.current[key]?.minY ?? -999) - cellY) < 0.5,
+                "production default aligns complete wrapped body before any test mutation")
+            let productionRegions = host.safeAreaRegions
+            host.safeAreaRegions = .all
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.2)
             let before = DiagnosticFrames.current[key]?.minY
             printGeometry("region-before", cell, native)
             diagnosticImage(cell, name: "region-before")
@@ -120,6 +126,8 @@ extension AccordionTestApp {
             host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.1)
             let restored = DiagnosticFrames.current[key]?.minY
             check(restored == before, "restoring host regions reproduces the original displaced body")
+            host.safeAreaRegions = productionRegions
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.1)
             return
         }
         check(false, "A/B selected a fully visible row with a real inherited bottom safe area")
@@ -139,6 +147,10 @@ extension AccordionTestApp {
         cell.set(AnyView(ProductionFolderHeaderFixture(group: group)), height: 68, owner: owner)
         cell.layoutIfNeeded(); pump(0.2)
         let host = owner.children.compactMap { $0 as? AccordionRowHostingController }.last!
+        check(host.safeAreaRegions.isEmpty, "production folder host disables forwarding by default")
+        let defaultBody = DiagnosticFrames.current["folder-body"]?.minY
+        host.safeAreaRegions = .all
+        host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.2)
         printGeometry("folder-before", cell, owner)
         diagnosticImage(cell, name: "folder-before")
         let before = DiagnosticFrames.current["folder-body"]?.minY
@@ -149,6 +161,7 @@ extension AccordionTestApp {
         diagnosticImage(cell, name: "folder-after")
         print("FOLDER_REGION_AB before=\(String(describing: before)) after=\(String(describing: after))")
         if let before, let after {
+            check(defaultBody == after, "production default folder matches corrected A/B position")
             check(abs(after - before - 17) < 0.5, "website group A/B removes same 17pt upward displacement")
         } else { check(false, "website group body geometry recorded") }
         host.willMove(toParent: nil); host.view.removeFromSuperview(); host.removeFromParent()
