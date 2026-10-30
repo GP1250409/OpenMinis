@@ -24,9 +24,9 @@ paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
 row_source=out/'InstrumentedSessionRow.swift'
 row_text=(ios/'SessionRow.swift').read_text()
 # Diagnostic-only GeometryReader backgrounds do not propose layout sizes.
-row_text=row_text.replace('.frame(width: 44, height: 44)', '.frame(width: 44, height: 44).background(RowDiagnosticProbe(name: "icon"))', 1)
-row_text=row_text.replace('.lineLimit(1)', '.lineLimit(1).background(RowDiagnosticProbe(name: "title"))', 1)
-row_text=row_text.replace('.contentShape(Rectangle())', '.contentShape(Rectangle()).background(RowDiagnosticProbe(name: "body"))', 1)
+row_text=row_text.replace('.frame(width: 44, height: 44)', '.frame(width: 44, height: 44).background(RowDiagnosticProbe(name: "icon-\\(session.id)"))', 1)
+row_text=row_text.replace('.lineLimit(1)', '.lineLimit(1).background(RowDiagnosticProbe(name: "title-\\(session.id)"))', 1)
+row_text=row_text.replace('.contentShape(Rectangle())', '.contentShape(Rectangle()).background(RowDiagnosticProbe(name: "body-\\(session.id)"))', 1)
 row_source.write_text(row_text)
 wrappers=(ios/'SessionListRows.swift').read_text()
 wrapped_source=out/'ProductionStackRow.swift'

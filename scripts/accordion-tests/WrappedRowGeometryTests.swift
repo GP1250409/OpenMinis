@@ -77,6 +77,40 @@ extension AccordionTestApp {
         if let bytes = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]),
            let line = String(data: bytes, encoding: .utf8) { print("ROW_CHAIN \(line)") }
     }
+    func hostRegionAB(_ native: NativeAccordionController) {
+        guard #available(iOS 16.4, *) else {
+            print("ROW_REGION_AB unavailable before iOS16.4"); return
+        }
+        let candidates = native.collection.visibleCells.sorted { $0.frame.minY > $1.frame.minY }
+        for cell in candidates {
+            guard let path = native.collection.indexPath(for: cell), path.section == 1, path.item >= 2,
+                  let host = native.children.compactMap({ $0 as? AccordionRowHostingController })
+                    .first(where: { $0.view.superview === cell.contentView }),
+                  host.view.safeAreaInsets.bottom > 0,
+                  cell.convert(cell.bounds, to: native.view).maxY <= native.view.bounds.maxY else { continue }
+            let key = "body-wrapped-\(path.item - 2)"
+            let cellY = cell.convert(cell.bounds, to: window).minY
+            let before = DiagnosticFrames.current[key]?.minY
+            printGeometry("region-before", cell, native)
+            diagnosticImage(cell, name: "region-before")
+            let beforePixels = rowRaster(cell)
+            let previous = host.safeAreaRegions
+            host.safeAreaRegions = []
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.2)
+            let after = DiagnosticFrames.current[key]?.minY
+            let afterPixels = rowRaster(cell)
+            let changed = zip(beforePixels, afterPixels).filter { abs(Int($0.0) - Int($0.1)) > 8 }.count
+            printGeometry("region-after", cell, native)
+            diagnosticImage(cell, name: "region-after")
+            print("ROW_REGION_AB cellY=\(cellY) beforeBodyY=\(String(describing: before)) afterBodyY=\(String(describing: after)) changed=\(changed)")
+            check(host.view.safeAreaInsets == .zero, "host regions disabled really removes UIKit safe-area insets")
+            check(changed > 40, "same fully wrapped row changes when host safeAreaRegions changes")
+            host.safeAreaRegions = previous
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded(); pump(0.1)
+            return
+        }
+        check(false, "A/B selected a fully visible row with a real inherited bottom safe area")
+    }
     func wrappedRowGeometryTest() {
         let baseline = UIHostingController(rootView:
             List { ForEach(0..<12, id: \.self) { index in
@@ -111,7 +145,10 @@ extension AccordionTestApp {
                 check(abs(cell.contentView.bounds.height - cell.bounds.height) < 0.5,
                     "full wrapper contentView height matches visible cell")
             }
-            if step == 0 || step == 5 { diagnosticImage(native.view, name: "native-\(step)") }
+            if step == 0 {
+                diagnosticImage(native.view, name: "native-\(step)")
+                hostRegionAB(native)
+            } else if step == 5 { diagnosticImage(native.view, name: "native-\(step)") }
         }
         native.receive(sections(nil, count: 100), render: render)
         pump(0.12)
