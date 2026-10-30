@@ -1197,8 +1197,8 @@ private struct UserAskResolvedCard: View {
                 }
                 .padding(.leading, 46)
                 .textSelection(.enabled)
-                // Fades in / out while the card's height animates.
-                .transition(.opacity)
+                // [T-user-ask-expand-ghost] No transition: the list's height
+                // animation reveals the content; a fade on top ghosted it.
             }
         }
         .padding(.horizontal, 14)
