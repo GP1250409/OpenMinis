@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the context-menu preview probe on an iOS 16 simulator (installs the runtime if needed)."""
 import json, pathlib, plistlib, shutil, subprocess, sys
-root = pathlib.Path(__file__).resolve().parents[1]
+root = pathlib.Path(__file__).resolve().parents[2]
 out = root/'build/probe16'; out.mkdir(parents=True, exist_ok=True)
 def sh(*a, **k):
     print('+', ' '.join(map(str, a)), flush=True); return subprocess.run(list(map(str, a)), **k)
