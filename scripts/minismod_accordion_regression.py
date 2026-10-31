@@ -31,12 +31,26 @@ row_source.write_text(row_text)
 wrappers=(ios/'SessionListRows.swift').read_text()
 wrapped_source=out/'ProductionStackRow.swift'
 wrapped_source.write_text('import SwiftUI\n'+wrappers[wrappers.index('struct SessionStackRow:'):wrappers.index('/// iPad / Mac')]+wrappers[wrappers.index('struct SessionRowPressStyle:'):])
+# Regression: a held folder member row must keep its welded segment and draw
+# the lifted card ON TOP of it. Replacing the segment left a hole in the group
+# around the platter, which is what read as a stray rounded card when a
+# cancelled menu returned.
+press=wrappers[wrappers.index('struct SessionRowPressStyle:'):]
+branch=press[press.index('if inFolder {'):press.index('} else {')]
+assert 'FolderMemberRowBackground(isLast: isLast)' in branch,'member row lost its welded segment'
+assert branch.index('FolderMemberRowBackground(isLast: isLast)') < branch.index('if configuration.isPressed'),'welded segment must be painted unconditionally'
+assert 'FolderLiftedCard' in branch[branch.index('if configuration.isPressed'):],'lifted card must sit on top of the segment'
 header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
 header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
 header=header[:header.index('            // Mini-bar trigger:')]
 header=header.replace('.textCase(nil)', '.textCase(nil).background(RowDiagnosticProbe(name: "folder-body"))', 1)
+header_all=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
+# The preview mask is production code too: compile it verbatim so the header
+# preview regression asserts the real path, not a copy.
+preview_shape=header_all[header_all.index('struct FolderCardPreviewShape:'):]
 header_source=out/'ProductionFolderHeaderFixture.swift'
-header_source.write_text('import SwiftUI\nimport UIKit\nstruct ProductionFolderHeaderFixture: View {\n'
+header_source.write_text('import SwiftUI\nimport UIKit\n'+preview_shape+'\n'+
+    'struct ProductionFolderHeaderFixture: View {\n'
     ' let group: SidebarGroup\n let searchResultsActive = false\n let searchQuery = ""\n'
     ' var body: some View {\n'+header+
     ' .modifier(FolderCardBackground(isDropTarget: false, isExpanded: !group.isCollapsed && !group.ids.isEmpty))\n'

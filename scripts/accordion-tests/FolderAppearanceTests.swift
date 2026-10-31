@@ -74,63 +74,120 @@ extension AccordionTestApp {
         }
         // After the loop: the preview test replaces the window's root.
         for (style, lone) in lones { memberPreviewTest(style: style, loneCard: lone) }
+        headerPreviewMaskTest()
     }
 
-    /// Folder member long-press preview: the row is snapshotted as it is held,
-    /// so its pressed appearance IS the preview. That pressed appearance is
-    /// FolderLiftedCard — the lone folder card surface inset 6pt at the sides
-    /// and 4pt top/bottom of the 68pt row (FolderLiftPreviewShape outlines it
-    /// 2pt from each side, concentric corners 16+4). Assert the lifted card's
-    /// surface and that the preview outline stays concentric with it.
+    /// Folder member long-press preview. Two things are asserted:
+    ///
+    /// 1. The platter's mask (FolderLiftPreviewShape) is exactly the lone card
+    ///    FolderLiftedCard draws — 6pt sides, 4pt top/bottom, radius 16 — so
+    ///    the lift keeps the accepted uniform 4pt gap and card colour.
+    /// 2. The row keeps its welded segment UNDER that card while it is held
+    ///    (production: ZStack of FolderMemberRowBackground + FolderLiftedCard).
+    ///    The old pressed branch replaced the segment, leaving a hole in the
+    ///    group around the platter; on cancel the returning platter crossed it
+    ///    and read as a stray rounded card (video_B6D9D356.mp4, 3.4-4.0 s).
     func memberPreviewTest(style: UIUserInterfaceStyle, loneCard: [Int]) {
-        // The lifted card, at the fixed row size the native accordion gives it.
-        let host = UIHostingController(rootView: FolderLiftedCard(bottomInset: 4).frame(width: 398, height: 76))
-        host.overrideUserInterfaceStyle = style
-        host.view.backgroundColor = .clear
-        let root = UIViewController()
-        root.view.backgroundColor = .clear
-        window!.rootViewController = root
-        root.addChild(host)
-        root.view.addSubview(host.view)
-        host.didMove(toParent: root)
-        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: 398, height: 76))
-        host.view.layoutIfNeeded(); pump(0.3)
-        let format = UIGraphicsImageRendererFormat(); format.opaque = false
-        let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
-            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
-        }
-        func alpha(_ p: CGPoint) -> Int {
-            guard let cg = image.cgImage,
-                  let crop = cg.cropping(to: CGRect(x: Int(p.x * image.scale), y: Int(p.y * image.scale), width: 1, height: 1)) else { return -1 }
-            var bytes: [UInt8] = [0,0,0,0]
-            bytes.withUnsafeMutableBytes { raw in
-                let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-            }
-            return Int(bytes[3])
-        }
         let w: CGFloat = 398, h: CGFloat = 76
-        print("MEMBER_PREVIEW style=\(style.rawValue) size=\(w)x\(h) screen=\(UIScreen.main.bounds.width)")
-        // Clear 4pt top/bottom gap (inside the 68pt row) and clear 6pt side gap.
-        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2)].allSatisfy { alpha($0) == 0 },
-              "lifted card leaves a clear 4pt top and bottom gap")
-        check([CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)].allSatisfy { alpha($0) == 0 },
-              "lifted card is inset 6pt from the row sides")
-        // Card body just inside the card edge (8pt from row sides, 6pt from
-        // row top/bottom).
+        let mask = FolderLiftPreviewShape()
+        let path = mask.path(in: CGRect(x: 0, y: 0, width: w, height: h))
+        let bounds = path.boundingRect
+        print("MEMBER_PREVIEW_MASK \(bounds.minX),\(bounds.minY),\(bounds.width),\(bounds.height)")
+        check(abs(bounds.minX - 6) < 0.5 && abs(bounds.maxX - (w - 6)) < 0.5
+              && abs(bounds.minY - 4) < 0.5 && abs(bounds.maxY - (h - 4)) < 0.5,
+              "member preview mask is the lone card: 6pt sides, 4pt top/bottom")
+        check(!path.contains(CGPoint(x: 6.5, y: 4.5)), "member preview mask rounds its corners")
+
+        // What UIKit snapshots as the platter while the menu holds the row.
+        let platter = render(Color.clear.frame(width: w, height: h).background {
+            ZStack {
+                FolderMemberRowBackground(isLast: false)
+                FolderLiftedCard(bottomInset: 4)
+            }
+        }.clipShape(FolderLiftPreviewShape()), w: w, h: h, style: style)
+        // The same row once the menu is gone.
+        let settled = render(Color.clear.frame(width: w, height: h)
+            .background(FolderMemberRowBackground(isLast: false)), w: w, h: h, style: style)
+
+        // 1. Platter keeps the equal-gap card look.
+        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2)].allSatisfy { alpha(platter, $0) == 0 },
+              "lifted member leaves a clear 4pt top and bottom gap")
+        check([CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)].allSatisfy { alpha(platter, $0) == 0 },
+              "lifted member is inset 6pt from the row sides")
         check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 8, y: h/2), CGPoint(x: w - 8, y: h/2)]
-              .allSatisfy { alpha($0) == 255 }, "lifted card surface starts at the inset")
-        let card = rgb(image, CGPoint(x: w - 30, y: h - 8))
+              .allSatisfy { alpha(platter, $0) == 255 }, "lifted card surface starts at the inset")
+        let card = rgb(platter, CGPoint(x: w - 30, y: h - 8))
         print("MEMBER_PREVIEW_COLOR style=\(style.rawValue) card=\(card) lone=\(loneCard)")
         check(zip(card, loneCard).allSatisfy { abs($0 - $1) <= 2 }, "lifted card uses the folder card colour, no pressed tint")
-        // Preview outline concentric: a rounded rect radius 20 inset 2pt.
-        let outline = FolderLiftPreviewShape().path(in: CGRect(x: 0, y: 0, width: 398, height: 76)).boundingRect
-        print("MEMBER_PREVIEW_OUTLINE \(outline.origin.x),\(outline.origin.y),\(outline.width),\(outline.height)")
-        check(abs(outline.minX - 2) < 0.5 && abs(outline.maxX - 396) < 0.5
-              && abs(outline.minY - 0) < 0.5 && abs(outline.maxY - 76) < 0.5,
-              "preview outline is 2pt from each side, flush top/bottom, concentric with the card")
+
+        // 2. The group is NOT carved: behind the card's 4pt bands the welded
+        //    segment is still painted, so a cancelled menu lands on a
+        //    continuous group instead of a hole with a card over it.
+        let held = render(Color.clear.frame(width: w, height: h).background {
+            ZStack {
+                FolderMemberRowBackground(isLast: false)
+                FolderLiftedCard(bottomInset: 4)
+            }
+        }, w: w, h: h, style: style)
+        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 3, y: h/2)]
+              .allSatisfy { alpha(held, $0) == 255 },
+              "held row keeps the group surface in the card's gaps")
+        let settledCard = rgb(settled, CGPoint(x: w - 30, y: h - 8))
+        print("MEMBER_PREVIEW_SETTLED style=\(style.rawValue) card=\(settledCard)")
+        check(zip(settledCard, card).allSatisfy { abs($0 - $1) <= 3 },
+              "dismissal lands on the same card colour the platter showed")
         let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
-        try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
+        try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
+    }
+
+    func render<V: View>(_ view: V, w: CGFloat, h: CGFloat, style: UIUserInterfaceStyle) -> UIImage {
+        let host = UIHostingController(rootView: view)
+        host.overrideUserInterfaceStyle = style
+        host.view.backgroundColor = .clear
+        let root = UIViewController(); root.view.backgroundColor = .clear
+        window!.rootViewController = root
+        root.addChild(host); root.view.addSubview(host.view); host.didMove(toParent: root)
+        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: w, height: h))
+        host.view.layoutIfNeeded(); pump(0.3)
+        return snapshot(host.view)
+    }
+
+    func snapshot(_ view: UIView) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false
+        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+        }
+    }
+
+    func alpha(_ image: UIImage, _ point: CGPoint) -> Int {
+        guard let cg = image.cgImage,
+              let crop = cg.cropping(to: CGRect(x: Int(point.x * image.scale), y: Int(point.y * image.scale), width: 1, height: 1)) else { return -1 }
+        var bytes: [UInt8] = [0,0,0,0]
+        bytes.withUnsafeMutableBytes { raw in
+            let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return Int(bytes[3])
+    }
+
+    /// Expanded folder header: its card welds onto the first member row, so the
+    /// preview mask used to end flush with the row and the held header was cut
+    /// flat at the bottom (photo_968D96E1 / photo_447E005A). The mask now stops
+    /// 4pt short and rounds there; the collapsed mask is unchanged.
+    func headerPreviewMaskTest() {
+        let rect = CGRect(x: 0, y: 0, width: 390, height: 68)
+        let expanded = FolderCardPreviewShape(expanded: true).path(in: rect)
+        let e = expanded.boundingRect
+        print("HEADER_PREVIEW_MASK expanded=\(e.minX),\(e.minY),\(e.width),\(e.height)")
+        check(abs(e.minX - 2) < 0.5 && abs(e.maxX - 388) < 0.5 && abs(e.minY) < 0.5 && abs(e.maxY - 64) < 0.5,
+              "expanded header preview keeps a 4pt gap under the welded card")
+        check(!expanded.contains(CGPoint(x: 2.6, y: 63.4)) && !expanded.contains(CGPoint(x: 387.4, y: 63.4)),
+              "expanded header preview rounds both bottom corners")
+        check(expanded.contains(CGPoint(x: 195, y: 63.4)),
+              "expanded header preview keeps a continuous bottom edge")
+        let collapsed = FolderCardPreviewShape(expanded: false).path(in: rect).boundingRect
+        check(abs(collapsed.minY) < 0.5 && abs(collapsed.maxY - 68) < 0.5,
+              "collapsed header preview keeps its 4pt gap inside the row")
     }
 }

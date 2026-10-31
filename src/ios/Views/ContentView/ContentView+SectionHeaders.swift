@@ -341,7 +341,10 @@ extension ContentView {
         // The native row host is a fixed 68pt: 6pt side and 4pt top insets
         // but no bottom inset (the 4pt footer gap is layout-only), so the
         // default preview (= host bounds) hugged the card unevenly. Make the
-        // preview exactly the card: same insets, card corner shape.
+        // preview exactly the card: same insets, card corner shape — and, for
+        // an expanded header whose card is welded to its first member row, a
+        // 4pt bottom gap with rounded corners instead of the flat cut the
+        // mask used to leave there (FolderCardPreviewShape).
         .contentShape(.contextMenuPreview, FolderCardPreviewShape(
             expanded: !group.isCollapsed && !group.ids.isEmpty))
         .contextMenu {
@@ -455,23 +458,42 @@ extension ContentView {
 }
 
 
-/// Context-menu preview outline of a folder header card inside its padded row.
+/// Context-menu preview mask of a folder header card inside its padded row.
+///
+/// `.contentShape(.contextMenuPreview, _)` MASKS the platter's snapshot, so
+/// this path is the shape the user actually sees while the header is held.
+///
+/// Collapsed: the card sits 6pt from the row sides and 4pt from top and
+/// bottom, so the mask is the card plus the uniform 4pt gap (radius 16 + gap,
+/// concentric with the card).
+///
+/// Expanded: the card runs flush to the row's bottom on purpose (it welds onto
+/// the first member row), and the mask used to end there with radius 0. The
+/// lifted preview therefore ended in a flat, cut-off bottom edge (device
+/// photos photo_968D96E1 / photo_447E005A) while every other side kept its 4pt
+/// gap. The mask now stops 4pt above the row's bottom and is rounded there
+/// (radius 16), so the held header reads as the same lone card as every other
+/// folder preview, while the welded group rendering is untouched.
 struct FolderCardPreviewShape: Shape {
     let expanded: Bool
-    /// Uniform gap between card and preview outline; outline radius = card
-    /// radius + gap, so both outlines share the same circle centres.
+    /// Uniform gap between card and preview mask; collapsed mask radius =
+    /// card radius + gap, so both outlines share the same circle centres.
     static let gap: CGFloat = 4
+    static let cornerRadius: CGFloat = 16
+    /// How far the expanded mask is pulled off the row's bottom, i.e. the gap
+    /// the welded card does not have room for.
+    static let expandedBottomGap: CGFloat = 4
+
     func path(in rect: CGRect) -> Path {
-        // Card sits at 6pt sides / 4pt top / 4pt bottom (collapsed) inside rect.
         let g = Self.gap
         let top: CGFloat = 4 - g
-        let bottomInset: CGFloat = expanded ? 0 : (4 - g)
+        let bottomInset: CGFloat = expanded ? Self.expandedBottomGap : (4 - g)
         let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + top,
                        width: max(0, rect.width - 12 + 2 * g),
                        height: max(0, rect.height - top - bottomInset))
-        let bottom: CGFloat = expanded ? 0 : 16 + g
-        return UnevenRoundedRectangle(topLeadingRadius: 16 + g, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: 16 + g,
+        let bottom: CGFloat = expanded ? Self.cornerRadius : Self.cornerRadius + g
+        return UnevenRoundedRectangle(topLeadingRadius: Self.cornerRadius + g, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: Self.cornerRadius + g,
                                       style: .continuous).path(in: r)
     }
 }

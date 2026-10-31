@@ -91,15 +91,13 @@ struct SessionStackRow: View {
 
 /// MOD: long-press menu of a stack row.
 ///
-/// Folder member rows: the system preview is a snapshot of the row taken while
-/// its Button is still pressed (device sample 2026-10-31: the old preview was
-/// 219 vs. 242 = SessionRowPressStyle's systemFill overlay baked in; inferred
-/// from colour, not traced). SessionRowPressStyle therefore draws a pressed
-/// member row as a lone folder card (FolderLiftedCard: 6pt sides, 4pt top and
-/// bottom, all corners 16) instead of tinting it, and the preview outline is
-/// the concentric rounded rect 4pt outside that card (FolderLiftPreviewShape).
-/// Result: uniform 4pt margin, unpressed card colour. No custom preview view,
-/// so lift and dismissal animate the row itself.
+/// Folder member rows: the platter's snapshot is masked by
+/// FolderLiftPreviewShape — the lone folder card rect (6pt sides, 4pt top and
+/// bottom, radius 16) — so the held row reads as a floating card with a
+/// uniform 4pt gap and the unpressed card colour. The row keeps its welded
+/// segment while held (SessionRowPressStyle draws the card on top of it), so
+/// the platter is never lifted out of a hole in the group and lands back on
+/// the same continuous surface when the menu is cancelled.
 struct SessionRowContextMenu: ViewModifier {
     let key: MenuKey
     let actions: SessionMenuActionChannel
@@ -229,15 +227,31 @@ struct SessionRowPressStyle: ButtonStyle {
     @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
         if inFolder {
-            // MOD: pressed = lifted. A lone card instead of a systemFill tint;
-            // see SessionRowContextMenu for why.
+            // MOD: the welded segment is painted in EVERY state, and the
+            // lifted card is drawn ON TOP of it while the menu holds the row.
+            //
+            // The old style replaced the segment with a lone card while
+            // pressed. The context menu hides the source row and shows a
+            // platter snapshot of it, so the group behind the platter was
+            // carved open at that row (no segment in the 6pt side strips or
+            // the 4pt bands); when the menu was cancelled the returning
+            // platter crossed that hole and read as a rounded card left lying
+            // over the group (video_B6D9D356.mp4, 3.4-4.0 s). Keeping the
+            // segment means the group is continuous the whole time and the
+            // platter lands on the same surface it left.
+            //
+            // The card stays (not just a tint): the platter's snapshot has a
+            // transparent backdrop, and a member segment is a material on
+            // iOS 26 — the lifted card must be the solid folder surface to
+            // keep the accepted look (6pt/4pt gaps, radius 16, card colour).
             configuration.label
                 .contentShape(Rectangle())
                 .background {
-                    if configuration.isPressed {
-                        FolderLiftedCard(bottomInset: 4)
-                    } else {
+                    ZStack {
                         FolderMemberRowBackground(isLast: isLast)
+                        if configuration.isPressed {
+                            FolderLiftedCard(bottomInset: 4).allowsHitTesting(false)
+                        }
                     }
                 }
         } else {
@@ -249,9 +263,10 @@ struct SessionRowPressStyle: ButtonStyle {
     }
 }
 
-/// MOD: a folder row while pressed / lifted for its context menu: the lone
-/// folder card surface inset 6pt at the sides, 4pt at the top and
-/// `bottomInset` at the bottom of its row, all corners 16.
+/// MOD: the lone folder card surface a member row draws ON TOP of its welded
+/// segment while the context menu holds it: 6pt side insets, 4pt top and
+/// `bottomInset`, all corners 16. Solid on purpose — it is what the platter's
+/// snapshot shows, and a segment is a material on iOS 26.
 struct FolderLiftedCard: View {
     var isDropTarget = false
     let bottomInset: CGFloat
@@ -264,13 +279,22 @@ struct FolderLiftedCard: View {
     }
 }
 
-/// MOD: context-menu preview outline for folder rows/headers: 4pt outside the
-/// lifted card (2pt from the row's sides, flush top/bottom), radius 16 + 4 so
-/// card and outline share corner centres.
+/// MOD: context-menu preview mask for a folder member row: the lone folder
+/// card exactly — 6pt side insets, 4pt top/bottom, radius 16.
+///
+/// `.contentShape(.contextMenuPreview, _)` masks the platter's snapshot, so
+/// this is the shape the held row is seen in: exactly the card drawn by
+/// FolderLiftedCard, with the uniform 4pt gap and rounded corners, and nothing
+/// of the welded segment around it bleeding into the lift.
 struct FolderLiftPreviewShape: Shape {
-    static let gap: CGFloat = 4
+    /// Card insets inside the 68pt accordion row (same numbers as
+    /// FolderMemberRowBackground / FolderCardBackground).
+    static let sideInset: CGFloat = 6
+    static let verticalInset: CGFloat = 4
+    static let cornerRadius: CGFloat = 16
+
     func path(in rect: CGRect) -> Path {
-        RoundedRectangle(cornerRadius: 16 + Self.gap, style: .continuous)
-            .path(in: rect.insetBy(dx: 6 - Self.gap, dy: 0))
+        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+            .path(in: rect.insetBy(dx: Self.sideInset, dy: Self.verticalInset))
     }
 }
