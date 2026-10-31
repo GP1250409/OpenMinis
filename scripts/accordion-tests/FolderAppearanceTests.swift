@@ -126,10 +126,17 @@ extension AccordionTestApp {
 
         // The residue guard: once the lift ends the row is the welded segment
         // again — painted through the 4pt bands, with no lone-card edge left.
-        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2)].allSatisfy { alpha(settled, $0) == 255 },
+        // Rendered over .systemBackground (not .clear) because on iOS 26 a
+        // segment is .regularMaterial, whose alpha over a clear backdrop is <255.
+        let settledOnBg = renderOnSystemBackground(Color.clear.frame(width: w, height: h)
+            .background(FolderMemberRowBackground(isLast: false)), w: w, h: h, style: style)
+        let bg = rgb(settledOnBg, CGPoint(x: 2, y: h/2))
+        let topBand = rgb(settledOnBg, CGPoint(x: w/2, y: 2))
+        let midBand = rgb(settledOnBg, CGPoint(x: w/2, y: h/2))
+        let botBand = rgb(settledOnBg, CGPoint(x: w/2, y: h - 2))
+        check(!sameColor(topBand, bg) && !sameColor(botBand, bg),
               "settled member row paints the welded segment through the 4pt bands")
-        check(zip(rgb(settled, CGPoint(x: w/2, y: 2)), rgb(settled, CGPoint(x: w/2, y: h/2)))
-                .allSatisfy { abs($0 - $1) <= 2 },
+        check(sameColor(topBand, midBand) && sameColor(botBand, midBand),
               "settled member row has no card edge at its top")
         let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
         try? lifted.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
@@ -379,6 +386,22 @@ extension AccordionTestApp {
         host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: w, height: h))
         host.view.layoutIfNeeded(); pump(0.3)
         return snapshot(host.view)
+    }
+
+    func renderOnSystemBackground<V: View>(_ view: V, w: CGFloat, h: CGFloat, style: UIUserInterfaceStyle) -> UIImage {
+        let host = UIHostingController(rootView: view)
+        host.overrideUserInterfaceStyle = style
+        host.view.backgroundColor = .systemBackground
+        let root = UIViewController(); root.view.backgroundColor = .systemBackground
+        root.overrideUserInterfaceStyle = style
+        window!.rootViewController = root
+        root.addChild(host); root.view.addSubview(host.view); host.didMove(toParent: root)
+        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: w, height: h))
+        host.view.layoutIfNeeded(); pump(0.3)
+        let format = UIGraphicsImageRendererFormat(); format.opaque = true
+        return UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
     }
 
     func snapshot(_ view: UIView) -> UIImage {
