@@ -41,6 +41,18 @@ assert 'FolderMemberRowBackground(isLast: isLast)' in branch,'member row lost it
 assert branch.index('FolderMemberRowBackground(isLast: isLast)') < branch.index('if configuration.isPressed'),'welded segment must be painted unconditionally'
 assert 'FolderLiftedCard' in branch[branch.index('if configuration.isPressed'):],'lifted card must sit on top of the segment'
 header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
+# The header platter must BE the card. `.contentShape(.contextMenuPreview, _)`
+# only shapes what the platter already SAMPLED, so the 6pt/4pt outer padding
+# must sit OUTSIDE the view that carries the menu; otherwise the padding is
+# sampled as an opaque gutter (photo_EEB36A68: 4pt light band on three sides,
+# flush on the fourth). Modifier order is the fix, so assert the order itself.
+_hf=header[header.index('func folderSectionHeader('):header.index('func handleSessionCreatedForPendingFolder(')]
+assert _hf.count('.contextMenu {')==1,'header must carry exactly one context menu'
+assert _hf.index('.contentShape(.contextMenuPreview')< _hf.index('.padding(.horizontal, 6)'),\
+ 'header preview must be attached to the CARD: put contentShape(.contextMenuPreview)/contextMenu before the 6pt padding'
+assert _hf.index('.contextMenu {')< _hf.index('.padding(.horizontal, 6)'),\
+ 'header contextMenu must be attached before the outer padding so the platter frame is the card'
+print('HEADER_PREVIEW_CARRIER card-frame-ok')
 header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
 header=header[:header.index('            // Mini-bar trigger:')]
 header=header.replace('.textCase(nil)', '.textCase(nil).background(RowDiagnosticProbe(name: "folder-body"))', 1)
