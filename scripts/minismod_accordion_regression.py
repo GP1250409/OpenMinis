@@ -97,7 +97,7 @@ assert 'cornerRadius + gap' in lift,'platter radius must be concentric with the 
 assert 'private var bottomInset: CGFloat { (lifted && isExpanded) ? FolderCardLift.verticalInset : 0 }' in lift,\
  'the expanded header card must be painted 4pt short while held'
 assert 'onChange(of: pressed)' in lift,'a stuck press state must not be able to re-arm the lift'
-assert 'struct PassiveTouchRecognizer' in lift and 'static func platterVisible' in lift,\
+assert 'class PassiveTouchRecognizer' in lift and 'static func platterVisible' in lift,\
  'the lift must be driven by an observable touch/menu lifecycle'
 member_bg=surfaces[surfaces.index('struct FolderMemberRowBackground: View'):]
 member_bg=member_bg[:member_bg.index('\n}\n')]
