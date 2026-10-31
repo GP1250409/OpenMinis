@@ -9,33 +9,12 @@ ios=root/'src/ios/Views/ContentView/Sidebar'
 def sh(*a,**k):
     print('+',' '.join(map(str,a)),flush=True); return subprocess.run(list(map(str,a)),**k)
 
-def runtimes():
-    return json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j']))['runtimes']
-
-def ios16():
-    return next((r for r in runtimes()
-                 if r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-16')), None)
-
-# The platter is a UISystemBehaviour: run on the iOS the device feedback and the
-# accepted screenshots come from, not on whatever the runner ships by default.
-rt = ios16()
-print('RUNTIMES', [r['identifier'] for r in runtimes()], flush=True)
-if rt is None:
-    sh('xcodebuild','-downloadPlatform','iOS','-buildVersion','16.4',timeout=2400)
-    rt = ios16()
-assert rt is not None, 'no iOS 16 simulator runtime available'
-devices = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','-j']))['devices']
-existing = next((d for d in devices.get(rt['identifier'],[]) if d['name']=='accordion-test'), None)
-if existing is None:
-    types = json.loads(subprocess.check_output(['xcrun','simctl','list','devicetypes','-j']))['devicetypes']
-    dt = next((t['identifier'] for t in types if t['name']=='iPhone 13 Pro'), None) \
-        or next(t['identifier'] for t in types if 'iPhone' in t['name'])
-    uid = subprocess.check_output(['xcrun','simctl','create','accordion-test',dt,rt['identifier']],text=True).strip()
-else:
-    uid = existing['udid']
-print('DEVICE', uid, rt['identifier'], flush=True)
-sh('xcrun','simctl','boot',uid,check=False)
-sh('xcrun','simctl','bootstatus',uid,'-b',check=False)
+devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
+choices=[d for ds in devices.values() for d in ds if 'iPhone' in d['name'] and d.get('isAvailable')]
+assert choices,'No iPhone simulator'
+d=next((d for d in choices if d['state']=='Booted'),choices[0]);uid=d['udid']
+if d['state']!='Booted':subprocess.run(['xcrun','simctl','boot',uid],check=True)
+subprocess.run(['xcrun','simctl','bootstatus',uid,'-b'],check=True)
 
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
 arch=subprocess.check_output(['uname','-m'],text=True).strip()
