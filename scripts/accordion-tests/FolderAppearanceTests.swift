@@ -138,10 +138,11 @@ extension AccordionTestApp {
                 zip(rgb(held, p), rgb(settled, p)).allSatisfy { abs($0 - $1) <= 2 }
               },
               "held row keeps the group surface in the card's gaps")
-        let settledCard = rgb(settled, CGPoint(x: w - 30, y: h - 8))
-        print("MEMBER_PREVIEW_SETTLED style=\(style.rawValue) card=\(settledCard)")
-        check(zip(settledCard, card).allSatisfy { abs($0 - $1) <= 3 },
-              "dismissal lands on the same card colour the platter showed")
+        // (Colour parity with the SETTLED row is deliberately not sampled
+        // here: on iOS 26 a member segment is a material, which renders empty
+        // when drawn over a clear backdrop. The platter's solid card is the
+        // documented parity constant — FolderSurface.sampledGlassColor — and
+        // the appearance parity is covered by FOLDER_COLORS above.)
         let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
         try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
     }
