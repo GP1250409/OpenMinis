@@ -91,13 +91,13 @@ struct SessionStackRow: View {
 
 /// MOD: long-press menu of a stack row.
 ///
-/// Folder member rows: the platter's snapshot is masked by
-/// FolderLiftPreviewShape — the lone folder card rect (6pt sides, 4pt top and
-/// bottom, radius 16) — so the held row reads as a floating card with a
-/// uniform 4pt gap and the unpressed card colour. The row keeps its welded
-/// segment while held (SessionRowPressStyle draws the card on top of it), so
-/// the platter is never lifted out of a hole in the group and lands back on
-/// the same continuous surface when the menu is cancelled.
+/// Folder member rows: the platter's snapshot is masked by FolderPlatterShape —
+/// the lone folder card (6pt sides, 4pt top/bottom, radius 16) expanded by its
+/// 4pt band, radius 20, concentric — so the held row reads as a card with the
+/// same uniform band on all four sides as a collapsed folder card, in the
+/// unpressed card colour. The row paints that card only while the snapshot is
+/// being taken (FolderMemberLiftBackground); the welded segment is back before
+/// the menu can be dismissed, so nothing is left behind on cancel.
 struct SessionRowContextMenu: ViewModifier {
     let key: MenuKey
     let actions: SessionMenuActionChannel
@@ -106,7 +106,7 @@ struct SessionRowContextMenu: ViewModifier {
     func body(content: Content) -> some View {
         if inFolder {
             content
-                .contentShape(.contextMenuPreview, FolderLiftPreviewShape())
+                .contentShape(.contextMenuPreview, FolderPlatterShape())
                 .contextMenu {
                     // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
                     SessionContextMenu(key: key, actions: actions).equatable()
@@ -227,74 +227,26 @@ struct SessionRowPressStyle: ButtonStyle {
     @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
         if inFolder {
-            // MOD: the welded segment is painted in EVERY state, and the
-            // lifted card is drawn ON TOP of it while the menu holds the row.
+            // MOD: the welded segment is the RESTING paint, and the lone card
+            // exists only inside the platter-snapshot window
+            // (FolderMemberLiftBackground → FolderPreviewLift.swift).
             //
-            // The old style replaced the segment with a lone card while
-            // pressed. The context menu hides the source row and shows a
-            // platter snapshot of it, so the group behind the platter was
-            // carved open at that row (no segment in the 6pt side strips or
-            // the 4pt bands); when the menu was cancelled the returning
-            // platter crossed that hole and read as a rounded card left lying
-            // over the group (video_B6D9D356.mp4, 3.4-4.0 s). Keeping the
-            // segment means the group is continuous the whole time and the
-            // platter lands on the same surface it left.
-            //
-            // The card stays (not just a tint): the platter's snapshot has a
-            // transparent backdrop, and a member segment is a material on
-            // iOS 26 — the lifted card must be the solid folder surface to
-            // keep the accepted look (6pt/4pt gaps, radius 16, card colour).
+            // Two earlier shapes of this branch both left a stray rounded card
+            // after a cancelled menu: replacing the segment with a lone card
+            // while pressed (hole in the group), and drawing the card on top of
+            // the segment for the whole press (the press state outlives the menu
+            // on iOS 16, so the list kept the card after the platter was gone —
+            // the residue the user still saw, minus its shadow, in 8c34dec).
+            // The paint now ends at the snapshot: the row is welded again while
+            // the menu is up, so the dismissal lands on a continuous group.
             configuration.label
                 .contentShape(Rectangle())
-                .background {
-                    ZStack {
-                        FolderMemberRowBackground(isLast: isLast)
-                        if configuration.isPressed {
-                            FolderLiftedCard(bottomInset: 4).allowsHitTesting(false)
-                        }
-                    }
-                }
+                .background { FolderMemberLiftBackground(isLast: isLast, pressed: configuration.isPressed) }
         } else {
             configuration.label
                 .contentShape(Rectangle())
                 .overlay(Color(.systemFill).opacity(configuration.isPressed ? 1 : 0).allowsHitTesting(false))
                 .background(Color(.systemBackground))
         }
-    }
-}
-
-/// MOD: the lone folder card surface a member row draws ON TOP of its welded
-/// segment while the context menu holds it: 6pt side insets, 4pt top and
-/// `bottomInset`, all corners 16. Solid on purpose — it is what the platter's
-/// snapshot shows, and a segment is a material on iOS 26.
-struct FolderLiftedCard: View {
-    var isDropTarget = false
-    let bottomInset: CGFloat
-    var body: some View {
-        Color.clear
-            .modifier(FolderCardBackground(isDropTarget: isDropTarget, isExpanded: false))
-            .padding(.horizontal, 6)
-            .padding(.top, 4)
-            .padding(.bottom, bottomInset)
-    }
-}
-
-/// MOD: context-menu preview mask for a folder member row: the lone folder
-/// card exactly — 6pt side insets, 4pt top/bottom, radius 16.
-///
-/// `.contentShape(.contextMenuPreview, _)` masks the platter's snapshot, so
-/// this is the shape the held row is seen in: exactly the card drawn by
-/// FolderLiftedCard, with the uniform 4pt gap and rounded corners, and nothing
-/// of the welded segment around it bleeding into the lift.
-struct FolderLiftPreviewShape: Shape {
-    /// Card insets inside the 68pt accordion row (same numbers as
-    /// FolderMemberRowBackground / FolderCardBackground).
-    static let sideInset: CGFloat = 6
-    static let verticalInset: CGFloat = 4
-    static let cornerRadius: CGFloat = 16
-
-    func path(in rect: CGRect) -> Path {
-        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-            .path(in: rect.insetBy(dx: Self.sideInset, dy: Self.verticalInset))
     }
 }

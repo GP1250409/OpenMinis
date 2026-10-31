@@ -177,7 +177,7 @@ struct FABGlassMorphID: ViewModifier {
 /// definition anymore. The only thing that varies by position is the SHAPE
 /// (lone / top / middle / bottom corner segmentation) and how the border is
 /// tiled; the fill comes from one place.
-private struct FolderSurface: ViewModifier {
+struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
     private var edgeColor: Color {
@@ -291,29 +291,23 @@ private struct FolderSurface: ViewModifier {
     }
 }
 
+/// Card surface of a group header — the lone card when collapsed, the welded
+/// `top` segment when expanded — plus the long-press lift.
+///
+/// While the system takes the context menu's platter snapshot the CARD is
+/// painted inset 4pt at the bottom with all four corners at 16
+/// (FolderPreviewLift.swift), so the platter can keep the same 4pt band on
+/// every side as the collapsed card, concentric at radius 20. Cropping the
+/// snapshot instead is what left the expanded header's platter with a flat,
+/// cut-off bottom edge (photo_968D96E1 / photo_447E005A).
 struct FolderCardBackground: ViewModifier {
     let isDropTarget: Bool
     let isExpanded: Bool
 
-    private var dropShape: AnyShape {
-        isExpanded
-            ? AnyShape(UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous))
-            : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     func body(content: Content) -> some View {
-        content
-            .modifier(FolderSurface(kind: isExpanded ? .top : .lone))
-            .overlay {
-                if isDropTarget {
-                    ZStack {
-                        dropShape.fill(Color.accentColor.opacity(0.15))
-                        dropShape.stroke(Color.accentColor, lineWidth: 1.5)
-                    }
-                }
-            }
+        FolderLiftableCardSurface(isDropTarget: isDropTarget, isExpanded: isExpanded) {
+            content
+        }
     }
 }
 
@@ -322,12 +316,19 @@ struct FolderCardBackground: ViewModifier {
 /// multi-row composition needs.
 struct FolderMemberRowBackground: View {
     let isLast: Bool
+    /// Long-press lift: paint the lone card inset 4pt from the top and bottom
+    /// too, so the platter shows the same 4pt band on all four sides as a
+    /// collapsed folder card. The welded segment is restored as soon as the
+    /// platter exists (FolderPreviewLift.swift), so a cancelled menu never
+    /// lands on a rounded card.
+    var lifted: Bool = false
 
     var body: some View {
         Color.clear
-            .modifier(FolderSurface(kind: isLast ? .bottom : .middle))
+            .modifier(FolderSurface(kind: lifted ? .lone : (isLast ? .bottom : .middle)))
             .padding(.horizontal, 6)
-            .padding(.bottom, isLast ? 4 : 0)
+            .padding(.top, lifted ? 4 : 0)
+            .padding(.bottom, (lifted || isLast) ? 4 : 0)
     }
 }
 

@@ -1,12 +1,12 @@
 name: Accordion UIKit regression
 on:
   push:
-    branches: [mod-native-accordion-20261029]
+    branches: [mod-native-accordion-20261029, mod-row-preview]
   workflow_dispatch:
 jobs:
   test:
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Compile and run production accordion UIKit code
@@ -26,3 +26,4 @@ jobs:
             build/accordion-regression/folder-*.png
             build/accordion-regression/nav-*.png
             build/accordion-regression/row-*.png
+            build/accordion-regression/platter-*.png
