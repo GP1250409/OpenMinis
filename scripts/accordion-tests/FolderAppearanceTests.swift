@@ -76,22 +76,24 @@ extension AccordionTestApp {
         for (style, lone) in lones { memberPreviewTest(style: style, loneCard: lone) }
     }
 
-    /// Folder member long-press preview: uniform clear 4pt margin on all four
-    /// sides, card colour equal to the collapsed folder card, no pressed tint.
+    /// Folder member long-press preview: the row is snapshotted as it is held,
+    /// so its pressed appearance IS the preview. That pressed appearance is
+    /// FolderLiftedCard — the lone folder card surface inset 6pt at the sides
+    /// and 4pt top/bottom of the 68pt row (FolderLiftPreviewShape outlines it
+    /// 2pt from each side, concentric corners 16+4). Assert the lifted card's
+    /// surface and that the preview outline stays concentric with it.
     func memberPreviewTest(style: UIUserInterfaceStyle, loneCard: [Int]) {
-        var session = ChatSession()
-        session.id = "preview-1"; session.title = "Ivan 电源适配器询价邮件"
-        let host = UIHostingController(rootView: SessionRowMenuPreview(session: session, isActive: false, isSuspended: false))
+        // The lifted card, at the fixed row size the native accordion gives it.
+        let host = UIHostingController(rootView: FolderLiftedCard(bottomInset: 4).frame(width: 398, height: 76))
         host.overrideUserInterfaceStyle = style
         host.view.backgroundColor = .clear
-        let size = host.sizeThatFits(in: CGSize(width: 2000, height: 2000))
         let root = UIViewController()
         root.view.backgroundColor = .clear
         window!.rootViewController = root
         root.addChild(host)
         root.view.addSubview(host.view)
         host.didMove(toParent: root)
-        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: size)
+        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: 398, height: 76))
         host.view.layoutIfNeeded(); pump(0.3)
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
@@ -108,18 +110,26 @@ extension AccordionTestApp {
             }
             return Int(bytes[3])
         }
-        let w = size.width, h = size.height
+        let w: CGFloat = 398, h: CGFloat = 76
         print("MEMBER_PREVIEW style=\(style.rawValue) size=\(w)x\(h) screen=\(UIScreen.main.bounds.width)")
-        check(abs(w - (UIScreen.main.bounds.width - 12 + 8)) < 0.5, "member preview card is list-card wide plus 4pt each side")
-        // Clear margin: 2pt inside each edge, at mid-span (away from corners).
-        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)]
-              .allSatisfy { alpha($0) == 0 }, "member preview has a clear 4pt margin on all four sides")
-        // Card body just inside each edge (6pt in), clear of row content.
-        check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 6, y: h/2), CGPoint(x: w - 6, y: h/2)]
-              .allSatisfy { alpha($0) == 255 }, "member preview card starts exactly at the 4pt gap")
+        // Clear 4pt top/bottom gap (inside the 68pt row) and clear 6pt side gap.
+        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2)].allSatisfy { alpha($0) == 0 },
+              "lifted card leaves a clear 4pt top and bottom gap")
+        check([CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)].allSatisfy { alpha($0) == 0 },
+              "lifted card is inset 6pt from the row sides")
+        // Card body just inside the card edge (8pt from row sides, 6pt from
+        // row top/bottom).
+        check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 8, y: h/2), CGPoint(x: w - 8, y: h/2)]
+              .allSatisfy { alpha($0) == 255 }, "lifted card surface starts at the inset")
         let card = rgb(image, CGPoint(x: w - 30, y: h - 8))
         print("MEMBER_PREVIEW_COLOR style=\(style.rawValue) card=\(card) lone=\(loneCard)")
-        check(zip(card, loneCard).allSatisfy { abs($0 - $1) <= 2 }, "member preview uses the folder card colour, no pressed tint")
+        check(zip(card, loneCard).allSatisfy { abs($0 - $1) <= 2 }, "lifted card uses the folder card colour, no pressed tint")
+        // Preview outline concentric: a rounded rect radius 20 inset 2pt.
+        let outline = FolderLiftPreviewShape().path(in: CGRect(x: 0, y: 0, width: 398, height: 76)).boundingRect
+        print("MEMBER_PREVIEW_OUTLINE \(outline.origin.x),\(outline.origin.y),\(outline.width),\(outline.height)")
+        check(abs(outline.minX - 2) < 0.5 && abs(outline.maxX - 396) < 0.5
+              && abs(outline.minY - 0) < 0.5 && abs(outline.maxY - 76) < 0.5,
+              "preview outline is 2pt from each side, flush top/bottom, concentric with the card")
         let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
         try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
     }

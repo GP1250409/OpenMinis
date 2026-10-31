@@ -67,7 +67,7 @@ struct SessionStackRow: View {
             // SessionRow's cheap custom ==.
             .equatable()
         }
-        .buttonStyle(SessionRowPressStyle())
+        .buttonStyle(SessionRowPressStyle(inFolder: inFolder, isLast: isLastInFolder))
         // Entry D: long-press then move drags the session id; the system
         // arbitrates against .contextMenu on the same press.
         .draggable(session.id)
@@ -79,62 +79,39 @@ struct SessionStackRow: View {
                 }
             }
         }
-        // The context-menu preview is a snapshot of THIS view only. In the
-        // native accordion the row background is applied by the host outside
-        // the row, so the preview came out transparent/translucent (wrong
-        // colour vs. the List cell preview). Paint the same background here,
-        // inside the previewed view, exactly as listRowBackground does.
-        .background {
-            if inFolder {
-                FolderMemberRowBackground(isLast: isLastInFolder)
-            } else {
-                Color(.systemBackground)
-            }
-        }
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .modifier(SessionRowContextMenu(
             key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled),
             actions: menuActions,
-            session: session,
-            isActive: isActive,
-            isSuspended: isSuspended,
             inFolder: inFolder))
     }
 }
 
 /// MOD: long-press menu of a stack row.
 ///
-/// Unfiled rows keep the default (snapshot) preview. Folder member rows get a
-/// rendered preview card, because the snapshot was wrong in two ways:
-/// - colour: device sample 2026-10-31, preview 219/218/224 vs. the original's
-///   242/241/246 (the folder-header preview is also 242). 242*0.8 + 120*0.2 =
-///   218 is consistent with SessionRowPressStyle's systemFill overlay (the
-///   Button is still pressed when the snapshot is taken); inferred, not
-///   traced. A rendered card does not depend on the snapshot state at all.
-/// - margins: a member row's background is flush top/bottom (rows weld into
-///   one container), so the preview only had side margins.
-/// The card is the folder card's own surface (FolderCardBackground, lone) with
-/// the uniform gap the folder-header preview uses (FolderCardPreviewShape.gap).
+/// Folder member rows: the system preview is a snapshot of the row taken while
+/// its Button is still pressed (device sample 2026-10-31: the old preview was
+/// 219 vs. 242 = SessionRowPressStyle's systemFill overlay baked in; inferred
+/// from colour, not traced). SessionRowPressStyle therefore draws a pressed
+/// member row as a lone folder card (FolderLiftedCard: 6pt sides, 4pt top and
+/// bottom, all corners 16) instead of tinting it, and the preview outline is
+/// the concentric rounded rect 4pt outside that card (FolderLiftPreviewShape).
+/// Result: uniform 4pt margin, unpressed card colour. No custom preview view,
+/// so lift and dismissal animate the row itself.
 struct SessionRowContextMenu: ViewModifier {
     let key: MenuKey
     let actions: SessionMenuActionChannel
-    let session: ChatSession
-    let isActive: Bool
-    let isSuspended: Bool
     let inFolder: Bool
 
     func body(content: Content) -> some View {
         if inFolder {
             content
-                // Lift from the card area (6pt side insets), not the full row.
-                .contentShape(.contextMenuPreview, SessionRowCardShape())
+                .contentShape(.contextMenuPreview, FolderLiftPreviewShape())
                 .contextMenu {
                     // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
                     SessionContextMenu(key: key, actions: actions).equatable()
-                } preview: {
-                    SessionRowMenuPreview(session: session, isActive: isActive, isSuspended: isSuspended)
                 }
         } else {
             content
@@ -143,31 +120,6 @@ struct SessionRowContextMenu: ViewModifier {
                     SessionContextMenu(key: key, actions: actions).equatable()
                 }
         }
-    }
-}
-
-/// Card outline of a folder member row inside its full-width row (6pt sides).
-struct SessionRowCardShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .path(in: rect.insetBy(dx: 6, dy: 0))
-    }
-}
-
-/// Preview card for a folder member row: the row content on the folder card
-/// surface (never in the pressed state), as wide as the card in the list, with
-/// the same 4pt clear margin on every side as the folder-header preview.
-struct SessionRowMenuPreview: View {
-    let session: ChatSession
-    let isActive: Bool
-    let isSuspended: Bool
-    static let gap: CGFloat = 4
-
-    var body: some View {
-        SessionRow(session: session, isActive: isActive, isSuspended: isSuspended)
-            .frame(width: max(0, UIScreen.main.bounds.width - 12))
-            .modifier(FolderCardBackground(isDropTarget: false, isExpanded: false))
-            .padding(Self.gap)
     }
 }
 
@@ -268,9 +220,57 @@ extension ChatSession {
 /// highlight the hidden NavigationLink used to get. A custom style also keeps
 /// List from tinting the row's text with the accent colour.
 struct SessionRowPressStyle: ButtonStyle {
+    var inFolder = false
+    var isLast = false
+
+    // The context-menu preview is a snapshot of THIS view only, so the row
+    // paints its own background here (listRowBackground is ignored by the
+    // native accordion host).
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
-            .overlay(Color(.systemFill).opacity(configuration.isPressed ? 1 : 0).allowsHitTesting(false))
+        if inFolder {
+            // MOD: pressed = lifted. A lone card instead of a systemFill tint;
+            // see SessionRowContextMenu for why.
+            configuration.label
+                .contentShape(Rectangle())
+                .background {
+                    if configuration.isPressed {
+                        FolderLiftedCard(bottomInset: 4)
+                    } else {
+                        FolderMemberRowBackground(isLast: isLast)
+                    }
+                }
+        } else {
+            configuration.label
+                .contentShape(Rectangle())
+                .overlay(Color(.systemFill).opacity(configuration.isPressed ? 1 : 0).allowsHitTesting(false))
+                .background(Color(.systemBackground))
+        }
+    }
+}
+
+/// MOD: a folder row while pressed / lifted for its context menu: the lone
+/// folder card surface inset 6pt at the sides, 4pt at the top and
+/// `bottomInset` at the bottom of its row, all corners 16.
+struct FolderLiftedCard: View {
+    var isDropTarget = false
+    let bottomInset: CGFloat
+    var body: some View {
+        Color.clear
+            .modifier(FolderCardBackground(isDropTarget: isDropTarget, isExpanded: false))
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .padding(.bottom, bottomInset)
+    }
+}
+
+/// MOD: context-menu preview outline for folder rows/headers: 4pt outside the
+/// lifted card (2pt from the row's sides, flush top/bottom), radius 16 + 4 so
+/// card and outline share corner centres.
+struct FolderLiftPreviewShape: Shape {
+    static let gap: CGFloat = 4
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(cornerRadius: 16 + Self.gap, style: .continuous)
+            .path(in: rect.insetBy(dx: 6 - Self.gap, dy: 0))
     }
 }
