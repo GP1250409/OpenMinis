@@ -282,6 +282,77 @@ extension ContentView {
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
                 isExpanded: !group.isCollapsed && !group.ids.isEmpty))
+            // [MOD] The platter must BE the card, so the preview-carrying view
+            // is the card, not the padded row: `.contentShape(.contextMenuPreview)`
+            // and `.contextMenu` are applied here, BEFORE the 6pt/4pt outer
+            // padding, so the platter samples the card and nothing else.
+            //
+            // Device photo photo_EEB36A68 (build 8c34dec): the 6pt side and
+            // 4pt top paddings were inside the attached view, so the platter
+            // sampled them as well — measured on that photo, a ~4pt light band
+            // (206/255 against the 193 wall) ran along both sides and across
+            // both top corners while the card's welded bottom sat flush on the
+            // platter's bottom edge. A `.contentShape(.contextMenuPreview, …)`
+            // mask cannot turn an already-sampled padding into transparency —
+            // it only clips what was sampled — which is why each mask-only
+            // round left either the ring or a flat, cut bottom. With the
+            // padding outside the attached view the platter is the card on all
+            // four sides: one uniform 0pt margin, no sampled gutter, no ring.
+            .contentShape(.contextMenuPreview, FolderCardPreviewShape(
+                expanded: !group.isCollapsed && !group.ids.isEmpty))
+        .contextMenu {
+            if let fid = group.folderId, let folder = folders.first(where: { $0.id == fid }) {
+                Button {
+                    Task { @MainActor in
+                        await ChatStore.shared.toggleFolderPin(fid)
+                        refreshSessionList()
+                    }
+                } label: {
+                    Label(LocalizedStringKey(folder.isPinned ? "Unpin" : "Pin"),
+                          systemImage: folder.isPinned ? "pin.slash" : "pin")
+                }
+                Button {
+                    renameFolderText = folder.name
+                    // [T-folder-rename-desc-wipe] Seed the description too.
+                    // Both fields are shared @State that outlive the dialog, and
+                    // `onRename` ALWAYS passes the desc field through (empty
+                    // clears the stored value, by design). Leaving this unseeded
+                    // meant the field opened blank — or holding whatever was
+                    // typed for a previously renamed folder — so a rename that
+                    // only touched the NAME silently wiped that folder's
+                    // description. Repeat across folders and every description
+                    // disappears, which reads as "renaming one group overwrote
+                    // them all".
+                    renameFolderDesc = folder.desc ?? ""
+                    folderToRename = folder
+                } label: {
+                    Label("Rename Group", systemImage: "square.and.pencil")
+                }
+                Button {
+                    newChatInFolder(fid)
+                } label: {
+                    Label("New Chat in Group", systemImage: "plus.bubble")
+                }
+                Divider()
+                // Dissolve is deliberately NOT destructive-tinted: it touches
+                // no user data (sessions move back to the main list). Tinting
+                // it red would train the eye to read it as the deleting item.
+                Button {
+                    folderToDissolve = folder
+                } label: {
+                    Label("Dissolve Group", systemImage: "folder.badge.minus")
+                }
+                Divider()
+                // The one destructive item, last, with the count in the title
+                // so the consequence is visible in the menu itself, not only
+                // in the confirmation sheet.
+                Button(role: .destructive) {
+                    requestDeleteFolderWithSessions(folder)
+                } label: {
+                    Label("Delete Group & \(group.totalCount) Sessions", systemImage: "trash")
+                }
+            }
+        }
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
@@ -336,68 +407,6 @@ extension ContentView {
                 dropTargetFolderId = group.folderId
             } else if dropTargetFolderId == group.folderId {
                 dropTargetFolderId = nil
-            }
-        }
-        // The native row host is a fixed 68pt: 6pt side and 4pt top insets
-        // but no bottom inset (the 4pt footer gap is layout-only), so the
-        // default preview (= host bounds) hugged the card unevenly. Make the
-        // preview exactly the card: same insets, card corner shape — and, for
-        // an expanded header whose card is welded to its first member row, a
-        // 4pt bottom gap with rounded corners instead of the flat cut the
-        // mask used to leave there (FolderCardPreviewShape).
-        .contentShape(.contextMenuPreview, FolderCardPreviewShape(
-            expanded: !group.isCollapsed && !group.ids.isEmpty))
-        .contextMenu {
-            if let fid = group.folderId, let folder = folders.first(where: { $0.id == fid }) {
-                Button {
-                    Task { @MainActor in
-                        await ChatStore.shared.toggleFolderPin(fid)
-                        refreshSessionList()
-                    }
-                } label: {
-                    Label(LocalizedStringKey(folder.isPinned ? "Unpin" : "Pin"),
-                          systemImage: folder.isPinned ? "pin.slash" : "pin")
-                }
-                Button {
-                    renameFolderText = folder.name
-                    // [T-folder-rename-desc-wipe] Seed the description too.
-                    // Both fields are shared @State that outlive the dialog, and
-                    // `onRename` ALWAYS passes the desc field through (empty
-                    // clears the stored value, by design). Leaving this unseeded
-                    // meant the field opened blank — or holding whatever was
-                    // typed for a previously renamed folder — so a rename that
-                    // only touched the NAME silently wiped that folder's
-                    // description. Repeat across folders and every description
-                    // disappears, which reads as "renaming one group overwrote
-                    // them all".
-                    renameFolderDesc = folder.desc ?? ""
-                    folderToRename = folder
-                } label: {
-                    Label("Rename Group", systemImage: "square.and.pencil")
-                }
-                Button {
-                    newChatInFolder(fid)
-                } label: {
-                    Label("New Chat in Group", systemImage: "plus.bubble")
-                }
-                Divider()
-                // Dissolve is deliberately NOT destructive-tinted: it touches
-                // no user data (sessions move back to the main list). Tinting
-                // it red would train the eye to read it as the deleting item.
-                Button {
-                    folderToDissolve = folder
-                } label: {
-                    Label("Dissolve Group", systemImage: "folder.badge.minus")
-                }
-                Divider()
-                // The one destructive item, last, with the count in the title
-                // so the consequence is visible in the menu itself, not only
-                // in the confirmation sheet.
-                Button(role: .destructive) {
-                    requestDeleteFolderWithSessions(folder)
-                } label: {
-                    Label("Delete Group & \(group.totalCount) Sessions", systemImage: "trash")
-                }
             }
         }
     }
@@ -458,42 +467,36 @@ extension ContentView {
 }
 
 
-/// Context-menu preview mask of a folder header card inside its padded row.
+/// Context-menu preview shape of a folder header card.
 ///
-/// `.contentShape(.contextMenuPreview, _)` MASKS the platter's snapshot, so
-/// this path is the shape the user actually sees while the header is held.
+/// `.contentShape(.contextMenuPreview, _)` is applied to the CARD (see the
+/// modifier order in `folderSectionHeader`): the platter's frame and its
+/// sampled snapshot are the card, not the padded row. This path is therefore
+/// expressed in the card's own coordinates and must stay exactly the card's
+/// outline — full bounds, radius 16, and for an EXPANDED header (whose card
+/// welds onto its first member row) square bottom corners, matching
+/// `FolderCardBackground(isExpanded: true)` / `FolderSurface(kind: .top)`.
 ///
-/// Collapsed: the card sits 6pt from the row sides and 4pt from top and
-/// bottom, so the mask is the card plus the uniform 4pt gap (radius 16 + gap,
-/// concentric with the card).
-///
-/// Expanded: the card runs flush to the row's bottom on purpose (it welds onto
-/// the first member row), and the mask used to end there with radius 0. The
-/// lifted preview therefore ended in a flat, cut-off bottom edge (device
-/// photos photo_968D96E1 / photo_447E005A) while every other side kept its 4pt
-/// gap. The mask now stops 4pt above the row's bottom and is rounded there
-/// (radius 16), so the held header reads as the same lone card as every other
-/// folder preview, while the welded group rendering is untouched.
+/// Why the padding had to move out of the attached view instead of being
+/// masked away: the platter samples the attached view, padding included, and a
+/// mask only clips that sample. Device photo photo_EEB36A68 (8c34dec) shows the
+/// result of trying to mask it — a ~4pt light gutter (206/255 vs the 193 wall)
+/// around both top corners and both sides, with the welded bottom flush against
+/// the platter's bottom edge, i.e. no equal margin on the fourth side. With the
+/// gutter outside the attached view there is nothing left to sample: the
+/// margin is 0 on every side, so all four are equal by construction.
 struct FolderCardPreviewShape: Shape {
     let expanded: Bool
-    /// Uniform gap between card and preview mask; collapsed mask radius =
-    /// card radius + gap, so both outlines share the same circle centres.
-    static let gap: CGFloat = 4
     static let cornerRadius: CGFloat = 16
-    /// How far the expanded mask is pulled off the row's bottom, i.e. the gap
-    /// the welded card does not have room for.
-    static let expandedBottomGap: CGFloat = 4
 
     func path(in rect: CGRect) -> Path {
-        let g = Self.gap
-        let top: CGFloat = 4 - g
-        let bottomInset: CGFloat = expanded ? Self.expandedBottomGap : (4 - g)
-        let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + top,
-                       width: max(0, rect.width - 12 + 2 * g),
-                       height: max(0, rect.height - top - bottomInset))
-        let bottom: CGFloat = expanded ? Self.cornerRadius : Self.cornerRadius + g
-        return UnevenRoundedRectangle(topLeadingRadius: Self.cornerRadius + g, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: Self.cornerRadius + g,
-                                      style: .continuous).path(in: r)
+        guard expanded else {
+            return RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).path(in: rect)
+        }
+        // Welded header: the card's bottom edge is the group's internal seam.
+        return UnevenRoundedRectangle(
+            topLeadingRadius: Self.cornerRadius, bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0, topTrailingRadius: Self.cornerRadius,
+            style: .continuous).path(in: rect)
     }
 }

@@ -178,23 +178,37 @@ extension AccordionTestApp {
         return Int(bytes[3])
     }
 
-    /// Expanded folder header: its card welds onto the first member row, so the
-    /// preview mask used to end flush with the row and the held header was cut
-    /// flat at the bottom (photo_968D96E1 / photo_447E005A). The mask now stops
-    /// 4pt short and rounds there; the collapsed mask is unchanged.
+    /// Folder header: the platter must be the card on every side. The shape is
+    /// now drawn in the CARD's coordinates (the 6pt/4pt outer padding sits
+    /// outside the view that carries the menu), so the regression is a
+    /// zero-margin assertion on all four sides plus the card's real corner
+    /// treatment — rounded all round when collapsed/lone, square at the bottom
+    /// for an expanded header whose card welds onto its first member row.
+    ///
+    /// Device photo photo_EEB36A68 (8c34dec) is the failure this replaces: the
+    /// mask included the row's 6pt/4pt paddings, so the platter sampled them as
+    /// a ~4pt light gutter along both sides and both top corners while the
+    /// welded bottom stayed flush — three margins of 4pt against a fourth of 0.
     func headerPreviewMaskTest() {
-        let rect = CGRect(x: 0, y: 0, width: 390, height: 68)
-        let expanded = FolderCardPreviewShape(expanded: true).path(in: rect)
+        let expandedCard = CGRect(x: 0, y: 0, width: 378, height: 64) // 390-2*6, 68-4
+        let expanded = FolderCardPreviewShape(expanded: true).path(in: expandedCard)
         let e = expanded.boundingRect
-        print("HEADER_PREVIEW_MASK expanded=\(e.minX),\(e.minY),\(e.width),\(e.height)")
-        check(abs(e.minX - 2) < 0.5 && abs(e.maxX - 388) < 0.5 && abs(e.minY) < 0.5 && abs(e.maxY - 64) < 0.5,
-              "expanded header preview keeps a 4pt gap under the welded card")
-        check(!expanded.contains(CGPoint(x: 2.6, y: 63.4)) && !expanded.contains(CGPoint(x: 387.4, y: 63.4)),
-              "expanded header preview rounds both bottom corners")
-        check(expanded.contains(CGPoint(x: 195, y: 63.4)),
-              "expanded header preview keeps a continuous bottom edge")
-        let collapsed = FolderCardPreviewShape(expanded: false).path(in: rect).boundingRect
-        check(abs(collapsed.minY) < 0.5 && abs(collapsed.maxY - 68) < 0.5,
-              "collapsed header preview keeps its 4pt gap inside the row")
+        print("HEADER_PREVIEW_SHAPE expanded=\(e.minX),\(e.minY),\(e.width),\(e.height)")
+        let insets = [e.minX, e.minY, expandedCard.width - e.maxX, expandedCard.height - e.maxY]
+        check(insets.allSatisfy { abs($0) < 0.5 },
+              "expanded header preview has one equal margin (0pt) on all four sides")
+        check(!expanded.contains(CGPoint(x: 0.5, y: 0.5)) && !expanded.contains(CGPoint(x: 377.5, y: 0.5)),
+              "expanded header preview keeps the card's rounded top corners")
+        check(expanded.contains(CGPoint(x: 0.5, y: 63.5)) && expanded.contains(CGPoint(x: 377.5, y: 63.5)),
+              "expanded header preview keeps the welded square bottom corners")
+
+        let collapsedCard = CGRect(x: 0, y: 0, width: 378, height: 60) // 68-2*4
+        let collapsed = FolderCardPreviewShape(expanded: false).path(in: collapsedCard)
+        let c = collapsed.boundingRect
+        let cInsets = [c.minX, c.minY, collapsedCard.width - c.maxX, collapsedCard.height - c.maxY]
+        check(cInsets.allSatisfy { abs($0) < 0.5 },
+              "collapsed header preview is the lone card, equal margin on all four sides")
+        check(!collapsed.contains(CGPoint(x: 0.5, y: 0.5)) && !collapsed.contains(CGPoint(x: 0.5, y: 59.5)),
+              "collapsed header preview rounds all four corners")
     }
 }
