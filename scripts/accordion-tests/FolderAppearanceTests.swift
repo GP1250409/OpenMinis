@@ -99,11 +99,10 @@ extension AccordionTestApp {
         check(!path.contains(CGPoint(x: 6.5, y: 4.5)), "member preview mask rounds its corners")
 
         // What UIKit snapshots as the platter while the menu holds the row.
+        // Production: the source holds only the lifted card; the welded
+        // segment is painted outside the menu source.
         let platter = render(Color.clear.frame(width: w, height: h).background {
-            ZStack {
-                FolderMemberRowBackground(isLast: false)
-                FolderLiftedCard(bottomInset: 4)
-            }
+            FolderLiftedCard(bottomInset: 4)
         }.clipShape(FolderLiftPreviewShape()), w: w, h: h, style: style)
         // The same row once the menu is gone.
         let settled = render(Color.clear.frame(width: w, height: h)
@@ -178,23 +177,53 @@ extension AccordionTestApp {
         return Int(bytes[3])
     }
 
-    /// Expanded folder header: its card welds onto the first member row, so the
-    /// preview mask used to end flush with the row and the held header was cut
-    /// flat at the bottom (photo_968D96E1 / photo_447E005A). The mask now stops
-    /// 4pt short and rounds there; the collapsed mask is unchanged.
+    /// Folder header preview: expanded and collapsed share ONE mask (4pt band
+    /// on all four sides, radius 20). An expanded header's menu source holds
+    /// only its card body (FolderCardFill, 4pt short of the row bottom, all
+    /// corners rounded); its welded segment is painted outside the source.
     func headerPreviewMaskTest() {
-        let rect = CGRect(x: 0, y: 0, width: 390, height: 68)
+        let w: CGFloat = 390, h: CGFloat = 68
+        let rect = CGRect(x: 0, y: 0, width: w, height: h)
         let expanded = FolderCardPreviewShape(expanded: true).path(in: rect)
         let e = expanded.boundingRect
         print("HEADER_PREVIEW_MASK expanded=\(e.minX),\(e.minY),\(e.width),\(e.height)")
-        check(abs(e.minX - 2) < 0.5 && abs(e.maxX - 388) < 0.5 && abs(e.minY) < 0.5 && abs(e.maxY - 64) < 0.5,
-              "expanded header preview keeps a 4pt gap under the welded card")
-        check(!expanded.contains(CGPoint(x: 2.6, y: 63.4)) && !expanded.contains(CGPoint(x: 387.4, y: 63.4)),
-              "expanded header preview rounds both bottom corners")
-        check(expanded.contains(CGPoint(x: 195, y: 63.4)),
-              "expanded header preview keeps a continuous bottom edge")
-        let collapsed = FolderCardPreviewShape(expanded: false).path(in: rect).boundingRect
-        check(abs(collapsed.minY) < 0.5 && abs(collapsed.maxY - 68) < 0.5,
-              "collapsed header preview keeps its 4pt gap inside the row")
+        check(abs(e.minX - 2) < 0.5 && abs(e.maxX - 388) < 0.5 && abs(e.minY) < 0.5 && abs(e.maxY - 68) < 0.5,
+              "expanded header preview mask = collapsed mask (4pt band on every side)")
+        check(FolderCardPreviewShape(expanded: false).path(in: rect).boundingRect == e,
+              "expanded and collapsed header masks are identical")
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            // What the platter shows: only the source (card body), masked.
+            let platter = render(Color.clear.frame(width: w, height: h).background {
+                FolderCardFill().padding(.bottom, FolderCardPreviewShape.gap)
+                    .padding(.horizontal, 6).padding(.top, 4)
+            }.clipShape(FolderCardPreviewShape(expanded: true)), w: w, h: h, style: style)
+            let bands = [CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 4, y: h/2), CGPoint(x: w - 4, y: h/2)]
+            print("HEADER_PLATTER_BANDS style=\(style.rawValue) \(bands.map { alpha(platter, $0) })")
+            check(bands.allSatisfy { alpha(platter, $0) == 0 }, "expanded header platter keeps a 4pt band on all four sides")
+            check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 8, y: h/2), CGPoint(x: w - 8, y: h/2)]
+                  .allSatisfy { alpha(platter, $0) > 0 }, "expanded header platter card reaches its inset on all sides")
+            check(alpha(platter, CGPoint(x: 7, y: h - 5)) == 0, "expanded header platter card has rounded bottom corners")
+            // What the list shows: segment strip (outside the source) + body.
+            let list = render(Color.clear.frame(width: w, height: h).background {
+                FolderCardFill().padding(.bottom, FolderCardPreviewShape.gap)
+                    .padding(.horizontal, 6).padding(.top, 4)
+            }.background {
+                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                    .mask { FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap).fill(style: FillStyle(eoFill: true)) }
+                    .padding(.horizontal, 6).padding(.top, 4)
+            }, w: w, h: h, style: style)
+            let mid = rgb(list, CGPoint(x: w/2, y: 30)), weld = rgb(list, CGPoint(x: w/2, y: h - 1.5))
+            let corner = rgb(list, CGPoint(x: 8, y: h - 2))
+            print("HEADER_LIST_WELD style=\(style.rawValue) body=\(mid) weld=\(weld) corner=\(corner) a=\(alpha(list, CGPoint(x: 8, y: h - 2)))")
+            // A material segment (iOS 26) renders empty over the clear test
+            // backdrop, so the weld paint is asserted on opaque systems only.
+            if #unavailable(iOS 26.0) {
+                check(alpha(list, CGPoint(x: w/2, y: h - 1.5)) > 0 && alpha(list, CGPoint(x: 8, y: h - 2)) > 0,
+                      "expanded header still welds to the member row in the list")
+            }
+            let file = style == .light ? "folder-header-preview-light.png" : "folder-header-preview-dark.png"
+            try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file))
+            try? list.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file.replacingOccurrences(of: "preview", with: "list")))
+        }
     }
 }

@@ -269,6 +269,23 @@ extension ContentView {
             .padding(.vertical, 10)
             .textCase(nil)
             .contentShape(Rectangle())
+            // MOD: an EXPANDED header splits its welded card in two. The part
+            // inside the context-menu source is the card body only — rounded
+            // on all four corners and stopping 4pt above the row's bottom —
+            // so the platter snapshot has the same 4pt band on every side as
+            // a collapsed card (no flat cut, no card running into the bottom
+            // edge: photo_968D96E1 / photo_EEB36A68). The welded top segment
+            // that joins the first member row is painted OUTSIDE the source
+            // (below, after .contextMenu): in the list both layers share one
+            // fill so the group still reads as one continuous card, and while
+            // the menu hides the source the group is not carved open.
+            .background {
+                if !group.isCollapsed && !group.ids.isEmpty {
+                    FolderCardFill()
+                        .padding(.bottom, FolderCardPreviewShape.gap)
+                        .allowsHitTesting(false)
+                }
+            }
             // Mini-bar trigger: only an EXPANDED, populated group needs its
             // header tracked (a collapsed card scrolling away is just a card).
             .background {
@@ -281,7 +298,10 @@ extension ContentView {
             }
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
-                isExpanded: !group.isCollapsed && !group.ids.isEmpty))
+                isExpanded: !group.isCollapsed && !group.ids.isEmpty,
+                // Expanded: the welded segment is painted outside the menu
+                // source (after .contextMenu below).
+                paintsSurface: group.isCollapsed || group.ids.isEmpty))
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
@@ -400,6 +420,31 @@ extension ContentView {
                 }
             }
         }
+        // MOD: the welded top segment of an EXPANDED folder (6pt sides, 4pt
+        // top, flush to the first member row). Outside the context-menu
+        // source on purpose: the menu hides its source while the platter is
+        // up and during dismissal, and this keeps the group continuous then.
+        .background {
+            if !group.isCollapsed && !group.ids.isEmpty {
+                Color.clear
+                    .modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                    .mask {
+                        // iOS 26 segments are a translucent material: cut the
+                        // card body out so it is not stacked twice. Earlier
+                        // systems use one opaque colour, where stacking is
+                        // invisible and a cut would only add an AA seam.
+                        if #available(iOS 26.0, *) {
+                            FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap)
+                                .fill(style: FillStyle(eoFill: true))
+                        } else {
+                            Rectangle()
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.top, 4)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     /// "New chat in folder": file the just-promoted draft. Separate from the
@@ -467,33 +512,24 @@ extension ContentView {
 /// bottom, so the mask is the card plus the uniform 4pt gap (radius 16 + gap,
 /// concentric with the card).
 ///
-/// Expanded: the card runs flush to the row's bottom on purpose (it welds onto
-/// the first member row), and the mask used to end there with radius 0. The
-/// lifted preview therefore ended in a flat, cut-off bottom edge (device
-/// photos photo_968D96E1 / photo_447E005A) while every other side kept its 4pt
-/// gap. The mask now stops 4pt above the row's bottom and is rounded there
-/// (radius 16), so the held header reads as the same lone card as every other
-/// folder preview, while the welded group rendering is untouched.
+/// Expanded: inside the menu source the header only paints its card BODY
+/// (FolderCardFill: 4pt above the row's bottom, all corners rounded); the
+/// welded segment is painted outside the source. So the expanded mask is the
+/// same full-row path as the collapsed one — 4pt band on all four sides,
+/// concentric corners — instead of the earlier flat cut (photo_968D96E1) or
+/// card-touching-the-bottom (photo_EEB36A68) shapes.
 struct FolderCardPreviewShape: Shape {
     let expanded: Bool
-    /// Uniform gap between card and preview mask; collapsed mask radius =
-    /// card radius + gap, so both outlines share the same circle centres.
+    /// Uniform gap between card and preview mask; mask radius = card radius +
+    /// gap, so both outlines share the same circle centres.
     static let gap: CGFloat = 4
     static let cornerRadius: CGFloat = 16
-    /// How far the expanded mask is pulled off the row's bottom, i.e. the gap
-    /// the welded card does not have room for.
-    static let expandedBottomGap: CGFloat = 4
 
     func path(in rect: CGRect) -> Path {
         let g = Self.gap
-        let top: CGFloat = 4 - g
-        let bottomInset: CGFloat = expanded ? Self.expandedBottomGap : (4 - g)
-        let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + top,
+        let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + 4 - g,
                        width: max(0, rect.width - 12 + 2 * g),
-                       height: max(0, rect.height - top - bottomInset))
-        let bottom: CGFloat = expanded ? Self.cornerRadius : Self.cornerRadius + g
-        return UnevenRoundedRectangle(topLeadingRadius: Self.cornerRadius + g, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: Self.cornerRadius + g,
-                                      style: .continuous).path(in: r)
+                       height: max(0, rect.height - 2 * (4 - g)))
+        return RoundedRectangle(cornerRadius: Self.cornerRadius + g, style: .continuous).path(in: r)
     }
 }

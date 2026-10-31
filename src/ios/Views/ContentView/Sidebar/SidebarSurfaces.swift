@@ -294,6 +294,10 @@ private struct FolderSurface: ViewModifier {
 struct FolderCardBackground: ViewModifier {
     let isDropTarget: Bool
     let isExpanded: Bool
+    /// MOD: false = drop-target overlay only. An expanded header paints its
+    /// welded segment outside the context-menu source instead (see
+    /// folderSectionHeader), so the segment is never hidden with the source.
+    var paintsSurface = true
 
     private var dropShape: AnyShape {
         isExpanded
@@ -305,7 +309,11 @@ struct FolderCardBackground: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .modifier(FolderSurface(kind: isExpanded ? .top : .lone))
+            .background {
+                if paintsSurface {
+                    Color.clear.modifier(FolderSurface(kind: isExpanded ? .top : .lone))
+                }
+            }
             .overlay {
                 if isDropTarget {
                     ZStack {
@@ -328,6 +336,43 @@ struct FolderMemberRowBackground: View {
             .modifier(FolderSurface(kind: isLast ? .bottom : .middle))
             .padding(.horizontal, 6)
             .padding(.bottom, isLast ? 4 : 0)
+    }
+}
+
+/// MOD: the card body an EXPANDED folder header keeps inside its context-menu
+/// source — all corners rounded, inset by the edge width so the welded
+/// segment's outline stays visible in the list. On iOS 26 the welded segment
+/// behind it is masked to the area OUTSIDE this body (FolderWeldStrip).
+struct FolderCardFill: View {
+    static let edgeInset: CGFloat = 0.5
+    var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                // Solid, like a collapsed card: the platter snapshot has a
+                // clear backdrop, where a material would lift washed out.
+                RoundedRectangle(cornerRadius: 16 - Self.edgeInset, style: .continuous)
+                    .fill(FolderSurface.sampledGlassColor)
+            } else {
+                RoundedRectangle(cornerRadius: 16 - Self.edgeInset, style: .continuous)
+                    .fill(Color(UIColor.secondarySystemBackground))
+            }
+        }
+        .padding(Self.edgeInset)
+    }
+}
+
+/// MOD: mask for an expanded header's welded segment painted outside the
+/// menu source: the whole segment EXCEPT the card body (FolderCardFill
+/// geometry, `bottomGap` short of the segment's bottom). Use with eoFill.
+struct FolderWeldStrip: Shape {
+    let bottomGap: CGFloat
+    func path(in rect: CGRect) -> Path {
+        var p = Path(rect)
+        let body = CGRect(x: rect.minX, y: rect.minY, width: rect.width,
+                          height: max(0, rect.height - bottomGap))
+            .insetBy(dx: FolderCardFill.edgeInset, dy: FolderCardFill.edgeInset)
+        p.addPath(RoundedRectangle(cornerRadius: 16 - FolderCardFill.edgeInset, style: .continuous).path(in: body))
+        return p
     }
 }
 

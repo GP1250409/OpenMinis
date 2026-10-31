@@ -31,15 +31,21 @@ row_source.write_text(row_text)
 wrappers=(ios/'SessionListRows.swift').read_text()
 wrapped_source=out/'ProductionStackRow.swift'
 wrapped_source.write_text('import SwiftUI\n'+wrappers[wrappers.index('struct SessionStackRow:'):wrappers.index('/// iPad / Mac')]+wrappers[wrappers.index('struct SessionRowPressStyle:'):])
-# Regression: a held folder member row must keep its welded segment and draw
-# the lifted card ON TOP of it. Replacing the segment left a hole in the group
-# around the platter, which is what read as a stray rounded card when a
-# cancelled menu returned.
+# Regression: a held folder member row's welded segment lives OUTSIDE the
+# context-menu source (SessionStackRow background after SessionRowContextMenu);
+# inside the source (the ButtonStyle) only the lifted card is drawn. The menu
+# hides its source during dismissal, so a segment inside it left a white hole
+# around the returning card (photo_43A30060).
+stack=wrappers[wrappers.index('struct SessionStackRow:'):wrappers.index('/// MOD: long-press menu of a stack row.')]
+assert stack.index('.modifier(SessionRowContextMenu(') < stack.index('FolderMemberRowBackground(isLast: isLastInFolder)'),'member segment must sit outside the menu source'
 press=wrappers[wrappers.index('struct SessionRowPressStyle:'):]
 branch=press[press.index('if inFolder {'):press.index('} else {')]
-assert 'FolderMemberRowBackground(isLast: isLast)' in branch,'member row lost its welded segment'
-assert branch.index('FolderMemberRowBackground(isLast: isLast)') < branch.index('if configuration.isPressed'),'welded segment must be painted unconditionally'
-assert 'FolderLiftedCard' in branch[branch.index('if configuration.isPressed'):],'lifted card must sit on top of the segment'
+assert 'FolderMemberRowBackground' not in branch,'member segment must not be inside the menu source'
+assert 'FolderLiftedCard' in branch[branch.index('if configuration.isPressed'):],'lifted card drawn while pressed'
+hdr=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
+hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
+assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'
+assert hdr.index('.contextMenu {') < hdr.index('FolderWeldStrip('),'expanded header segment must sit outside the menu source'
 header=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
 header=header[header.index('        HStack(spacing: 8) {', header.index('    func folderSectionHeader(')):]
 header=header[:header.index('            // Mini-bar trigger:')]

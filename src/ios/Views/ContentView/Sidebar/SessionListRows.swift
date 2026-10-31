@@ -86,6 +86,19 @@ struct SessionStackRow: View {
             key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled),
             actions: menuActions,
             inFolder: inFolder))
+            // MOD: the welded group segment sits OUTSIDE the context-menu
+            // source. While the menu is up — and during its dismissal — the
+            // system hides the source view and animates a platter snapshot.
+            // With the segment inside the source, that hid the group around
+            // the row and the returning card landed on a white hole
+            // (photo_AA0E5536, photo_43A30060: white corners around a lone
+            // card). Out here it stays painted the whole time.
+            .background {
+                if inFolder {
+                    FolderMemberRowBackground(isLast: isLastInFolder)
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }
 
@@ -246,12 +259,11 @@ struct SessionRowPressStyle: ButtonStyle {
             // keep the accepted look (6pt/4pt gaps, radius 16, card colour).
             configuration.label
                 .contentShape(Rectangle())
+                // The welded segment is painted by SessionStackRow OUTSIDE
+                // the context-menu source; only the lifted card lives here.
                 .background {
-                    ZStack {
-                        FolderMemberRowBackground(isLast: isLast)
-                        if configuration.isPressed {
-                            FolderLiftedCard(bottomInset: 4).allowsHitTesting(false)
-                        }
+                    if configuration.isPressed {
+                        FolderLiftedCard(bottomInset: 4).allowsHitTesting(false)
                     }
                 }
         } else {
