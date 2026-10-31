@@ -88,26 +88,28 @@ final class FolderLiftState: ObservableObject {
     private var armed = false
     private var presented = false
     private var cycleClosed = false
-    private var generation = 0
+    private var armTimer: Timer?
 
     func touchDown() {
-        generation &+= 1
-        let gen = generation
+        armTimer?.invalidate()
         touching = true
         armed = false
         presented = false
         cycleClosed = false
         watching = true
         refresh()
-        DispatchQueue.main.asyncAfter(deadline: .now() + FolderCardLift.liftDelay) { [weak self] in
-            guard let self, self.generation == gen, self.touching, !self.presented, !self.cycleClosed else { return }
+        let timer = Timer(timeInterval: FolderCardLift.liftDelay, repeats: false) { [weak self] _ in
+            guard let self, self.touching, !self.presented, !self.cycleClosed else { return }
             self.armed = true
             self.refresh()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        armTimer = timer
     }
 
     func touchEnded() {
-        generation &+= 1
+        armTimer?.invalidate()
+        armTimer = nil
         guard touching || watching || lifted else { return }
         touching = false
         armed = false
@@ -121,6 +123,8 @@ final class FolderLiftState: ObservableObject {
     /// row may go back to its welded paint. Called from the probe's display
     /// link (main thread).
     func platterDidPresent() {
+        armTimer?.invalidate()
+        armTimer = nil
         guard !presented else { return }
         presented = true
         armed = false
