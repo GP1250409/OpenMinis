@@ -52,7 +52,7 @@ subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5',
  str(paint_source), str(row_source), str(header_source), str(wrapped_source),
  str(root/'scripts/accordion-tests/WrappedRowGeometryTests.swift'),
  str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
- str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/ContextMenuProbeTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
+ str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/ContextMenuProbeTests.swift'), str(root/'scripts/accordion-tests/ContextMenuProbe2Tests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
  'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',
@@ -67,6 +67,7 @@ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
+ print(subprocess.run(['xcrun','simctl','list','runtimes'],capture_output=True,text=True).stdout)
  for pattern in ('fab-*.png','folder-*.png','nav-*.png','row-*.png'):
   for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
