@@ -129,8 +129,14 @@ extension AccordionTestApp {
                 FolderLiftedCard(bottomInset: 4)
             }
         }, w: w, h: h, style: style)
-        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 3, y: h/2)]
-              .allSatisfy { alpha(held, $0) == 255 },
+        // Compared against the settled row rather than a fixed alpha: the
+        // welded segment is a material on iOS 26, so its own alpha is not 255
+        // over a clear backdrop — what matters is that the surface the platter
+        // hides (its 4pt bands) is the SAME one the dismissal lands on.
+        let gapPoints = [CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 8, y: 2)]
+        check(gapPoints.allSatisfy { p in
+                zip(rgb(held, p), rgb(settled, p)).allSatisfy { abs($0 - $1) <= 2 }
+              },
               "held row keeps the group surface in the card's gaps")
         let settledCard = rgb(settled, CGPoint(x: w - 30, y: h - 8))
         print("MEMBER_PREVIEW_SETTLED style=\(style.rawValue) card=\(settledCard)")
