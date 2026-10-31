@@ -39,6 +39,7 @@ extension AccordionTestApp {
         let box = FloatingBarGeometryBox()
         let host = UIHostingController(rootView: FolderAppearanceFixture(box: box))
         window!.rootViewController = host
+        var lones: [(UIUserInterfaceStyle, [Int])] = []
         for style in [UIUserInterfaceStyle.light, .dark] {
             host.overrideUserInterfaceStyle = style
             host.view.backgroundColor = .systemBackground
@@ -69,6 +70,57 @@ extension AccordionTestApp {
             check(expanded > 0, "upstream-style expanded outer edge remains visible")
             let filename = style == .light ? "folder-light.png" : "folder-dark.png"
             try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
+            lones.append((style, rgb(image, CGPoint(x: rect.midX, y: rect.minY + 34))))
         }
+        // After the loop: the preview test replaces the window's root.
+        for (style, lone) in lones { memberPreviewTest(style: style, loneCard: lone) }
+    }
+
+    /// Folder member long-press preview: uniform clear 4pt margin on all four
+    /// sides, card colour equal to the collapsed folder card, no pressed tint.
+    func memberPreviewTest(style: UIUserInterfaceStyle, loneCard: [Int]) {
+        var session = ChatSession()
+        session.id = "preview-1"; session.title = "Ivan 电源适配器询价邮件"
+        let host = UIHostingController(rootView: SessionRowMenuPreview(session: session, isActive: false, isSuspended: false))
+        host.overrideUserInterfaceStyle = style
+        host.view.backgroundColor = .clear
+        let size = host.sizeThatFits(in: CGSize(width: 2000, height: 2000))
+        let root = UIViewController()
+        root.view.backgroundColor = .clear
+        window!.rootViewController = root
+        root.addChild(host)
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: size)
+        host.view.layoutIfNeeded(); pump(0.3)
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        func alpha(_ p: CGPoint) -> Int {
+            guard let cg = image.cgImage,
+                  let crop = cg.cropping(to: CGRect(x: Int(p.x * image.scale), y: Int(p.y * image.scale), width: 1, height: 1)) else { return -1 }
+            var bytes: [UInt8] = [0,0,0,0]
+            bytes.withUnsafeMutableBytes { raw in
+                let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return Int(bytes[3])
+        }
+        let w = size.width, h = size.height
+        print("MEMBER_PREVIEW style=\(style.rawValue) size=\(w)x\(h) screen=\(UIScreen.main.bounds.width)")
+        check(abs(w - (UIScreen.main.bounds.width - 12 + 8)) < 0.5, "member preview card is list-card wide plus 4pt each side")
+        // Clear margin: 2pt inside each edge, at mid-span (away from corners).
+        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)]
+              .allSatisfy { alpha($0) == 0 }, "member preview has a clear 4pt margin on all four sides")
+        // Card body just inside each edge (6pt in), clear of row content.
+        check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 6, y: h/2), CGPoint(x: w - 6, y: h/2)]
+              .allSatisfy { alpha($0) == 255 }, "member preview card starts exactly at the 4pt gap")
+        let card = rgb(image, CGPoint(x: w - 30, y: h - 8))
+        print("MEMBER_PREVIEW_COLOR style=\(style.rawValue) card=\(card) lone=\(loneCard)")
+        check(zip(card, loneCard).allSatisfy { abs($0 - $1) <= 2 }, "member preview uses the folder card colour, no pressed tint")
+        let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
+        try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
     }
 }

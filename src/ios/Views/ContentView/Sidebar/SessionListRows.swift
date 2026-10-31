@@ -94,14 +94,80 @@ struct SessionStackRow: View {
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
-        .contextMenu {
-            // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
-            SessionContextMenu(
-                key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled),
-                actions: menuActions
-            )
-            .equatable()
+        .modifier(SessionRowContextMenu(
+            key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled),
+            actions: menuActions,
+            session: session,
+            isActive: isActive,
+            isSuspended: isSuspended,
+            inFolder: inFolder))
+    }
+}
+
+/// MOD: long-press menu of a stack row.
+///
+/// Unfiled rows keep the default (snapshot) preview. Folder member rows get a
+/// rendered preview card, because the snapshot was wrong in two ways:
+/// - colour: device sample 2026-10-31, preview 219/218/224 vs. the original's
+///   242/241/246 (the folder-header preview is also 242). 242*0.8 + 120*0.2 =
+///   218 is consistent with SessionRowPressStyle's systemFill overlay (the
+///   Button is still pressed when the snapshot is taken); inferred, not
+///   traced. A rendered card does not depend on the snapshot state at all.
+/// - margins: a member row's background is flush top/bottom (rows weld into
+///   one container), so the preview only had side margins.
+/// The card is the folder card's own surface (FolderCardBackground, lone) with
+/// the uniform gap the folder-header preview uses (FolderCardPreviewShape.gap).
+struct SessionRowContextMenu: ViewModifier {
+    let key: MenuKey
+    let actions: SessionMenuActionChannel
+    let session: ChatSession
+    let isActive: Bool
+    let isSuspended: Bool
+    let inFolder: Bool
+
+    func body(content: Content) -> some View {
+        if inFolder {
+            content
+                // Lift from the card area (6pt side insets), not the full row.
+                .contentShape(.contextMenuPreview, SessionRowCardShape())
+                .contextMenu {
+                    // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
+                    SessionContextMenu(key: key, actions: actions).equatable()
+                } preview: {
+                    SessionRowMenuPreview(session: session, isActive: isActive, isSuspended: isSuspended)
+                }
+        } else {
+            content
+                .contextMenu {
+                    // [T-ios-crash-contextmenu-uaf] Value-only menu view, no closure captures.
+                    SessionContextMenu(key: key, actions: actions).equatable()
+                }
         }
+    }
+}
+
+/// Card outline of a folder member row inside its full-width row (6pt sides).
+struct SessionRowCardShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .path(in: rect.insetBy(dx: 6, dy: 0))
+    }
+}
+
+/// Preview card for a folder member row: the row content on the folder card
+/// surface (never in the pressed state), as wide as the card in the list, with
+/// the same 4pt clear margin on every side as the folder-header preview.
+struct SessionRowMenuPreview: View {
+    let session: ChatSession
+    let isActive: Bool
+    let isSuspended: Bool
+    static let gap: CGFloat = 4
+
+    var body: some View {
+        SessionRow(session: session, isActive: isActive, isSuspended: isSuspended)
+            .frame(width: max(0, UIScreen.main.bounds.width - 12))
+            .modifier(FolderCardBackground(isDropTarget: false, isExpanded: false))
+            .padding(Self.gap)
     }
 }
 
