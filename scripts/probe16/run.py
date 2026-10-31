@@ -24,7 +24,7 @@ sh('xcrun','simctl','boot',uid); sh('xcrun','simctl','bootstatus',uid,'-b')
 sdk = subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'], text=True).strip()
 arch = subprocess.check_output(['uname','-m'], text=True).strip()
 app = out/'Probe16.app'; app.mkdir(exist_ok=True)
-sh('xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,'-target',f'{arch}-apple-ios{target_os}-simulator',
+sh('xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-parse-as-library','-sdk',sdk,'-target',f'{arch}-apple-ios{target_os}-simulator',
    root/'scripts/probe16/ProbeApp.swift','-o',app/'Probe16', check=True)
 info = {'CFBundleIdentifier':'com.gonepaul.probe16','CFBundleExecutable':'Probe16','CFBundleName':'Probe16','CFBundlePackageType':'APPL',
         'CFBundleVersion':'1','CFBundleShortVersionString':'1','LSRequiresIPhoneOS':True,'MinimumOSVersion':target_os,
