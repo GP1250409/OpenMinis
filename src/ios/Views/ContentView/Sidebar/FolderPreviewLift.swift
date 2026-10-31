@@ -438,6 +438,7 @@ struct ContextMenuPlatterProbe: UIViewRepresentable {
         private func start() {
             guard link == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(tick))
+            link.preferredFramesPerSecond = 30
             link.add(to: .main, forMode: .common)
             self.link = link
         }

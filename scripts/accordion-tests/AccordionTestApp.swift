@@ -41,7 +41,12 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.runTests() }
         return true
     }
-    func pump(_ seconds: Double) { RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds)) }
+    func pump(_ seconds: Double) {
+        let end = Date(timeIntervalSinceNow: seconds)
+        while Date() < end {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.015))
+        }
+    }
     func spec(_ id: String, count: Int, folder: Bool = true) -> AccordionSectionGeometry {
         AccordionSectionGeometry(id: id, folderID: folder ? id : nil, count: count,
             rowHeight: 68, labelHeight: 32, headerHeight: folder ? 68 : 0, footerHeight: folder ? 4 : 0)
