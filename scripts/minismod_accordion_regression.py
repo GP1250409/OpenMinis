@@ -125,7 +125,7 @@ session_source=(ios.parent/'ContentView+SessionList.swift').read_text()
 assert session_source.count('SidebarNavigationChrome { sidebarToolbarContent }') == 1
 assert '.toolbar { sidebarToolbarContent }' not in session_source
 assert '.toolbar { sidebarToolbarContent }' not in (ios.parent/'ContentView+NativeAccordion.swift').read_text()
-sh('xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
+sh('xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-parse-as-library','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
  str(ios/'FloatingSidebarSurface.swift'), str(ios/'SidebarNavigationChrome.swift'),
  str(ios/'FolderPreviewLift.swift'),
@@ -140,17 +140,23 @@ info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutab
 (app/'Info.plist').write_bytes(plistlib.dumps(info))
 sh('codesign','--force','--sign','-',str(app),check=True)
 sh('xcrun','simctl','install',uid,str(app),check=True)
-r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=420)
-print(r.stdout)
-print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
-(out/'results.log').write_text(r.stdout)
+try:
+ r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdentifier']],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=240)
+ stdout=r.stdout or ''
+ print(stdout)
+ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
+except subprocess.TimeoutExpired as te:
+ stdout=(te.stdout.decode('utf-8','replace') if isinstance(te.stdout,bytes) else (te.stdout or ''))
+ print('LAUNCH_TIMED_OUT_PARTIAL_STDOUT:')
+ print(stdout)
+(out/'results.log').write_text(stdout)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
  for pattern in ('fab-*.png','folder-*.png','nav-*.png','row-*.png','platter-*.png'):
   for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
-if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
+if 'ACCORDION_UIKIT_PASS ' not in stdout:
  diagnostic=pathlib.Path.home()/'Library/Logs/DiagnosticReports'
  for p in diagnostic.glob('AccordionRegression*'):
   if p.is_file():
@@ -161,4 +167,4 @@ if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
   (out/'diagnostic.log').write_text(diagnostic_run.stdout)
  except subprocess.TimeoutExpired:
   (out/'diagnostic.log').write_text('log show timed out')
-assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'
+assert 'ACCORDION_UIKIT_PASS ' in stdout,'Native accordion regression failed'
