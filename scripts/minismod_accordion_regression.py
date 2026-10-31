@@ -52,7 +52,7 @@ subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5',
  str(paint_source), str(row_source), str(header_source), str(wrapped_source),
  str(root/'scripts/accordion-tests/WrappedRowGeometryTests.swift'),
  str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
- str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
+ str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/ContextMenuProbeTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
  'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',

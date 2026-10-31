@@ -146,6 +146,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         wrappedRowGeometryTest()
         floatingBarTest()
         sidebarChromeTest()
+        contextMenuProbe()
         folderAppearanceTest()
         print("ACCORDION_UIKIT_PASS \(passed)"); fflush(stdout); exit(0)
     }
