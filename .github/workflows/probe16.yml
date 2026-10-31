@@ -1,5 +1,8 @@
 name: Probe iOS16 context menu
 on:
+  push:
+    branches: [probe-ctxmenu]
+    paths: ['scripts/probe16/**', '.github/workflows/probe16.yml']
   workflow_dispatch:
 jobs:
   probe:
