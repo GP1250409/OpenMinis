@@ -158,7 +158,7 @@ struct FolderLiftableCardSurface<Content: View>: View {
     var body: some View {
         FolderCardPaint(isDropTarget: isDropTarget, isExpanded: isExpanded, lifted: lift.lifted, content: content)
             .background { FolderLiftTouchObserver(state: lift) }
-            .background { ContextMenuPlatterProbe(state: lift) }
+            .background { ContextMenuPlatterProbe(state: lift, watching: lift.watching) }
     }
 }
 
@@ -224,7 +224,7 @@ struct FolderMemberLiftBackground: View {
     var body: some View {
         FolderMemberRowBackground(isLast: isLast, lifted: lift.lifted)
             .background { FolderLiftTouchObserver(state: lift) }
-            .background { ContextMenuPlatterProbe(state: lift) }
+            .background { ContextMenuPlatterProbe(state: lift, watching: lift.watching) }
             .onAppear { if pressed { lift.touchDown() } }
             .onChange(of: pressed) { isDown in
                 if isDown { lift.touchDown() } else { lift.touchEnded() }
@@ -394,6 +394,10 @@ final class PassiveTouchRecognizer: UIGestureRecognizer {
 /// the first hit: after that the cycle is closed until the next touch-down.
 struct ContextMenuPlatterProbe: UIViewRepresentable {
     let state: FolderLiftState
+    /// Forces `updateUIView` whenever `watching` changes (`state` is a
+    /// reference type, so passing `state` alone would not re-invoke
+    /// `updateUIView` when `watching` flips).
+    let watching: Bool
 
     func makeUIView(context: Context) -> Probe {
         let view = Probe()
@@ -421,6 +425,11 @@ struct ContextMenuPlatterProbe: UIViewRepresentable {
 
         deinit { link?.invalidate() }
 
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            sync()
+        }
+
         func sync() {
             guard let state, state.watching, window != nil else { stop(); return }
             start()
@@ -440,31 +449,32 @@ struct ContextMenuPlatterProbe: UIViewRepresentable {
 
         @objc private func tick() {
             guard let window else { stop(); return }
-            if Self.platterVisible(in: window.windowScene?.windows ?? [window]) {
+            if Self.platterVisible(in: window.windowScene?.windows ?? [window], excluding: self) {
                 stop()
                 state?.platterDidPresent()
             }
         }
 
-        /// A presented context menu owns views whose type names carry
-        /// "ContextMenu" (iOS 16+: `_UIContextMenuContainerView` and friends).
-        /// Hidden/zero-alpha leftovers and empty shells are ignored so a stale
-        /// container from a previous menu cannot hold the paint down.
-        static func platterVisible(in windows: [UIWindow]) -> Bool {
+        /// A presented context menu owns container/platter views in UIKit's
+        /// window hierarchy (`_UIContextMenuContainerView`, `_UIPlatterView`,
+        /// etc.). Exclude our own probe view (`ContextMenuPlatterProbe.Probe`)
+        /// whose Swift type name also contains "ContextMenu" and "Platter"!
+        static func platterVisible(in windows: [UIWindow], excluding probe: UIView? = nil) -> Bool {
             for window in windows where !window.isHidden {
-                if scan(window) { return true }
+                if scan(window, excluding: probe) { return true }
             }
             return false
         }
 
-        private static func scan(_ root: UIView) -> Bool {
+        private static func scan(_ root: UIView, excluding probe: UIView?) -> Bool {
             var stack: [UIView] = [root]
             var visited = 0
             while let view = stack.popLast() {
                 visited += 1
                 if visited > 800 { return false }
-                let name = String(describing: type(of: view))
-                if name.contains("ContextMenu") || name.contains("Platter") {
+                if view === probe || view is Probe { continue }
+                let name = NSStringFromClass(type(of: view))
+                if name.hasPrefix("_UIContextMenu") || name.contains("ContextMenuContainer") || name.hasPrefix("_UIPlatter") {
                     if !view.isHidden, view.alpha > 0.01,
                        view.bounds.width > 40, view.bounds.height > 20 {
                         return true
