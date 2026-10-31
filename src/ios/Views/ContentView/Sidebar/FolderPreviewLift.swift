@@ -477,6 +477,7 @@ struct ContextMenuPlatterProbe: UIViewRepresentable {
                 if name.hasPrefix("_UIContextMenu") || name.contains("ContextMenuContainer") || name.hasPrefix("_UIPlatter") {
                     if !view.isHidden, view.alpha > 0.01,
                        view.bounds.width > 40, view.bounds.height > 20 {
+                        print("PLATTER_DETECTED class=\(name) frame=\(view.frame)")
                         return true
                     }
                 }

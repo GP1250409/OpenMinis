@@ -255,6 +255,7 @@ extension AccordionTestApp {
 
         // Hold: the row arms its lifted paint exactly as a finger would.
         state.touchDown(); pump(0.35)
+        print("AFTER_HOLD \(tag) lifted=\(state.lifted) watching=\(state.watching)")
         check(state.lifted, "\(tag): a hold arms the lifted card")
 
         present(interaction, at: CGPoint(x: rowRect.midX, y: rowRect.midY), in: root.view)
