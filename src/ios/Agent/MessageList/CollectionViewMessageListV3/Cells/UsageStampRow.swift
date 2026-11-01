@@ -87,18 +87,23 @@ struct UsageStampRow<Usage: View>: View {
                         .accessibilityHint(Text("Show full usage"))
                 } stamp: { stampCapsule(stamp) }
             }
-        } else if stamp != nil {
+        } else if let stamp {
             // Expanded: full usage alone on the line. On very narrow widths
-            // it scales down a little rather than wrapping.
-            row {
-                usage()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .contentShape(Rectangle())
-                    .onTapGesture { toggle() }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityHint(Text("Show time"))
-            } stamp: { EmptyView() }
+            // it scales down a little rather than wrapping; a hidden,
+            // zero-width stamp holds the row height so the footer does not
+            // shrink when the text scales.
+            ZStack(alignment: .leading) {
+                stampCapsule(stamp).hidden().frame(width: 0)
+                row {
+                    usage()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .contentShape(Rectangle())
+                        .onTapGesture { toggle() }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint(Text("Show time"))
+                } stamp: { EmptyView() }
+            }
         } else {
             row { usage().lineLimit(1).truncationMode(.tail) } stamp: { EmptyView() }
         }
