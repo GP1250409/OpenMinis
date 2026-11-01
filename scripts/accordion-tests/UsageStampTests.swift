@@ -93,6 +93,7 @@ extension AccordionTestApp {
                     check(row.usage.maxX <= 16 + room + 0.5, "full stamp keeps its intrinsic width (\(s) \(width) \(tag))")
                     if fullUsage > room + 1 {
                         check(row.usage.width < fullUsage - 1, "usage capsule truncates instead of wrapping (\(s) \(width) \(tag))")
+                        check(row.usage.width >= room - 6 - 1, "truncated usage still fills the room left by the stamp (\(s) \(width) \(tag))")
                     }
                 }
                 let shortOld = measure(AnyView(UsageRowFixture(usage: short, stamp: oldStamp)), width: width,
