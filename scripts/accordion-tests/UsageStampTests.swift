@@ -72,6 +72,7 @@ extension AccordionTestApp {
         func measure(_ view: AnyView, width: CGFloat, name: String?) -> (height: CGFloat, usage: CGRect) {
             DiagnosticFrames.current = [:]
             let host = UIHostingController(rootView: view)
+            if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
             owner.addChild(host); owner.view.addSubview(host.view); host.didMove(toParent: owner)
             let size = host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
             host.view.frame = CGRect(x: 0, y: 120, width: width, height: ceil(size.height))
@@ -108,12 +109,21 @@ extension AccordionTestApp {
                       "short usage keeps 10/23 Fri 11:08 on one line (\(s) \(width))")
                 check(shortOld.usage.width > 0, "short usage capsule rendered (\(s) \(width))")
             }
-            // Narrow enough that the single line cannot fit: the stamp stacks.
-            let narrowShort = measure(AnyView(UsageRowFixture(usage: short, stamp: oldStamp)), width: 250,
-                                      name: "narrow-old-\(s)")
-            let narrowToday = measure(AnyView(UsageRowFixture(usage: short, stamp: todayStamp)), width: 250, name: nil)
-            print("STAMP_NARROW \(s) old=\(narrowShort.height) today=\(narrowToday.height) usage=\(narrowShort.usage.width)")
-            check(narrowShort.height > narrowToday.height + 8, "stamp stacks date/weekday over time when it cannot fit (\(s))")
+            // Switch logic with a fixed 150pt single-line usage stand-in, so the
+            // usage capsule's own wrapping cannot mask the stamp's layout.
+            func block(_ stamp: CompletionStampParts) -> AnyView {
+                AnyView(UsageStampRow(stamp: stamp, contentVisible: true) {
+                    Color.gray.frame(width: 150, height: 12).background(RowDiagnosticProbe(name: "usage"))
+                }.padding(.horizontal, 16).padding(.vertical, 2))
+            }
+            let wideOld = measure(block(oldStamp), width: 360, name: "fits-old-\(s)")
+            let wideToday = measure(block(todayStamp), width: 360, name: nil)
+            let narrowOld = measure(block(oldStamp), width: 280, name: "narrow-old-\(s)")
+            let narrowToday = measure(block(todayStamp), width: 280, name: nil)
+            print("STAMP_SWITCH \(s) wideOld=\(wideOld.height) wideToday=\(wideToday.height) narrowOld=\(narrowOld.height) narrowToday=\(narrowToday.height)")
+            check(abs(wideOld.height - wideToday.height) < 0.5, "10/23 Fri 11:08 stays on one line when it fits (\(s))")
+            check(narrowOld.height > narrowToday.height + 8, "stamp stacks date/weekday over time when it cannot fit (\(s))")
+            check(abs(narrowOld.usage.width - 150) < 0.5, "stacked stamp leaves usage width intact (\(s))")
         }
         owner.overrideUserInterfaceStyle = .unspecified
     }
