@@ -147,6 +147,7 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         floatingBarTest()
         sidebarChromeTest()
         folderAppearanceTest()
+        usageStampTest()
         print("ACCORDION_UIKIT_PASS \(passed)"); fflush(stdout); exit(0)
     }
     func checkSilent(_ condition: Bool) { if !condition { check(false, "anchor geometry"); } }

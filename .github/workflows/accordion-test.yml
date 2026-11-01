@@ -1,7 +1,7 @@
 name: Accordion UIKit regression
 on:
   push:
-    branches: [mod-native-accordion-20261029]
+    branches: [mod-native-accordion-20261029, mod-usage-weekday]
   workflow_dispatch:
 jobs:
   test:
@@ -26,3 +26,4 @@ jobs:
             build/accordion-regression/folder-*.png
             build/accordion-regression/nav-*.png
             build/accordion-regression/row-*.png
+            build/accordion-regression/stamp-*.png

@@ -66,6 +66,15 @@ session_source=(ios.parent/'ContentView+SessionList.swift').read_text()
 assert session_source.count('SidebarNavigationChrome { sidebarToolbarContent }') == 1
 assert '.toolbar { sidebarToolbarContent }' not in session_source
 assert '.toolbar { sidebarToolbarContent }' not in (ios.parent/'ContentView+NativeAccordion.swift').read_text()
+# Usage footer row: UsageStampRow compiled verbatim; the usage capsule body and
+# its summary formatter are lifted verbatim out of BridgedAssistantFooterV3.
+v3=root/'src/ios/Agent/MessageList/CollectionViewMessageListV3/Cells'
+footer=(v3/'BridgedAssistantFooterV3.swift').read_text()
+assert 'UsageStampRow(' in footer and 'CompletionStampParts(' in footer,'footer must use UsageStampRow'
+assert 'completedAtText' not in footer,'old single-line stamp formatter must be gone'
+cap=footer[footer.index('    @ViewBuilder\n    private func usageCapsule('):footer.rindex('}')]
+usage_source=out/'ProductionUsageCapsule.swift'
+usage_source.write_text('import SwiftUI\nstruct ProductionUsageCapsule: View {\n let usage: TokenUsage\n var body: some View { usageCapsule(usage) }\n'+cap+'}\n')
 subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-O','-sdk',sdk,
  '-target',arch+'-apple-ios16.0-simulator',str(ios/'AccordionCollectionLayout.swift'),str(ios/'NativeAccordionList.swift'),
  str(ios/'FloatingSidebarSurface.swift'), str(ios/'SidebarNavigationChrome.swift'),
@@ -73,6 +82,7 @@ subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5',
  str(root/'scripts/accordion-tests/WrappedRowGeometryTests.swift'),
  str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
  str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
+ str(v3/'UsageStampRow.swift'), str(usage_source), str(root/'scripts/accordion-tests/UsageStampTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)
 info={'CFBundleIdentifier':'com.gonepaul.accordion.regression','CFBundleExecutable':'AccordionRegression',
  'CFBundleName':'AccordionRegression','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1',
@@ -87,7 +97,7 @@ print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
- for pattern in ('fab-*.png','folder-*.png','nav-*.png','row-*.png'):
+ for pattern in ('stamp-*.png','fab-*.png','folder-*.png','nav-*.png','row-*.png'):
   for p in (container/'tmp').glob(pattern): shutil.copy2(p,out/p.name)
 except Exception as e: print('Screenshot collection unavailable:',type(e).__name__)
 if 'ACCORDION_UIKIT_PASS ' not in r.stdout:

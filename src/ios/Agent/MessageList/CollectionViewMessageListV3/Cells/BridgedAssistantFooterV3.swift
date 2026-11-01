@@ -78,33 +78,21 @@ struct BridgedAssistantFooterV3: View {
 
             // Token usage
             if bridge.showUsage {
-                HStack(spacing: 6) {
+                // [T-usage-capsule-time] The completion clock sits at the
+                // far RIGHT of the row, on its own — not inside the usage
+                // capsule, so it lines up down the whole conversation.
+                // Gated on showUsage too, so it reveals and hides with the
+                // capsule rather than lingering on its own after a tap.
+                //
+                // [MOD] Not-today stamps read "10/24 Fri 11:08"; when that
+                // would squeeze the usage capsule, the stamp stacks to
+                // "10/24 Fri" over "11:08" instead (UsageStampRow).
+                UsageStampRow(
+                    stamp: message.completedAt.map { CompletionStampParts($0) },
+                    contentVisible: bridge.usageContentVisible
+                ) {
                     if let usage = message.usage {
                         usageCapsule(usage)
-                            .opacity(bridge.usageContentVisible ? 1 : 0)
-                    }
-                    Spacer()
-                    // [T-usage-capsule-time] The completion clock sits at the
-                    // far RIGHT of the row, on its own — not inside the usage
-                    // capsule. It answers a different question ("when did this
-                    // land") from the capsule's ("what did it cost"), and the
-                    // capsule is a variable-width run of numbers, so a time
-                    // tacked onto its end drifted horizontally from reply to
-                    // reply. Anchored past the Spacer it lines up down the
-                    // whole conversation and stays readable as a column.
-                    //
-                    // Gated on showUsage too, so it reveals and hides with the
-                    // capsule rather than lingering on its own after a tap.
-                    if bridge.showUsage, let completedAt = message.completedAt {
-                        Text(Self.completedAtText(completedAt))
-                            .lineLimit(1)
-                            .fixedSize()
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(ChatColors.tertiaryText)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(ChatColors.userBubble.opacity(0.6))
-                            .clipShape(Capsule())
                             .opacity(bridge.usageContentVisible ? 1 : 0)
                     }
                 }
@@ -257,34 +245,6 @@ struct BridgedAssistantFooterV3: View {
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    /// [T-usage-capsule-time] 24-hour HH:mm, locale-pinned.
-    ///
-    /// `en_US_POSIX` is not cosmetic: a bare `dateFormat = "HH:mm"` is still
-    /// resolved against the device locale, and a region on a 12-hour clock
-    /// renders it as 12-hour. Static so the DateFormatter alloc is not paid
-    /// per message per render pass. Mirrors ChatMessageRow's formatter.
-    private static let completedAtFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        return f
-    }()
-
-    /// [MOD] Single-line footer: only older messages include the date.
-    private static let completedDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MM-dd"
-        return f
-    }()
-
-    private static func completedAtText(_ d: Date) -> String {
-        let clock = completedAtFormatter.string(from: d)
-        return Calendar.current.isDateInToday(d)
-            ? clock
-            : completedDateFormatter.string(from: d) + " " + clock
     }
 
     @ViewBuilder
