@@ -9,7 +9,9 @@
 //  - today:      "11:08"
 //  - not today:  "10/24 Fri 11:08"
 //  The stamp is always shown in full on one line. The row never wraps: when
-//  space runs out, the usage capsule truncates its tail ("…") instead.
+//  space runs out, the usage capsule truncates its tail ("…") instead, and
+//  tapping it shows the full usage on the line (stamp hidden) until tapped
+//  again.
 //
 
 import SwiftUI
@@ -50,31 +52,83 @@ struct CompletionStampParts: Equatable {
 }
 
 /// [MOD] Usage capsule + right-aligned completion stamp, always one line.
+///
+/// When the usage capsule has to truncate, tapping it swaps the row to the
+/// full usage on its own (the stamp steps aside); tapping again brings the
+/// stamp back. The row stays one line in both states, so the footer height
+/// never changes and no re-measure is needed.
 struct UsageStampRow<Usage: View>: View {
     let stamp: CompletionStampParts?
     let contentVisible: Bool
     @ViewBuilder let usage: () -> Usage
+    @State private var expanded: Bool
+
+    init(stamp: CompletionStampParts?, contentVisible: Bool, expanded: Bool = false,
+         @ViewBuilder usage: @escaping () -> Usage) {
+        self.stamp = stamp
+        self.contentVisible = contentVisible
+        self.usage = usage
+        _expanded = State(initialValue: expanded)
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Takes whatever the stamp leaves; one line, tail-truncated.
-            usage()
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            if let stamp {
-                Text(stamp.singleLine)
-                    .lineLimit(1)
-                    .font(.system(size: 10, design: .monospaced))
-                    .fixedSize()
-                    .foregroundStyle(ChatColors.tertiaryText)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(ChatColors.userBubble.opacity(0.6))
-                    .clipShape(Capsule())
-                    .opacity(contentVisible ? 1 : 0)
-                    .layoutPriority(1)
+        if let stamp, !expanded {
+            // Full usage beside the stamp when it fits (no tap needed);
+            // otherwise the tail-truncated usage, tappable to expand.
+            ViewThatFits(in: .horizontal) {
+                row { usage().fixedSize() } stamp: { stampCapsule(stamp) }
+                row {
+                    usage()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .contentShape(Rectangle())
+                        .onTapGesture { toggle() }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint(Text("Show full usage"))
+                } stamp: { stampCapsule(stamp) }
             }
+        } else if stamp != nil {
+            // Expanded: full usage alone on the line. On very narrow widths
+            // it scales down a little rather than wrapping.
+            row {
+                usage()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggle() }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(Text("Show time"))
+            } stamp: { EmptyView() }
+        } else {
+            row { usage().lineLimit(1).truncationMode(.tail) } stamp: { EmptyView() }
         }
     }
+
+    private func toggle() {
+        withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+    }
+
+    private func row<U: View, S: View>(@ViewBuilder _ left: () -> U,
+                                       @ViewBuilder stamp: () -> S) -> some View {
+        HStack(spacing: 6) {
+            left()
+            Spacer(minLength: 0)
+            stamp()
+        }
+    }
+
+    private func stampCapsule(_ stamp: CompletionStampParts) -> some View {
+        Text(stamp.singleLine)
+            .lineLimit(1)
+            .font(.system(size: 10, design: .monospaced))
+            .fixedSize()
+            .foregroundStyle(ChatColors.tertiaryText)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(ChatColors.userBubble.opacity(0.6))
+            .clipShape(Capsule())
+            .opacity(contentVisible ? 1 : 0)
+            .layoutPriority(1)
+    }
 }
+

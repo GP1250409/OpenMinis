@@ -20,8 +20,9 @@ enum ChatColors {
 struct UsageRowFixture: View {
     let usage: TokenUsage
     let stamp: CompletionStampParts?
+    var expanded = false
     var body: some View {
-        UsageStampRow(stamp: stamp, contentVisible: true) {
+        UsageStampRow(stamp: stamp, contentVisible: true, expanded: expanded) {
             ProductionUsageCapsule(usage: usage).background(RowDiagnosticProbe(name: "usage"))
         }
         .padding(.horizontal, 16).padding(.vertical, 2)
@@ -99,6 +100,15 @@ extension AccordionTestApp {
                 let shortOld = measure(AnyView(UsageRowFixture(usage: short, stamp: oldStamp)), width: width,
                                        name: width == 390 ? "short-old-\(s)" : nil)
                 check(abs(shortOld.height - oneLine) < 0.5, "short usage + 10/23 Fri 11:08 on one line (\(s) \(width))")
+                // Tapped state: full usage alone on the line, stamp hidden, still one line.
+                let open = measure(AnyView(UsageRowFixture(usage: long, stamp: oldStamp, expanded: true)), width: width,
+                                   name: width == 390 ? "expanded-old-\(s)" : nil)
+                print("STAMP_EXPANDED \(s) w=\(width) h=\(open.height) usage=\(open.usage.width) full=\(fullUsage)")
+                check(abs(open.height - oneLine) < 0.5, "expanded usage stays on one line (\(s) \(width))")
+                check(open.usage.maxX <= width - 16 + 0.5, "expanded usage stays inside the row (\(s) \(width))")
+                if fullUsage <= width - 32 {
+                    check(abs(open.usage.width - fullUsage) < 0.5, "expanded usage shows in full (\(s) \(width))")
+                }
             }
         }
         owner.overrideUserInterfaceStyle = .unspecified
