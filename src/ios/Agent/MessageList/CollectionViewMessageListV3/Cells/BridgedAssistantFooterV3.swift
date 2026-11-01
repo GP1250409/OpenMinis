@@ -84,9 +84,9 @@ struct BridgedAssistantFooterV3: View {
                 // Gated on showUsage too, so it reveals and hides with the
                 // capsule rather than lingering on its own after a tap.
                 //
-                // [MOD] Not-today stamps read "10/24 Fri 11:08"; when that
-                // would squeeze the usage capsule, the stamp stacks to
-                // "10/24 Fri" over "11:08" instead (UsageStampRow).
+                // [MOD] Not-today stamps read "10/24 Fri 11:08". The row
+                // stays on one line: the stamp is always shown in full and
+                // the usage capsule tail-truncates instead (UsageStampRow).
                 UsageStampRow(
                     stamp: message.completedAt.map { CompletionStampParts($0) },
                     contentVisible: bridge.usageContentVisible

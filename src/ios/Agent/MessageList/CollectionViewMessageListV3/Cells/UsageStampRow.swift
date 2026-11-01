@@ -7,10 +7,9 @@
 //
 //  Stamp rules:
 //  - today:      "11:08"
-//  - not today:  "10/24 Fri 11:08" on one line when it fits beside the
-//                usage capsule at its full single-line width; otherwise the
-//                stamp stacks to "10/24 Fri" over "11:08", so the weekday
-//                never squeezes the usage capsule.
+//  - not today:  "10/24 Fri 11:08"
+//  The stamp is always shown in full on one line. The row never wraps: when
+//  space runs out, the usage capsule truncates its tail ("…") instead.
 //
 
 import SwiftUI
@@ -50,57 +49,32 @@ struct CompletionStampParts: Equatable {
     }()
 }
 
-/// [MOD] Usage capsule + right-aligned completion stamp.
+/// [MOD] Usage capsule + right-aligned completion stamp, always one line.
 struct UsageStampRow<Usage: View>: View {
     let stamp: CompletionStampParts?
     let contentVisible: Bool
     @ViewBuilder let usage: () -> Usage
 
     var body: some View {
-        if let stamp, let day = stamp.day {
-            // First variant that fits horizontally wins. The single-line
-            // variant is measured with the usage capsule at its unwrapped
-            // width, so it is chosen only when nothing gets squeezed.
-            ViewThatFits(in: .horizontal) {
-                row { usage().fixedSize() } stamp: { capsule(Text(stamp.singleLine)) }
-                row { usage() } stamp: {
-                    capsule(
-                        VStack(spacing: 1) {
-                            Text(day)
-                            Text(stamp.clock)
-                        }
-                        .multilineTextAlignment(.center)
-                    )
-                }
-            }
-        } else {
-            row { usage() } stamp: {
-                if let stamp { capsule(Text(stamp.clock)) }
-            }
-        }
-    }
-
-    private func row<U: View, S: View>(@ViewBuilder _ left: () -> U,
-                                       @ViewBuilder stamp: () -> S) -> some View {
         HStack(spacing: 6) {
-            left()
-            Spacer()
-            stamp()
+            // Takes whatever the stamp leaves; one line, tail-truncated.
+            usage()
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            if let stamp {
+                Text(stamp.singleLine)
+                    .lineLimit(1)
+                    .font(.system(size: 10, design: .monospaced))
+                    .fixedSize()
+                    .foregroundStyle(ChatColors.tertiaryText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(ChatColors.userBubble.opacity(0.6))
+                    .clipShape(Capsule())
+                    .opacity(contentVisible ? 1 : 0)
+                    .layoutPriority(1)
+            }
         }
-    }
-
-    /// Same look as before: tertiary monospaced 10pt in a soft capsule,
-    /// never compressed itself.
-    private func capsule<C: View>(_ content: C) -> some View {
-        content
-            .lineLimit(1)
-            .font(.system(size: 10, design: .monospaced))
-            .fixedSize()
-            .foregroundStyle(ChatColors.tertiaryText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(ChatColors.userBubble.opacity(0.6))
-            .clipShape(Capsule())
-            .opacity(contentVisible ? 1 : 0)
     }
 }

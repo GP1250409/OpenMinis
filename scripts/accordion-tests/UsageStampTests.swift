@@ -29,22 +29,6 @@ struct UsageRowFixture: View {
     }
 }
 
-/// The pre-change row ("10-24 11:08", fixedSize), as the width reference.
-struct LegacyUsageRowFixture: View {
-    let usage: TokenUsage
-    var body: some View {
-        HStack(spacing: 6) {
-            ProductionUsageCapsule(usage: usage).background(RowDiagnosticProbe(name: "usage"))
-            Spacer()
-            Text("10-24 11:08")
-                .lineLimit(1).fixedSize()
-                .font(.system(size: 10, design: .monospaced))
-                .padding(.horizontal, 8).padding(.vertical, 3)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 2)
-    }
-}
-
 extension AccordionTestApp {
     func usageStampTest() {
         var cal = Calendar(identifier: .gregorian)
@@ -87,43 +71,34 @@ extension AccordionTestApp {
             host.willMove(toParent: nil); host.view.removeFromSuperview(); host.removeFromParent()
             return (size.height, usage)
         }
+        // Intrinsic stamp capsule width (same font + padding as production).
+        func stampWidth(_ text: String) -> CGFloat {
+            UIHostingController(rootView: Text(text).font(.system(size: 10, design: .monospaced))
+                .fixedSize().padding(.horizontal, 8).padding(.vertical, 3))
+                .sizeThatFits(in: CGSize(width: 1000, height: 1000)).width
+        }
+        let fullUsage = measure(AnyView(ProductionUsageCapsule(usage: long).fixedSize()
+            .background(RowDiagnosticProbe(name: "usage"))), width: 1000, name: nil).usage.width
         for style in [UIUserInterfaceStyle.light, .dark] {
             owner.overrideUserInterfaceStyle = style
             let s = style == .light ? "light" : "dark"
-            for width: CGFloat in [375, 390, 430] {
-                let legacy = measure(AnyView(LegacyUsageRowFixture(usage: long)), width: width, name: nil)
-                let stacked = measure(AnyView(UsageRowFixture(usage: long, stamp: oldStamp)), width: width,
-                                      name: width == 390 ? "long-old-\(s)" : nil)
-                let todayRow = measure(AnyView(UsageRowFixture(usage: long, stamp: todayStamp)), width: width,
-                                       name: width == 390 ? "long-today-\(s)" : nil)
+            for width: CGFloat in [320, 375, 390, 430] {
+                let oneLine = measure(AnyView(UsageRowFixture(usage: short, stamp: todayStamp)), width: width, name: nil).height
+                for (tag, stamp) in [("old", oldStamp), ("today", todayStamp)] {
+                    let row = measure(AnyView(UsageRowFixture(usage: long, stamp: stamp)), width: width,
+                                      name: width == 390 ? "long-\(tag)-\(s)" : nil)
+                    let room = width - 32 - 6 - stampWidth(stamp.singleLine)
+                    print("STAMP_ROW \(s) w=\(width) \(tag) h=\(row.height) oneLine=\(oneLine) usage=\(row.usage.width) full=\(fullUsage) room=\(room)")
+                    check(abs(row.height - oneLine) < 0.5, "row stays on one line (\(s) \(width) \(tag))")
+                    check(row.usage.maxX <= 16 + room + 0.5, "full stamp keeps its intrinsic width (\(s) \(width) \(tag))")
+                    if fullUsage > room + 1 {
+                        check(row.usage.width < fullUsage - 1, "usage capsule truncates instead of wrapping (\(s) \(width) \(tag))")
+                    }
+                }
                 let shortOld = measure(AnyView(UsageRowFixture(usage: short, stamp: oldStamp)), width: width,
                                        name: width == 390 ? "short-old-\(s)" : nil)
-                let shortToday = measure(AnyView(UsageRowFixture(usage: short, stamp: todayStamp)), width: width, name: nil)
-                print("STAMP_GEOMETRY \(s) w=\(width) legacyUsage=\(legacy.usage.width) newUsage=\(stacked.usage.width) "
-                      + "h legacy=\(legacy.height) stacked=\(stacked.height) today=\(todayRow.height) "
-                      + "shortOld=\(shortOld.height) shortToday=\(shortToday.height)")
-                check(stacked.usage.width >= legacy.usage.width - 0.5,
-                      "weekday never narrows the usage capsule below the old layout (\(s) \(width))")
-                check(todayRow.usage.width >= legacy.usage.width - 0.5, "today row keeps usage width (\(s) \(width))")
-                check(abs(shortOld.height - shortToday.height) < 0.5,
-                      "short usage keeps 10/23 Fri 11:08 on one line (\(s) \(width))")
-                check(shortOld.usage.width > 0, "short usage capsule rendered (\(s) \(width))")
+                check(abs(shortOld.height - oneLine) < 0.5, "short usage + 10/23 Fri 11:08 on one line (\(s) \(width))")
             }
-            // Switch logic with a fixed 150pt single-line usage stand-in, so the
-            // usage capsule's own wrapping cannot mask the stamp's layout.
-            func block(_ stamp: CompletionStampParts) -> AnyView {
-                AnyView(UsageStampRow(stamp: stamp, contentVisible: true) {
-                    Color.gray.frame(width: 150, height: 12).background(RowDiagnosticProbe(name: "usage"))
-                }.padding(.horizontal, 16).padding(.vertical, 2))
-            }
-            let wideOld = measure(block(oldStamp), width: 360, name: "fits-old-\(s)")
-            let wideToday = measure(block(todayStamp), width: 360, name: nil)
-            let narrowOld = measure(block(oldStamp), width: 280, name: "narrow-old-\(s)")
-            let narrowToday = measure(block(todayStamp), width: 280, name: nil)
-            print("STAMP_SWITCH \(s) wideOld=\(wideOld.height) wideToday=\(wideToday.height) narrowOld=\(narrowOld.height) narrowToday=\(narrowToday.height)")
-            check(abs(wideOld.height - wideToday.height) < 0.5, "10/23 Fri 11:08 stays on one line when it fits (\(s))")
-            check(narrowOld.height > narrowToday.height + 8, "stamp stacks date/weekday over time when it cannot fit (\(s))")
-            check(abs(narrowOld.usage.width - 150) < 0.5, "stacked stamp leaves usage width intact (\(s))")
         }
         owner.overrideUserInterfaceStyle = .unspecified
     }
