@@ -1195,6 +1195,17 @@ struct ThinkingBlockView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(ChatColors.thinkingBorder, lineWidth: 0.5)
         )
+        // MOD: same pin as the user_ask card ([T-user-ask-expand-anim]). The
+        // anchored toggle switches the content first and animates the cell's
+        // height after, so for those 0.2 s the cell and the block differ in
+        // height. Unpinned, the hosting view CENTRED the block in the stale
+        // cell and re-laid it out inside the height animation: a collapse
+        // dropped the header to the middle of the old cell and slid it back
+        // up, an expand cross-faded a stretched copy of the header
+        // (video_1BC18802). Pinned to the top the block never moves while the
+        // cell's clipping bounds reveal or hide its body. Measuring is
+        // unaffected: with only a maximum the frame takes the block's height.
+        .frame(maxHeight: .infinity, alignment: .top)
         .task(id: block.id) {
             // One-shot per-block auto-expand. Runs when this cell first hosts
             // a given thinking block (block.id is stable across content

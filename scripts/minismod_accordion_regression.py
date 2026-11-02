@@ -57,6 +57,9 @@ chg=chg[:chg.index('NotificationCenter.default.post')]
 assert 'if block.thinkingToggleAnchored {' in chg,'anchored tap must skip the second, unanchored re-measure'
 v3=(root/'src/ios/Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
 assert 'self.remeasureKeepingTop(item: item, index: i, blockId: blockId, request: request)' in v3
+pin=blk[blk.index('struct ThinkingBlockView:'):]
+pin=pin[pin.index('.stroke(ChatColors.thinkingBorder, lineWidth: 0.5)'):pin.index('.task(id: block.id)')]
+assert '.frame(maxHeight: .infinity, alignment: .top)' in pin,'thinking block must be pinned to the top of its cell during the height animation'
 print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
 assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'
