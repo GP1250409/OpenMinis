@@ -437,7 +437,9 @@ extension ContentView {
                             FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap)
                                 .fill(style: FillStyle(eoFill: true))
                         } else {
-                            Rectangle()
+                            // Bleed past the frame so the outer half of the
+                            // edge hairline survives (see FolderWeldStrip).
+                            Rectangle().padding(-FolderWeldStrip.edgeBleed)
                         }
                     }
                     .padding(.horizontal, 6)

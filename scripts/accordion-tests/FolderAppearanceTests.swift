@@ -221,6 +221,35 @@ extension AccordionTestApp {
                 check(alpha(list, CGPoint(x: w/2, y: h - 1.5)) > 0 && alpha(list, CGPoint(x: 8, y: h - 2)) > 0,
                       "expanded header still welds to the member row in the list")
             }
+            // Edge parity (photo_AFC030AE): the welded header's top/side
+            // hairline must keep BOTH halves, i.e. match an unmasked segment
+            // pixel for pixel across the stroke, like the member rows' walls.
+            let mask26: Bool = { if #available(iOS 26.0, *) { return true } else { return false } }()
+            let ref = render(Color.clear.frame(width: w, height: h).background {
+                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                    .padding(.horizontal, 6).padding(.top, 4)
+            }, w: w, h: h, style: style)
+            let welded = render(Color.clear.frame(width: w, height: h).background {
+                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                    .mask {
+                        if mask26 {
+                            FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap).fill(style: FillStyle(eoFill: true))
+                        } else {
+                            Rectangle().padding(-FolderWeldStrip.edgeBleed)
+                        }
+                    }
+                    .padding(.horizontal, 6).padding(.top, 4)
+            }, w: w, h: h, style: style)
+            let px = 1 / ref.scale
+            // The OUTER half of the stroke (outside the 6pt side / 4pt top
+            // frame edge) is exactly what the old frame-sized mask removed.
+            let side = stride(from: 4.5, to: 6.0, by: px).map { CGPoint(x: $0, y: h/2) }
+            let right = stride(from: w - 6.0, to: w - 4.5, by: px).map { CGPoint(x: $0 + px/2, y: h/2) }
+            let top = stride(from: 2.5, to: 4.0, by: px).map { CGPoint(x: w/2, y: $0) }
+            let refA = (side + right + top).map { alpha(ref, $0) }, weldA = (side + right + top).map { alpha(welded, $0) }
+            print("HEADER_EDGE style=\(style.rawValue) ref=\(refA) welded=\(weldA)")
+            check(refA.contains { $0 > 0 } && zip(refA, weldA).allSatisfy { abs($0 - $1) <= 2 },
+                  "welded header top/side hairline is as thick as an unmasked segment edge")
             let file = style == .light ? "folder-header-preview-light.png" : "folder-header-preview-dark.png"
             try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file))
             try? list.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file.replacingOccurrences(of: "preview", with: "list")))

@@ -364,10 +364,16 @@ struct FolderCardFill: View {
 /// MOD: mask for an expanded header's welded segment painted outside the
 /// menu source: the whole segment EXCEPT the card body (FolderCardFill
 /// geometry, `bottomGap` short of the segment's bottom). Use with eoFill.
+///
+/// The outer boundary is pushed `edgeBleed` past the segment frame: the
+/// 0.75pt edge hairline is centred on the frame edge, so a mask clipped AT
+/// the frame kept only its inner half and the header's top/side walls read
+/// thinner than the member rows' unmasked walls (photo_AFC030AE).
 struct FolderWeldStrip: Shape {
+    static let edgeBleed: CGFloat = 2
     let bottomGap: CGFloat
     func path(in rect: CGRect) -> Path {
-        var p = Path(rect)
+        var p = Path(rect.insetBy(dx: -Self.edgeBleed, dy: -Self.edgeBleed))
         let body = CGRect(x: rect.minX, y: rect.minY, width: rect.width,
                           height: max(0, rect.height - bottomGap))
             .insetBy(dx: FolderCardFill.edgeInset, dy: FolderCardFill.edgeInset)
