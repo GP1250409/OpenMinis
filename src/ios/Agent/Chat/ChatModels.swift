@@ -629,6 +629,11 @@ final class AssistantBlock: Identifiable, ObservableObject {
     /// `isThinkingExpanded` alone so a tap on an earlier (frozen) block can't
     /// be silently undone by a streaming sibling's recomposition.
     @Published var thinkingUserToggled: Bool = false
+    /// MOD: set by a user tap whose expand/collapse the message list applies
+    /// itself, keeping the block's top fixed (ToggleAnchorMath). The view's
+    /// `onChange(of: isThinkingExpanded)` then skips its plain re-measure
+    /// post, which would re-measure the same cell a second time, unanchored.
+    var thinkingToggleAnchored = false
 
     init(kind: AssistantBlockKind, content: String, toolStatus: ToolBlockStatus? = nil, toolUseId: String? = nil) {
         self.kind = kind

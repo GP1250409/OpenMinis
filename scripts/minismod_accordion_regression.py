@@ -43,6 +43,21 @@ branch=press[press.index('if inFolder {'):press.index('} else {')]
 assert 'FolderMemberRowBackground' not in branch,'member segment must not be inside the menu source'
 assert 'FolderLiftedCard' in branch[branch.index('if configuration.isPressed'):],'lifted card drawn while pressed'
 hdr=(ios.parent/'ContentView+SectionHeaders.swift').read_text()
+# Regression: tapping a deep-thinking row opens it DOWNWARD. The tap must hand
+# a ToggleRequest to the list's top-anchored path (like the user_ask card);
+# flipping isThinkingExpanded in the view re-measured through the plain path,
+# whose visible-cell compensation grew the block upward.
+blk=(root/'src/ios/Views/Chat/AssistantBlockView.swift').read_text()
+tap=blk[blk.index('struct ThinkingBlockView:'):]
+tap=tap[tap.index('.onTapGesture {'):tap.index('// Content')]
+assert 'ToggleAnchorMath.anchorTopKey: true' in tap and 'ToggleAnchorMath.toggleRequestKey: request' in tap,'thinking tap must take the anchored path'
+assert 'isExpanded.wrappedValue.toggle()' not in tap,'thinking tap must not flip the state itself'
+chg=blk[blk.index('.onChange(of: block.isThinkingExpanded)'):]
+chg=chg[:chg.index('NotificationCenter.default.post')]
+assert 'if block.thinkingToggleAnchored {' in chg,'anchored tap must skip the second, unanchored re-measure'
+v3=(root/'src/ios/Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
+assert 'self.remeasureKeepingTop(item: item, index: i, blockId: blockId, request: request)' in v3
+print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
 assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'
 assert hdr.index('.contextMenu {') < hdr.index('FolderWeldStrip('),'expanded header segment must sit outside the menu source'

@@ -1006,11 +1006,36 @@ struct ThinkingBlockView: View {
                 // `onChange(of: isThinkingExpanded)` observer below — single
                 // source of truth so the auto-collapse path stays in sync.
                 AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] tap block=\(block.id.uuidString.prefix(8)) wasExpanded=\(isExpanded.wrappedValue) streaming=\(isStreaming) contentLen=\(block.content.count)")
-                block.thinkingUserToggled = true
-                if !isExpanded.wrappedValue {
-                    block.flushThinkingBuffer()
+                // MOD: a user tap goes through the list's anchored path, the
+                // same one an answered user_ask card uses: the block keeps its
+                // top where it is on screen and only its bottom moves, so the
+                // body opens DOWNWARD. Flipping the state here re-measured
+                // through the plain path, where the layout's visible-cell
+                // compensation keeps the content BELOW the cell fixed — the
+                // block grew upward off its own header.
+                let request = ToggleRequest { [block] in
+                    block.thinkingUserToggled = true
+                    block.thinkingToggleAnchored = true
+                    if !block.isThinkingExpanded {
+                        block.flushThinkingBuffer()
+                    }
+                    block.isThinkingExpanded.toggle()
                 }
-                isExpanded.wrappedValue.toggle()
+                NotificationCenter.default.post(name: .thinkingBlockToggled, object: block.id,
+                                                userInfo: [ToggleAnchorMath.anchorTopKey: true,
+                                                           ToggleAnchorMath.toggleRequestKey: request])
+                // No list showing this block (nothing ran it): toggle anyway,
+                // then ask for the plain re-measure the skipped onChange post
+                // would have sent.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [block] in
+                    if request.run() {
+                        NotificationCenter.default.post(name: .thinkingBlockToggled, object: block.id)
+                    }
+                }
+                // A stale mark must never swallow a later auto-collapse post.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [block] in
+                    block.thinkingToggleAnchored = false
+                }
             }
 
             // Content — only visible when expanded, windowed to the tail
@@ -1229,6 +1254,14 @@ struct ThinkingBlockView: View {
             // UICollectionView kept the expanded cell height (~300pt) and
             // rendered a tall empty gap below the pill — see 2026-05-17
             // screenshot bug.
+            // MOD: a user tap was already re-measured by the list's anchored
+            // path (top fixed); a second, plain post here would re-measure it
+            // again without the anchor.
+            if block.thinkingToggleAnchored {
+                block.thinkingToggleAnchored = false
+                AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] anchored-skip block=\(block.id.uuidString.prefix(8)) expanded=\(newValue)")
+                return
+            }
             AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] post block=\(block.id.uuidString.prefix(8)) expanded=\(newValue) userToggled=\(block.thinkingUserToggled) streaming=\(isStreaming)")
             NotificationCenter.default.post(name: .thinkingBlockToggled,
                                             object: block.id)
