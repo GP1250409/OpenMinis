@@ -11,6 +11,7 @@ assert 'fadeAnimator.cancelAll()\n            textView.attributedText = attribut
 assert 'oldPrefix.enumerateAttributes(in: range' in method
 pinned=(ios/'Views/ContentView/Sidebar/SidebarSurfaces.swift').read_text().split('// MARK: - MOD stable pinned-title presentation')[1]
 (out/'Pinned.swift').write_text('import UIKit\nimport SwiftUI\nfunc AppLocalized(_ s: String) -> String { s }\n'+pinned)
+(out/'GlassProbe.swift').write_text('import SwiftUI\nenum LegacyGlassOutlineProbe { static func pathBounds(_ s: CGSize) -> CGRect { legacyGlassOutlineBounds(for: s, shape: .capsule) } }\n')
 (out/'Prefix.swift').write_text('import UIKit\nenum PrefixTest {\n static let nsOriginalFontKey = NSAttributedString.Key("NSOriginalFont")\n'+method+'}\n')
 (out/'main.swift').write_text('''import UIKit
 import Foundation
@@ -58,6 +59,27 @@ for viewport in stride(from: CGFloat(-50), through: 400, by: 1) {
 check(true, "451 natural/pinned/section-bottom clamp cases")
 check(StablePinnedTitle.titleY(natural: 50, viewport: 260, bottom: 250, height: 30) + 30 <= 260, "pinned title leaves viewport with its section")
 check(34.0 / 2 + 12 == 29, "actual composer concentric geometry")
+// [MOD legacy-glass] The real production LegacyGlass.swift, run in a real UIKit process.
+let glass = LegacyGlassBackdropView(frame: CGRect(x: 0, y: 0, width: 120, height: 48))
+glass.apply(blur: 14, saturation: 1.7)
+glass.layoutIfNeeded()
+check(glass.clipsToBounds && !glass.isUserInteractionEnabled, "glass backdrop clips and never takes touches")
+check(abs(glass.layer.cornerRadius - 24) < 0.001, "glass with no explicit radius is a capsule (radius = half the short side)")
+glass.cornerRadius = 100
+glass.layoutIfNeeded()
+check(abs(glass.layer.cornerRadius - 24) < 0.001, "glass radius is clamped to half the short side")
+glass.cornerRadius = 10
+glass.layoutIfNeeded()
+check(abs(glass.layer.cornerRadius - 10) < 0.001, "glass explicit radius honoured")
+let layerCount = glass.layer.sublayers?.count ?? 0
+let hasFallback = glass.subviews.count == 1
+check(layerCount == 1 || hasFallback, "glass has either a backdrop layer or the system-material fallback, never neither")
+glass.apply(blur: 14, saturation: 1.7)
+glass.apply(blur: 20, saturation: 1.2)
+check(true, "re-applying filters does not crash")
+print("GLASS_BACKDROP_LAYER=" + (layerCount == 1 ? "private-backdrop" : "fallback-material"))
+let outline = LegacyGlassOutlineProbe.pathBounds(CGSize(width: 100, height: 40))
+check(outline.width == 100 && outline.height == 40, "outline path fills its rect")
 }
 print("MINISMOD_REGRESSION_PASS \\(passed)")
 ''')
@@ -72,5 +94,5 @@ subprocess.run(['xcrun','simctl','bootstatus',uid,'-b'],check=True)
 sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip()
 arch=subprocess.check_output(['uname','-m'],text=True).strip()
 exe=out/'regression'
-subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-sdk',sdk,'-target',arch+'-apple-ios16.0-simulator',str(ios/'Views/Chat/TextFadeAnimator.swift'),str(out/'Pinned.swift'),str(out/'Prefix.swift'),str(out/'main.swift'),'-o',str(exe)],check=True)
+subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-sdk',sdk,'-target',arch+'-apple-ios16.0-simulator',str(ios/'Views/Chat/TextFadeAnimator.swift'),str(out/'Pinned.swift'),str(out/'Prefix.swift'),str(ios/'Views/ContentView/Support/LegacyGlass.swift'),str(out/'GlassProbe.swift'),str(out/'main.swift'),'-o',str(exe)],check=True)
 subprocess.run(['xcrun','simctl','spawn',uid,str(exe)],check=True)

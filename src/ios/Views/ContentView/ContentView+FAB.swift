@@ -198,10 +198,14 @@ extension ContentView {
                 // declares the two shapes separately for the same reason.
                 .contentShape(.contextMenuPreview, Circle())
         } else {
-            Circle()
-                .fill(fallbackFill)
-                .overlay { icon() }
-                .shadow(color: .black.opacity(fallbackShadowOpacity), radius: 8, x: 0, y: 4)
+            // [MOD legacy-glass] The opaque disc becomes glass. `fallbackFill`
+            // and `fallbackShadowOpacity` stay in the signature (the label
+            // closures and a source-level test reference it) but are unused.
+            icon()
+                .frame(width: 56, height: 56)
+                .legacyGlass(.circle, strength: .light, tint: tint)
+                .contentShape(Circle())
+                .contentShape(.contextMenuPreview, Circle())
         }
     }
 

@@ -140,10 +140,9 @@ struct SearchBarSurface: ViewModifier {
             // capsule, and no .shadow: the material carries its own.
             content.glassEffect(.regular, in: .capsule)
         } else {
+            // [MOD legacy-glass] replaces the opaque capsule + shadow.
             content
-                .background(Color(UIColor.secondarySystemBackground))
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 2)
+                .legacyGlass(.capsule, strength: .regular)
         }
     }
 }

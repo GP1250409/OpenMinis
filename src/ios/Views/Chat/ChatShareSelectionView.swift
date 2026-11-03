@@ -849,9 +849,8 @@ private struct ChatShareFloatingButtonSurface: ViewModifier {
         } else {
             content
                 .buttonStyle(.plain)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-                .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.10), radius: 6, y: 2)
+                // [MOD legacy-glass]
+                .legacyGlass(.capsule, strength: .light)
         }
     }
 }

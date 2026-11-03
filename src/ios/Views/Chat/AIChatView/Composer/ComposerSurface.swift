@@ -64,14 +64,13 @@ struct FloatingCircleButtonSurface: ViewModifier {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .contentShape(Circle())
         } else {
+            // [MOD legacy-glass] The old near-opaque disc is replaced by the
+            // pre-26 glass look-alike. The `legacy*` parameters are kept so
+            // BrowserSheetView's call site still compiles; they no longer
+            // affect the look.
             content
-                .background {
-                    Color(.systemBackground)
-                        .opacity(colorScheme == .dark ? 0.8 : legacyLightOpacity)
-                        .clipShape(Circle())
-                }
-                .overlay(Circle().stroke(Color.gray.opacity(legacyStrokeOpacity), lineWidth: 0.5))
-                .shadow(color: .black.opacity(legacyShadowOpacity), radius: legacyShadowRadius, y: 2)
+                .legacyGlass(.circle, strength: .light)
+                .contentShape(Circle())
         }
     }
 }
@@ -116,6 +115,12 @@ struct ComposerSurface: ViewModifier {
             content
                 .glassEffect(.regular, in: shape)
                 .clipShape(shape)
+        } else if ChatThemeStore.current == nil {
+            // [MOD legacy-glass] Default theme below iOS 26: glass, like 26+.
+            // Content is clipped first so the glass shadow is not clipped.
+            content
+                .clipShape(shape)
+                .legacyGlass(.rounded(ComposerGeometry.cornerRadius, continuous: true), strength: .regular)
         } else {
             content
                 .background(shape.fill(ChatColors.inputBg))

@@ -330,14 +330,10 @@ extension AIChatView {
                     .glassEffect(.regular, in: shape)
                     .clipShape(shape)
             } else {
+                // [MOD legacy-glass] replaces regularMaterial + hairline + shadows.
                 content
-                    .background(.regularMaterial, in: shape)
                     .clipShape(shape)
-                    .overlay(
-                        shape.strokeBorder(Self.edgeHighlight, lineWidth: 0.5)
-                    )
-                    .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
-                    .shadow(color: Self.ambientShadow, radius: 18, x: 0, y: 8)
+                    .legacyGlass(.rounded(AIChatView.popupCornerRadius, continuous: true), strength: .regular)
             }
         }
 
