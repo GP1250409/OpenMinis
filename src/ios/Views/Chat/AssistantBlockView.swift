@@ -1026,8 +1026,11 @@ struct ThinkingBlockView: View {
                                                            ToggleAnchorMath.toggleRequestKey: request])
                 // No list showing this block (nothing ran it): toggle anyway,
                 // then ask for the plain re-measure the skipped onChange post
-                // would have sent.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [block] in
+                // would have sent. 0.5s, not 0.15: a COLLAPSE now runs the
+                // request only when its 0.2s height animation ends (the body
+                // stays up until the cell has shrunk), and this fallback must
+                // not get in first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [block] in
                     if request.run() {
                         NotificationCenter.default.post(name: .thinkingBlockToggled, object: block.id)
                     }

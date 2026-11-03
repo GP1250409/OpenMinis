@@ -60,6 +60,22 @@ assert 'self.remeasureKeepingTop(item: item, index: i, blockId: blockId, request
 pin=blk[blk.index('struct ThinkingBlockView:'):]
 pin=pin[pin.index('.stroke(ChatColors.thinkingBorder, lineWidth: 0.5)'):pin.index('.task(id: block.id)')]
 assert '.frame(maxHeight: .infinity, alignment: .top)' in pin,'thinking block must be pinned to the top of its cell during the height animation'
+# Regression: a COLLAPSE keeps the opened body on screen until the cell's
+# height animation ends (flipping it first left a 340pt cell holding a 40pt
+# header: one all-black frame plus ghosts of the rows below, video 20:55:45),
+# and an EXPAND re-measures when the hosting view answers with the old height
+# (device crumbs idx=7: toggle h=39->39, verify 39->232 on every tap).
+tf=(root/'src/ios/Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+ToolFolding.swift').read_text()
+rk=tf[tf.index('func remeasureKeepingTop('):tf.index('func verifyToggledHeight(')]
+assert 'let isCollapse: Bool' in rk and 'return b.isThinkingExpanded' in rk,'collapse must be decided before the state flips'
+col=rk[rk.index('if isCollapse {'):rk.index('} else {', rk.index('if isCollapse {'))]
+assert 'request?.run()' not in col,'a collapse must not flip the state before the height animation'
+assert 'setMeasuredHeight(Self.collapsedThinkingHeight' in col,'a collapse animates to the header height'
+fin=rk[rk.index('let finish = {'):rk.index('// [T-user-ask-expand-verify] And on the next runloop turn')]
+assert fin.index('if isCollapse {') < fin.index('request?.run()') < fin.index('verifyToggledHeight'),'state flips in finish, before the verify'
+assert 'while fitted <= oldHeight + 0.5 && retries < 3' in rk,'expand must re-measure a lagging answer'
+assert 'if !isCollapse {' in rk[rk.index('// [MOD think-collapse-hold] Not for a collapse'):],'no early verify during a collapse'
+assert 'deadline: .now() + 0.5' in tap,'fallback toggle must wait for the collapse animation'
 print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
 assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'

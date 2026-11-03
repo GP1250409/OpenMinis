@@ -246,6 +246,25 @@ extension CollectionViewMessageListV3.Coordinator {
             layout.topAnchoredIndex = i
             var newFrame: CGRect?
             var reveal: CGFloat = 0
+            // [MOD think-collapse-hold] Which way this tap goes. A COLLAPSE
+            // must keep the opened body on screen while the cell's height
+            // animates down: switching it off first leaves a cell that is
+            // still 340pt tall holding only a 40pt header, and the rest shows
+            // the black list background for the length of the animation
+            // (device video 20:55:45: one all-black frame, then ghosts of the
+            // rows below fading in). So a collapse measures the target height
+            // WITHOUT flipping the state, animates the height, and flips the
+            // state once the cell has reached it. An expand keeps the old
+            // order (content first, then the height animation): the body
+            // being revealed must already exist when the cell opens up.
+            let isCollapse: Bool = {
+                if case .assistantBlock(let mid, let bid) = item,
+                   let mIdx = messageIndex[mid], mIdx < (vm?.messages.count ?? 0),
+                   let b = vm?.messages[mIdx].blocks.first(where: { $0.id == bid }) {
+                    return b.isThinkingExpanded
+                }
+                return false
+            }()
 
             // Everything that changes what is on screen happens in this one
             // pass, in one runloop turn: the content switches state AND the
@@ -286,32 +305,67 @@ extension CollectionViewMessageListV3.Coordinator {
                         // header drawn twice ~9pt apart, card half transparent).
                         var noAnim = Transaction(animation: nil)
                         noAnim.disablesAnimations = true
-                        withTransaction(noAnim) {
-                            _ = request?.run()
-                            // [T-user-ask-history-seed] Drop this row's cached and
-                            // memoized height BEFORE configureCell. The memo is keyed
-                            // by content, not by expanded state, so configureCell
-                            // would otherwise seed the height measured for the OLD
-                            // state, and the seed makes the measure below return it
-                            // without measuring (device log on a finished message:
-                            // `[MemoSeed] … h=64.0` then `ANCHORED h=64.0→64.0`, the
-                            // opened card overlapping its neighbours). Streaming
-                            // messages are never seeded, which is why this only
-                            // showed up in history. The new height is memoized by
-                            // that measure, so scrolling back still skips it.
+                        if isCollapse {
+                            // [MOD think-collapse-hold] The body stays up; only the
+                            // height goes down, to the header's own height. The
+                            // state flips in `finish`, once the cell has got there.
+                            // The target is a constant (the collapsed block is its
+                            // header, 39pt on device in every collapse of the
+                            // 20:53-20:55 session), so no measure is needed - and
+                            // none is wanted: a measure taken before the hosting
+                            // view re-renders returns the OLD height.
                             layout.invalidateHeight(at: i)
-                            self.configureCell(cell, item: item, indexPath: ip)
+                            layout.setMeasuredHeight(Self.collapsedThinkingHeight, at: i)
+                            cell.clearCachedHeight()
+                        } else {
+                            withTransaction(noAnim) {
+                                _ = request?.run()
+                                // [T-user-ask-history-seed] Drop this row's cached and
+                                // memoized height BEFORE configureCell. The memo is keyed
+                                // by content, not by expanded state, so configureCell
+                                // would otherwise seed the height measured for the OLD
+                                // state, and the seed makes the measure below return it
+                                // without measuring (device log on a finished message:
+                                // `[MemoSeed] … h=64.0` then `ANCHORED h=64.0→64.0`, the
+                                // opened card overlapping its neighbours). Streaming
+                                // messages are never seeded, which is why this only
+                                // showed up in history. The new height is memoized by
+                                // that measure, so scrolling back still skips it.
+                                layout.invalidateHeight(at: i)
+                                self.configureCell(cell, item: item, indexPath: ip)
+                            }
+                            // The hosting view applies a new root view on its next
+                            // update; run that update now (a layout pass of the cell's
+                            // content) so the measure below sees the new state rather
+                            // than the previous render (device log: measured heights
+                            // lagged one tap behind without this).
+                            cell.contentView.setNeedsLayout()
+                            cell.contentView.layoutIfNeeded()
+                            cell.clearCachedHeight()
+                            var fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                            // [MOD think-measure-lag] Some rows still answer with the
+                            // height of the state they just left (device crumbs, idx=7:
+                            // `think.toggle h=39->39`, then `verify 39->232`, every
+                            // tap): the verify pass then ran a SECOND animation, which
+                            // is the flash on those rows. An expand can only get
+                            // taller, so an answer that is not taller than before is
+                            // that lag: give the hosting view one more layout turn and
+                            // measure again before the height is committed.
+                            var retries = 0
+                            while fitted <= oldHeight + 0.5 && retries < 3 {
+                                retries += 1
+                                self.configureCell(cell, item: item, indexPath: ip)
+                                cell.contentView.setNeedsLayout()
+                                cell.contentView.layoutIfNeeded()
+                                cell.clearCachedHeight()
+                                fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                            }
+                            if retries > 0 {
+                                CrashBreadcrumbs.record("think.remeasure",
+                                                        detail: "idx=\(i) retries=\(retries) h=\(Int(fitted))")
+                            }
+                            layout.setMeasuredHeight(fitted, at: i)
                         }
-                        // The hosting view applies a new root view on its next
-                        // update; run that update now (a layout pass of the cell's
-                        // content) so the measure below sees the new state rather
-                        // than the previous render (device log: measured heights
-                        // lagged one tap behind without this).
-                        cell.contentView.setNeedsLayout()
-                        cell.contentView.layoutIfNeeded()
-                        cell.clearCachedHeight()
-                        let fitted = cell.preferredLayoutAttributesFitting(attrs)
-                        layout.setMeasuredHeight(fitted.size.height, at: i)
                         CATransaction.commit()
                     }
                 } else {
@@ -351,6 +405,21 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             let finish = { [weak self, weak layout] in
                 guard let self else { return }
+                // [MOD think-collapse-hold] The cell is down to header height;
+                // now drop the body. The visible part of the cell is the header
+                // either way, so this lands without anything on screen moving.
+                // The request runs through the same single-shot gate, so the
+                // 0.15s fallback in the tap handler cannot flip it twice.
+                if isCollapse {
+                    var noAnim = Transaction(animation: nil)
+                    noAnim.disablesAnimations = true
+                    withTransaction(noAnim) {
+                        UIView.performWithoutAnimation {
+                            _ = request?.run()
+                            self.reconfigureThinkingCell(item: item, index: i)
+                        }
+                    }
+                }
                 // [T-user-ask-expand-verify] Settled: check the height once more.
                 self.verifyToggledHeight(blockId: blockId, attempt: 0)
                 if self.isNearBottom() { self.scrollMode = .autoScrolling }
@@ -363,8 +432,13 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             // [T-user-ask-expand-verify] And on the next runloop turn, when the
             // hosting view has certainly applied the new state.
-            DispatchQueue.main.async { [weak self] in
-                self?.verifyToggledHeight(blockId: blockId, attempt: 0)
+            // [MOD think-collapse-hold] Not for a collapse: the body is still up
+            // until the animation ends, so a measure now would read the OLD tall
+            // height and "correct" the cell back up. `finish` verifies it.
+            if !isCollapse {
+                DispatchQueue.main.async { [weak self] in
+                    self?.verifyToggledHeight(blockId: blockId, attempt: 0)
+                }
             }
             if let duration {
                 // Short ease-out, no spring overshoot; a tap during the
@@ -381,6 +455,26 @@ extension CollectionViewMessageListV3.Coordinator {
             // collapse, not a per-frame path.
             CrashBreadcrumbs.record("think.toggle",
                                     detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) animated=\(duration != nil ? 1 : 0)")
+        }
+
+        /// [MOD think-collapse-hold] Height of a collapsed thinking row: the
+        /// header block (36pt capsule + 2x2pt wrapper padding). Device crumbs
+        /// show the measured collapsed height as 39 on every collapse; the
+        /// estimator uses 40. A wrong value here is corrected by the verify
+        /// pass, so this only has to be close.
+        static let collapsedThinkingHeight: CGFloat = 39
+
+        /// Re-render one visible thinking cell with its current state, without
+        /// touching its height (the caller has just set it).
+        func reconfigureThinkingCell(item: MessageListItem, index i: Int) {
+            guard let cv = viewController?.collectionView,
+                  let layout = cv.collectionViewLayout as? MessageListLayout,
+                  let cell = cv.cellForItem(at: IndexPath(item: i, section: 0)) as? SelfSizingCell,
+                  dataSource?.snapshot().indexOfItem(item) == i else { return }
+            self.configureCell(cell, item: item, indexPath: IndexPath(item: i, section: 0))
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+            layout.setMeasuredHeight(Self.collapsedThinkingHeight, at: i)
         }
 
         /// [T-user-ask-expand-verify] The in-pass measure of a toggled card can
