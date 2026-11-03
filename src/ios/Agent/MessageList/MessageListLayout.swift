@@ -108,6 +108,27 @@ final class MessageListLayout: UICollectionViewLayout {
         }
     }
 
+    /// [MOD think-collapse-lock] Row whose height the Coordinator is animating
+    /// down while its body is deliberately still on screen. The cell is
+    /// self-sizing: left alone it measures the still-expanded body and writes
+    /// that tall height straight back (device crumbs: every collapse logged
+    /// `think.toggle h=158->158`; the body was then removed from a cell that
+    /// stayed 158pt tall - a header over a black gap). While an index is
+    /// locked, self-sizing for it is ignored. Shares `_streamingLock`.
+    private var _heightLockedIndex: Int?
+    var heightLockedIndex: Int? {
+        get {
+            os_unfair_lock_lock(&_streamingLock)
+            defer { os_unfair_lock_unlock(&_streamingLock) }
+            return _heightLockedIndex
+        }
+        set {
+            os_unfair_lock_lock(&_streamingLock)
+            _heightLockedIndex = newValue
+            os_unfair_lock_unlock(&_streamingLock)
+        }
+    }
+
     private var _streamingCellRanges: [Range<Int>] = []
     private var _streamingLock = os_unfair_lock_s()
 
@@ -423,6 +444,10 @@ final class MessageListLayout: UICollectionViewLayout {
         let index = preferredAttributes.indexPath.item
         let preferred = preferredAttributes.size.height
         let original = originalAttributes.size.height
+
+        // [MOD think-collapse-lock] The Coordinator owns this row's height
+        // for the length of a collapse animation.
+        if heightLockedIndex == index { return false }
 
         // While the user is browsing (scrollMode == .userBrowsing), defer
         // self-sizing for cells that already have a cached height — prevents

@@ -76,6 +76,13 @@ assert fin.index('if isCollapse {') < fin.index('request?.run()') < fin.index('v
 assert 'while fitted <= oldHeight + 0.5 && retries < 3' in rk,'expand must re-measure a lagging answer'
 assert 'if !isCollapse {' in rk[rk.index('// [MOD think-collapse-hold] Not for a collapse'):],'no early verify during a collapse'
 assert 'deadline: .now() + 0.5' in tap,'fallback toggle must wait for the collapse animation'
+lay=open('src/ios/Agent/MessageList/MessageListLayout.swift').read()
+assert 'var heightLockedIndex: Int?' in lay,'layout must expose the collapse height lock'
+sh=lay[lay.index('override func shouldInvalidateLayout('):]
+assert 'if heightLockedIndex == index { return false }' in sh[:sh.index('deferSelfSizing')],'a locked row must ignore self-sizing before anything else'
+assert col.index('layout.heightLockedIndex = i') < col.index('setMeasuredHeight(Self.collapsedThinkingHeight'),'collapse locks the height before setting it'
+assert fin.index('request?.run()') < fin.index('layout?.heightLockedIndex = nil') < fin.index('verifyToggledHeight'),'lock is released after the state flips, before the verify'
+assert 'heightLockedIndex == i { layout?.heightLockedIndex = nil }' in rk,'a failsafe must never leave a row locked'
 print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
 assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'

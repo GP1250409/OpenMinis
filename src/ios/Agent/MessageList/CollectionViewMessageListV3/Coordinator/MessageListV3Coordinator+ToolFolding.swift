@@ -314,6 +314,12 @@ extension CollectionViewMessageListV3.Coordinator {
                             // 20:53-20:55 session), so no measure is needed - and
                             // none is wanted: a measure taken before the hosting
                             // view re-renders returns the OLD height.
+                            // [MOD think-collapse-lock] The cell is self-sizing and
+                            // still holds the tall body: without the lock it
+                            // measures that and writes the tall height back (device
+                            // crumbs 05:19: `think.toggle h=158->158` on every
+                            // collapse, then a header over a black gap).
+                            layout.heightLockedIndex = i
                             layout.invalidateHeight(at: i)
                             layout.setMeasuredHeight(Self.collapsedThinkingHeight, at: i)
                             cell.clearCachedHeight()
@@ -419,6 +425,12 @@ extension CollectionViewMessageListV3.Coordinator {
                             self.reconfigureThinkingCell(item: item, index: i)
                         }
                     }
+                    // Hand the height back to self-sizing now that the cell
+                    // holds the collapsed content, and lay out once more so
+                    // nothing keeps a stale tall frame.
+                    layout?.heightLockedIndex = nil
+                    layout?.invalidateLayout()
+                    self.viewController?.collectionView.layoutIfNeeded()
                 }
                 // [T-user-ask-expand-verify] Settled: check the height once more.
                 self.verifyToggledHeight(blockId: blockId, attempt: 0)
@@ -428,6 +440,8 @@ extension CollectionViewMessageListV3.Coordinator {
                 // visible-cell compensation either.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
+                    // Failsafe: never leave a row locked.
+                    if layout?.heightLockedIndex == i { layout?.heightLockedIndex = nil }
                 }
             }
             // [T-user-ask-expand-verify] And on the next runloop turn, when the
