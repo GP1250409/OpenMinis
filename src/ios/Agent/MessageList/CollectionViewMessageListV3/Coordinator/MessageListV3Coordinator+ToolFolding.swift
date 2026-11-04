@@ -432,9 +432,10 @@ extension CollectionViewMessageListV3.Coordinator {
                     // re-rendered) measured the OLD 340pt body and wrote it back:
                     // the empty row sprang open, then verify animated it shut
                     // again over 0.2s. That is the flash. The collapsed height is
-                    // known (set above), so there is nothing to verify and nothing
-                    // to hand back until the content has long settled: the
-                    // 0.6s failsafe below releases the lock.
+                    // known (set above), so there is nothing to verify. The
+                    // lock is not held to a timer either: it is released once
+                    // the cell's measured height converges on the collapsed
+                    // one (releaseCollapseLockWhenSettled, below).
                 } else {
                     // [T-user-ask-expand-verify] Settled: check the height once more.
                     self.verifyToggledHeight(blockId: blockId, attempt: 0)
@@ -445,8 +446,17 @@ extension CollectionViewMessageListV3.Coordinator {
                 // visible-cell compensation either.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
-                    // Failsafe: never leave a row locked.
-                    if layout?.heightLockedIndex == i { layout?.heightLockedIndex = nil }
+                }
+                // [MOD think-collapse-lock3] Deterministic release, not a
+                // timer: poll the cell's real fitted height and hand the row
+                // back to self-sizing only once it has CONVERGED on the
+                // collapsed height - i.e. the hosting view has really dropped
+                // the body. 57cf040's flat 0.6s failsafe worked on device but
+                // was a guess: unlock too early (host not re-rendered yet)
+                // and the stale tall measure bounces the row open; too late
+                // and the row stays frozen. Convergence makes it exact.
+                if isCollapse {
+                    self.releaseCollapseLockWhenSettled(blockId: blockId, originalIndex: i, attempt: 0)
                 }
             }
             // [T-user-ask-expand-verify] And on the next runloop turn, when the
@@ -494,6 +504,93 @@ extension CollectionViewMessageListV3.Coordinator {
             cell.contentView.setNeedsLayout()
             cell.contentView.layoutIfNeeded()
             layout.setMeasuredHeight(Self.collapsedThinkingHeight, at: i)
+        }
+
+        /// [MOD think-collapse-lock3] Release the collapse height lock only
+        /// once the row's measured height has converged on the collapsed
+        /// height - proof that the hosting view has really removed the body
+        /// and a self-sizing pass would measure the header, not the stale
+        /// 340pt body. Replaces 57cf040's flat 0.6s failsafe, which unlocked
+        /// on a timer and hoped the host had re-rendered by then.
+        /// - The block may have moved in the snapshot (insertions/deletions
+        ///   above), so the index is re-resolved from the blockId each pass;
+        ///   the lock travels with the index it was taken on, so a move also
+        ///   means this toggle is over - unlock and bail.
+        /// - If the user expands the block again before convergence, the
+        ///   expand pass needs self-sizing back: unlock at once and let the
+        ///   expand's own remeasure own the row.
+        /// - Bounded: ~0.6s (10 x 60ms) then an unconditional unlock; a row
+        ///   is never left locked.
+        func releaseCollapseLockWhenSettled(blockId: UUID, originalIndex: Int, attempt: Int) {
+            guard attempt < 10,
+                  let cv = viewController?.collectionView,
+                  let layout = cv.collectionViewLayout as? MessageListLayout,
+                  let snapshot = dataSource?.snapshot(),
+                  let i = snapshot.itemIdentifiers.firstIndex(where: {
+                      if case .assistantBlock(_, let bid) = $0 { return bid == blockId }
+                      return false
+                  }) else {
+                // Gone from the list (compact/share/etc.) - nothing to guard.
+                if let layout = viewController?.collectionView?.collectionViewLayout
+                    as? MessageListLayout, layout.heightLockedIndex == originalIndex {
+                    layout.heightLockedIndex = nil
+                }
+                return
+            }
+            // The toggle is over if the row moved, or the lock is already
+            // gone (a later expand pass may have taken the row over).
+            guard i == originalIndex, layout.heightLockedIndex == i else {
+                if layout.heightLockedIndex == originalIndex { layout.heightLockedIndex = nil }
+                return
+            }
+            // Has the user expanded it again? The expand path's remeasure must
+            // be allowed through - hand the row back at once.
+            if case .assistantBlock(let mid, let bid) = snapshot.itemIdentifiers[i],
+               let mIdx = messageIndex[mid], mIdx < (vm?.messages.count ?? 0),
+               let b = vm?.messages[mIdx].blocks.first(where: { $0.id == bid }),
+               !b.isThinkingExpanded {
+                layout.heightLockedIndex = nil
+                CrashBreadcrumbs.record("think.unlock", detail: "idx=\(i) reason=reexpand n=\(attempt)")
+                return
+            }
+            let ip = IndexPath(item: i, section: 0)
+            guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
+                  let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes
+            else {
+                // Off-screen already: nothing visible to flash, safe to release.
+                layout.heightLockedIndex = nil
+                CrashBreadcrumbs.record("think.unlock", detail: "idx=\(i) reason=offscreen n=\(attempt)")
+                return
+            }
+            // Measure WITHOUT the lock: this is the same self-sizing measure
+            // `shouldInvalidateLayout` would take a moment later, but here it
+            // is only a PROBE - the lock stays on until the answer is safe.
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+            cell.clearCachedHeight()
+            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+            let target = Self.collapsedThinkingHeight
+            if fitted.isFinite, fitted > 1, abs(fitted - target) <= 1 {
+                // Converged: the cell now measures as its collapsed self.
+                // Write the real measured height (not the constant) and hand
+                // the row back to self-sizing.
+                layout.setMeasuredHeight(fitted, at: i)
+                layout.heightLockedIndex = nil
+                CrashBreadcrumbs.record("think.unlock", detail: "idx=\(i) reason=converged h=\(Int(fitted)) n=\(attempt)")
+                return
+            }
+            if attempt == 9 {
+                // Last try: never leave a row locked. Keep the collapsed
+                // constant rather than a stale tall measure.
+                layout.setMeasuredHeight(target, at: i)
+                layout.heightLockedIndex = nil
+                CrashBreadcrumbs.record("think.unlock", detail: "idx=\(i) reason=timeout h=\(Int(fitted)) n=\(attempt)")
+                return
+            }
+            CrashBreadcrumbs.record("think.probe", detail: "idx=\(i) h=\(Int(fitted)) n=\(attempt)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                self?.releaseCollapseLockWhenSettled(blockId: blockId, originalIndex: i, attempt: attempt + 1)
+            }
         }
 
         /// [T-user-ask-expand-verify] The in-pass measure of a toggled card can

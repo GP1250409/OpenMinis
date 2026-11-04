@@ -84,7 +84,13 @@ assert col.index('layout.heightLockedIndex = i') < col.index('setMeasuredHeight(
 fc=fin[fin.index('if isCollapse {'):fin.index('} else {', fin.index('if isCollapse {'))]
 assert 'heightLockedIndex = nil' not in fc and 'verifyToggledHeight' not in fc,'a collapse keeps the lock and skips verify in finish'
 assert 'verifyToggledHeight' in fin[fin.index('} else {', fin.index('if isCollapse {')):],'an expand still verifies'
-assert 'heightLockedIndex == i { layout?.heightLockedIndex = nil }' in rk,'a failsafe must never leave a row locked'
+assert 'releaseCollapseLockWhenSettled(blockId: blockId' in fin,'a collapse releases the lock deterministically'
+rel=rk[rk.index('func releaseCollapseLockWhenSettled('):rk.index('func verifyToggledHeight(')]
+assert 'abs(fitted - target) <= 1' in rel,'the lock only lifts once the measured height converges on the collapsed one'
+assert 'guard attempt < 10' in rel,'the poll is bounded'
+assert 'heightLockedIndex = nil' in rel and 'reason=timeout' in rel,'a bounded poll never leaves a row locked'
+assert '!b.isThinkingExpanded' in rel,'a re-expand hands the row back at once'
+assert 'reason=converged' in rel and 'setMeasuredHeight(fitted, at: i)' in rel,'convergence writes the real measured height back'
 print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
 assert 'paintsSurface: group.isCollapsed || group.ids.isEmpty' in hdr,'expanded header must not paint its segment inside the source'
