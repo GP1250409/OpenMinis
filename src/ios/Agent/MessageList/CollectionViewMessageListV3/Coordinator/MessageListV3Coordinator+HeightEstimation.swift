@@ -155,7 +155,17 @@ extension CollectionViewMessageListV3.Coordinator {
                 // [T-user-ask-expand-verify] An answered user_ask card is one
                 // row with two heights; its memoized height must not cross
                 // between the collapsed and the opened card.
-                let x = (block?.kind == .userAskTool && block?.isThinkingExpanded == true) ? ":x" : ""
+                // [MOD think-key-expanded] The same holds for a thinking block:
+                // collapsed it is a 39pt header, expanded it is the header plus
+                // the body. Without the state in the key, the height measured
+                // for one state is memoized under the other state's key and
+                // seeded back on the next configureCell: a tap that "does not
+                // open" (the old 39pt served for the opened block) and an empty
+                // gap under a collapsed header (the old 158/195/340pt served for
+                // it). Device 2026-11-04: gaps of ~129pt / ~156pt under two
+                // collapsed blocks whose expanded heights were 158 / 195.
+                let isExpandable = block?.kind == .userAskTool || block?.kind == .thinking
+                let x = (isExpandable && block?.isThinkingExpanded == true) ? ":x" : ""
                 return "b:\(mid.uuidString):\(bid.uuidString):\(n)\(x)"
             case .toolGroup(let mid, let first):
                 // Identity only — the list uses `itemContentKey`, which adds

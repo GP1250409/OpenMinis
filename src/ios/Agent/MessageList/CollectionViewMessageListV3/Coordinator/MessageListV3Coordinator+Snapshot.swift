@@ -290,6 +290,12 @@ extension CollectionViewMessageListV3.Coordinator {
                                     let layout = layout
                                     let after = cv?.cellForItem(at: ip)?.frame.size.height ?? -1
                                     let afterLayout = layout?.cachedHeight(at: i)
+                                    // [MOD think-key-expanded] Numbers only, one line per
+                                    // tap: cell height before -> after the reflow, and the
+                                    // layout's cached height, so a device report can be
+                                    // matched against what the list actually did.
+                                    CrashBreadcrumbs.record("think.reflow",
+                                                            detail: "idx=\(i) h=\(Int(frameH))->\(Int(after)) cache=\(afterLayout.map { String(Int($0)) } ?? "nil")")
                                     tlog.info("[ThinkingCollapse] POST block=\(blockId.uuidString.prefix(8)) idx=\(i) frameH=\(String(format: "%.1f", after)) layoutCache=\(afterLayout.map { String(format: "%.1f", $0) } ?? "nil") delta=\(String(format: "%.1f", after - frameH))")
                                 }
                                 break

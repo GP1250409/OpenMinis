@@ -94,6 +94,18 @@ r=subprocess.run(['xcrun','simctl','launch','--console',uid,info['CFBundleIdenti
 print(r.stdout)
 print('LAUNCH_RETURN_CODE',r.returncode,flush=True)
 (out/'results.log').write_text(r.stdout)
+# Regression: a thinking block's memoized height must not cross between its
+# collapsed and expanded state. The content key carries the expanded state for
+# thinking blocks too (user_ask cards already had it), otherwise the height
+# measured for one state is seeded back onto the other: a tap that does not open
+# and an empty gap under a collapsed header.
+hk=(root/'src/ios/Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+HeightEstimation.swift').read_text()
+ck=hk[hk.index('static func contentKey('):hk.index('func stableHeightKey(')]
+ab=ck[ck.index('case .assistantBlock(let mid, let bid):'):ck.index('case .toolGroup')]
+assert 'block?.kind == .thinking' in ab and 'block?.kind == .userAskTool' in ab,'content key must cover thinking and user_ask blocks'
+assert 'isThinkingExpanded == true) ? ":x"' in ab,'content key must carry the expanded state'
+assert 'return "b:\\(mid.uuidString):\\(bid.uuidString):\\(n)\\(x)"' in ab,'key shape unchanged apart from the state suffix'
+print('THINKING_KEY_SOURCE_OK')
 import shutil
 try:
  container=pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data'],text=True).strip())
