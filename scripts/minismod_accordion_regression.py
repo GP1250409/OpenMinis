@@ -85,7 +85,7 @@ fc=fin[fin.index('if isCollapse {'):fin.index('} else {', fin.index('if isCollap
 assert 'heightLockedIndex = nil' not in fc and 'verifyToggledHeight' not in fc,'a collapse keeps the lock and skips verify in finish'
 assert 'verifyToggledHeight' in fin[fin.index('} else {', fin.index('if isCollapse {')):],'an expand still verifies'
 assert 'releaseCollapseLockWhenSettled(blockId: blockId' in fin,'a collapse releases the lock deterministically'
-rel=rk[rk.index('func releaseCollapseLockWhenSettled('):rk.index('func verifyToggledHeight(')]
+rel=tf[tf.index('func releaseCollapseLockWhenSettled('):tf.index('func verifyToggledHeight(')]
 assert 'abs(fitted - target) <= 1' in rel,'the lock only lifts once the measured height converges on the collapsed one'
 assert 'guard attempt < 10' in rel,'the poll is bounded'
 assert 'heightLockedIndex = nil' in rel and 'reason=timeout' in rel,'a bounded poll never leaves a row locked'
