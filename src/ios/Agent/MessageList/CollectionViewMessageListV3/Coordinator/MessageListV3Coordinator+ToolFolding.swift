@@ -425,15 +425,20 @@ extension CollectionViewMessageListV3.Coordinator {
                             self.reconfigureThinkingCell(item: item, index: i)
                         }
                     }
-                    // Hand the height back to self-sizing now that the cell
-                    // holds the collapsed content, and lay out once more so
-                    // nothing keeps a stale tall frame.
-                    layout?.heightLockedIndex = nil
-                    layout?.invalidateLayout()
-                    self.viewController?.collectionView.layoutIfNeeded()
+                    // [MOD think-collapse-lock2] The lock stays on. Device crumbs
+                    // (7d75788, 09:27): `think.toggle h=340->39` then, 9ms later,
+                    // `think.verify h=340->39` - the animation was cut short, and
+                    // the moment the lock came off the hosting view (not yet
+                    // re-rendered) measured the OLD 340pt body and wrote it back:
+                    // the empty row sprang open, then verify animated it shut
+                    // again over 0.2s. That is the flash. The collapsed height is
+                    // known (set above), so there is nothing to verify and nothing
+                    // to hand back until the content has long settled: the
+                    // 0.6s failsafe below releases the lock.
+                } else {
+                    // [T-user-ask-expand-verify] Settled: check the height once more.
+                    self.verifyToggledHeight(blockId: blockId, attempt: 0)
                 }
-                // [T-user-ask-expand-verify] Settled: check the height once more.
-                self.verifyToggledHeight(blockId: blockId, attempt: 0)
                 if self.isNearBottom() { self.scrollMode = .autoScrolling }
                 // Keep the anchor through the next runloop turns: a late
                 // SwiftUI re-measure of the same cell must not take the

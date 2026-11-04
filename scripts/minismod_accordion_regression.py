@@ -81,7 +81,9 @@ assert 'var heightLockedIndex: Int?' in lay,'layout must expose the collapse hei
 sh=lay[lay.index('override func shouldInvalidateLayout('):]
 assert 'if heightLockedIndex == index { return false }' in sh[:sh.index('deferSelfSizing')],'a locked row must ignore self-sizing before anything else'
 assert col.index('layout.heightLockedIndex = i') < col.index('setMeasuredHeight(Self.collapsedThinkingHeight'),'collapse locks the height before setting it'
-assert fin.index('request?.run()') < fin.index('layout?.heightLockedIndex = nil') < fin.index('verifyToggledHeight'),'lock is released after the state flips, before the verify'
+fc=fin[fin.index('if isCollapse {'):fin.index('} else {', fin.index('if isCollapse {'))]
+assert 'heightLockedIndex = nil' not in fc and 'verifyToggledHeight' not in fc,'a collapse keeps the lock and skips verify in finish'
+assert 'verifyToggledHeight' in fin[fin.index('} else {', fin.index('if isCollapse {')):],'an expand still verifies'
 assert 'heightLockedIndex == i { layout?.heightLockedIndex = nil }' in rk,'a failsafe must never leave a row locked'
 print('THINKING_ANCHOR_SOURCE_OK')
 hdr=hdr[hdr.index('    func folderSectionHeader('):hdr.index('    func handleSessionCreatedForPendingFolder(')]
