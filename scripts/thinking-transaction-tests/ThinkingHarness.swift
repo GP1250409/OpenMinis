@@ -43,6 +43,8 @@ struct ThinkingRowFixture: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Match the production thinking root's top-aligned hosting hand-off.
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -151,7 +153,7 @@ final class ListHarness {
     var targetIndexPath: IndexPath { IndexPath(item: targetIndex, section: 0) }
     var targetCell: SelfSizingCell? { collection.cellForItem(at: targetIndexPath) as? SelfSizingCell }
     func rowHeight(_ index: Int) -> CGFloat {
-        layout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.height ?? -1
+        layout.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame.height ?? -1
     }
     func targetTopOnScreen() -> CGFloat {
         guard let attrs = layout.layoutAttributesForItem(at: targetIndexPath) else { return .nan }
