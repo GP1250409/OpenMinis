@@ -1,6 +1,13 @@
 import UIKit
 import SwiftUI
 
+// These application declarations live outside the production coordinator.
+// Preserve that lookup and notification name when compiling its extension.
+typealias AssistantBlock = CollectionViewMessageListV3.AssistantBlock
+extension Notification.Name {
+    static let thinkingBlockToggled = Notification.Name("thinkingBlockToggled")
+}
+
 // Fixture-side services for the production coordinator transaction. The
 // transaction methods themselves are NOT re-written here: the driver extracts
 // `// MARK: - [T-thinking-toggle-txn]` … `func reconfigureAllCells()` from
@@ -17,7 +24,7 @@ enum CollectionViewMessageListV3 {
     /// screen). Only the two members the transaction touches.
     final class TxListViewController: UIViewController {
         let collectionView: UICollectionView
-        let messageListLayout: MessageListLayout
+        var messageListLayout: MessageListLayout!
         init(collectionView: UICollectionView, messageListLayout: MessageListLayout) {
             self.collectionView = collectionView
             self.messageListLayout = messageListLayout
