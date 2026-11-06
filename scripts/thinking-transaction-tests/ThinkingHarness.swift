@@ -197,19 +197,52 @@ final class ListHarness {
         cell.clearCachedHeight()
         return cell.preferredLayoutAttributesFitting(attrs.copy() as! UICollectionViewLayoutAttributes).size.height
     }
+    /// Startup is a run-loop Timer callback, NOT a main-dispatch block.
+    /// Pump in short slices and prove actual dispatch/timer delivery via the
+    /// gate below; slicing alone cannot make a main-queue block reentrant.
     func pump(_ seconds: Double) {
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds))
+        let end = Date(timeIntervalSinceNow: seconds)
+        while Date() < end {
+            let slice = min(0.004, end.timeIntervalSinceNow)
+            if slice <= 0 { break }
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: slice))
+            RunLoop.main.run(mode: .common, before: Date(timeIntervalSinceNow: 0.0005))
+        }
     }
 
-    /// Reconfigure one row's content through the REAL diffable data source, so
-    /// UIKit re-runs self-sizing for it (the path that reaches
-    /// `invalidationContext(forPreferredLayoutAttributes:)`).
+    /// Prove async deliverability before anything depends on it: a main-queue
+    /// block AND a run-loop timer must both fire during one pump.
+    func asyncPumpGate() -> (asyncBlock: Bool, timer: Bool) {
+        var blockRan = false
+        var timerRan = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { blockRan = true }
+        let timer = Timer(timeInterval: 0.02, repeats: false) { _ in timerRan = true }
+        RunLoop.main.add(timer, forMode: .common)
+        pump(0.25)
+        return (blockRan, timerRan)
+    }
+
+    /// Let the list reach a settled layout (SwiftUI delivers late filler
+    /// heights a frame or two after the first layout) before any measurement
+    /// that is supposed to be a *baseline*.
+    func warmUp(_ seconds: Double = 0.45) {
+        collection.layoutIfNeeded()
+        pump(seconds)
+        collection.layoutIfNeeded()
+        pump(0.05)
+        collection.layoutIfNeeded()
+    }
+
+    /// Reconfigure through the actual diffable data source. Do not bypass
+    /// UIKit's sizing invalidation with a direct height-cache write.
     func reconfigureItem(_ index: Int) {
         guard let ds = coordinator.dataSource else { return }
         var snap = ds.snapshot()
         snap.reconfigureItems([rows[index].item])
         ds.apply(snap, animatingDifferences: false)
         layout.invalidateLayout()
+        collection.layoutIfNeeded()
+        pump(0.15)
         collection.layoutIfNeeded()
     }
 
@@ -242,7 +275,7 @@ final class ThinkingTransactionApp: UIResponder, UIApplicationDelegate {
         window = w
         w.rootViewController = UIViewController()
         w.makeKeyAndVisible()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        let start = Timer(timeInterval: 0.4, repeats: false) { _ in
             let suite = ThinkingTransactionTests()
             suite.run()
             print("THINKING_TRANSACTION_UIKIT_CHECKS \(CheckLog.passed)")
@@ -254,6 +287,7 @@ final class ThinkingTransactionApp: UIResponder, UIApplicationDelegate {
             fflush(stdout)
             exit(0)
         }
+        RunLoop.main.add(start, forMode: .common)
         return true
     }
 }

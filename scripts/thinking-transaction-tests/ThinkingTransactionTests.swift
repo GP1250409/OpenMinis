@@ -40,6 +40,7 @@ final class ThinkingTransactionTests {
             h.pump(ThinkingToggleTxnMath.probeFrameInterval + 0.004)
             frames += 1
         }
+        h.pump(0.15)
         h.layoutNow()
     }
 
@@ -58,6 +59,10 @@ final class ThinkingTransactionTests {
     // MARK: - Suite
 
     func run() {
+        guard asyncPumpGate() else {
+            print("THINKING_TXN_ASYNC_PUMP_FAILED — harness cannot deliver main-queue blocks/timers; later cases would be meaningless")
+            return
+        }
         anchorMath()
         twentyRoundToggle()
         rapidTaps()
@@ -70,6 +75,19 @@ final class ThinkingTransactionTests {
         ThinkingToggleTxnMathTests.run()
     }
 
+    /// Proves the pump delivers main-queue blocks and timers before any test
+    /// depends on the production verifier's `asyncAfter` scheduling.
+    @discardableResult
+    func asyncPumpGate() -> Bool {
+        let h = ListHarness(rows: makeRows(), targetIndex: 5)
+        let gate = h.asyncPumpGate()
+        print("THINKING_TXN_ASYNC_PUMP asyncBlock=\(gate.asyncBlock) timer=\(gate.timer)")
+        check(gate.asyncBlock, "main-queue async blocks are delivered by the pump")
+        check(gate.timer, "run-loop timers fire during the pump")
+        h.layoutNow()
+        return gate.asyncBlock && gate.timer
+    }
+
     func anchorMath() {
         // Only UNC LAMPED samples can prove "the top is restored exactly": a
         // sample whose target falls outside [minOffset, maxOffset] is clamped
@@ -79,8 +97,11 @@ final class ThinkingTransactionTests {
         var worstUnclamped: CGFloat = 0
         var clampedSamples = 0
         for n in 0...200 {
+            // Shift the sweep down so the clamped region is actually visited:
+            // 13n - 400 - anchorY goes below minOffset (-80) for small n and
+            // stays inside the range for large n.
             let anchorY = CGFloat(n % 37) * 10
-            let newMinY = CGFloat(n * 13)
+            let newMinY = CGFloat(n * 13) - 400
             let minOffset: CGFloat = -80
             let maxOffset: CGFloat = 4000
             let wanted = newMinY - anchorY
@@ -129,6 +150,7 @@ final class ThinkingTransactionTests {
         let h = ListHarness(rows: makeRows(), targetIndex: 5)
         h.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         h.layoutNow()
+        h.warmUp()
         let startTop = h.targetTopOnScreen()
         let collapsedHeight = h.rowHeight(5)
         var worst: CGFloat = 0
@@ -163,6 +185,7 @@ final class ThinkingTransactionTests {
         let p = ListHarness(rows: makeRows(), targetIndex: 5)
         p.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         p.layoutNow()
+        p.warmUp()
         let plainStart = p.targetTopOnScreen()
         for _ in 0..<20 {
             togglePlain(p, expanded: true)
@@ -180,6 +203,7 @@ final class ThinkingTransactionTests {
         let h = ListHarness(rows: makeRows(), targetIndex: 5)
         h.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         h.layoutNow()
+        h.warmUp()
         let anchor = h.targetTopOnScreen()
         var firstToken = -1
         for n in 0..<8 {
@@ -221,6 +245,7 @@ final class ThinkingTransactionTests {
         let h = ListHarness(rows: makeRows(), targetIndex: 5)
         h.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         h.layoutNow()
+        h.warmUp()
         toggleViaTransaction(h, expanded: true)
         let anchoredTop = h.targetTopOnScreen()
         let anchoredOffset = h.collection.contentOffset.y
@@ -248,6 +273,7 @@ final class ThinkingTransactionTests {
         let c = ListHarness(rows: makeRows(), targetIndex: 5)
         c.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         c.layoutNow()
+        c.warmUp()
         togglePlain(c, expanded: true)
         let plainTop = c.targetTopOnScreen()
         let plainOffset = c.collection.contentOffset.y
@@ -276,6 +302,7 @@ final class ThinkingTransactionTests {
         let h = ListHarness(rows: makeRows(), targetIndex: 5)
         h.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         h.layoutNow()
+        h.warmUp()
         let request = ToggleRequest { [weak h] in h?.rows[5].expanded = true }
         h.transactionToggle(index: 5, request: request)
         let token = h.coordinator.thinkingToggleTxn?.token ?? -1
@@ -284,7 +311,13 @@ final class ThinkingTransactionTests {
         h.coordinator.releaseThinkingToggleOnUserScroll()
         check(h.coordinator.thinkingToggleTxn == nil, "a user drag releases the transaction")
         check(h.layout.txnAnchor == nil, "the drag releases the token-owned anchor too")
+        // Let any self-size correction that was already in flight land BEFORE
+        // the baseline, otherwise the assertion attributes someone else's
+        // height change to the transaction.
+        h.pump(0.35)
+        h.layoutNow()
         h.verify(token: token, stableHits: 0)
+        h.layoutNow()
         let after = h.collection.contentOffset.y
         h.layoutNow()
         check(abs(h.collection.contentOffset.y - after) < 0.5,
@@ -347,6 +380,7 @@ final class ThinkingTransactionTests {
         let h = ListHarness(rows: makeRows(), targetIndex: 5)
         h.collection.setContentOffset(CGPoint(x: 0, y: -40), animated: false)
         h.layoutNow()
+        h.warmUp()
         let request = ToggleRequest { [weak h] in h?.rows[5].expanded = true }
         h.transactionToggle(index: 5, request: request)
         h.layoutNow()
@@ -387,6 +421,7 @@ final class ThinkingTransactionTests {
         // Park the target well outside the viewport.
         h.collection.setContentOffset(CGPoint(x: 0, y: 0), animated: false)
         h.layoutNow()
+        h.warmUp()
         check(h.targetCell == nil, "the toggled row is off screen for this case")
         let request = ToggleRequest { [weak h] in h?.rows[20].expanded = true }
         h.transactionToggle(index: 20, request: request)

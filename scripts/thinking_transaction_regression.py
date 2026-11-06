@@ -309,6 +309,7 @@ def main():
                          ('RAPID_TOP_MOVE', r'THINKING_TXN_RAPID_TOP_MOVE (-?[\d.]+)'),
                          ('LATE_MOVE', r'THINKING_TXN_LATE_MOVE (-?[\d.]+)'),
                          ('CHECK_COUNT', r'THINKING_TRANSACTION_UIKIT_CHECKS (\d+)'),
+                         ('ASYNC_PUMP', r'THINKING_TXN_ASYNC_PUMP asyncBlock=(\w+) timer=(\w+)'),
                          ('OFFSCREEN_FRAMES', r'THINKING_TXN_OFFSCREEN_FRAMES (\d+) probes (-?\d+)'),
                          ('LATE_ANCHORED_TOP', r'THINKING_TXN_LATE_ANCHORED_TOP (-?[\d.]+)'),
                          ('LATE_PLAIN_TOP', r'THINKING_TXN_LATE_PLAIN_TOP (-?[\d.]+)')):
