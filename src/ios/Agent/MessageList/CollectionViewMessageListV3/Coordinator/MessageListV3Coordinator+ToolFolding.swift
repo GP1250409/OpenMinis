@@ -447,6 +447,370 @@ extension CollectionViewMessageListV3.Coordinator {
             }
         }
 
+        // MARK: - [T-thinking-toggle-txn] Manual thinking-row open / close
+
+        /// [T-thinking-toggle-txn] The live block behind an `.assistantBlock`
+        /// item. The transaction reads the model for two things the collection
+        /// view cannot answer: the state it must end in, and whether SwiftUI has
+        /// consumed the flip yet (the receipt that the new state has been
+        /// rendered at all).
+        func assistantBlock(id: UUID) -> AssistantBlock? {
+            let messages = snapshotMessages.isEmpty ? (vm?.messages ?? []) : snapshotMessages
+            for m in messages {
+                if let b = m.blocks.first(where: { $0.id == id }) { return b }
+            }
+            return nil
+        }
+
+        /// One MANUAL open / close of a thinking row: the state change and the
+        /// new cell height land in a single NO-ANIMATION pass, and the row's top
+        /// stays where the user tapped it.
+        ///
+        /// What this replaces, and why it drifted: the tap used to flip
+        /// `isThinkingExpanded` inside SwiftUI, whose `onChange` posted a plain
+        /// `.thinkingBlockToggled`. That path drops the row to its ESTIMATE
+        /// (`invalidateHeight` + `clearCachedHeight` + reconfigure) and only
+        /// later self-sizes to the real height. Estimate and real height are not
+        /// symmetric between states, so the drop and the recovery compensated
+        /// differently — expand grew the row upward, collapse shrank it
+        /// downward, and every pair moved the list by the height change. The
+        /// late SwiftUI measure then re-anchored a target offset computed for
+        /// the *pre-change* height, which a second re-measure could never undo.
+        ///
+        /// No animation on purpose: the historical flicker came from content and
+        /// cell size landing a frame apart, and from animated passes measuring
+        /// the state they were leaving.
+        func thinkingToggleAnchored(blockId: UUID, item: MessageListItem, index i: Int,
+                                    request: ToggleRequest?) {
+            let log = AppLogger(category: "ThinkingCollapse")
+            let block = assistantBlock(id: blockId)
+            // The state this transaction must end in is read AFTER the request
+            // ran (below): the request flips whatever is current at that moment
+            // and records it as the marker. Nothing is frozen at tap time.
+            guard let cv = viewController?.collectionView,
+                  let layout = cv.collectionViewLayout as? MessageListLayout,
+                  let ds = dataSource else {
+                // No list mounted (debug preview, sheet, torn-down list): the row
+                // must still open/close — run the handed-off flip and ask for the
+                // plain re-measure. Same shape as the card path.
+                let ran = request?.run() ?? false
+                if ran {
+                    NotificationCenter.default.post(name: .thinkingBlockToggled, object: blockId)
+                }
+                log.info("[ThinkingCollapse] TXN-NOLIST block=\(blockId.uuidString.prefix(8)) ran=\(ran)")
+                return
+            }
+            // Supersede the previous transaction (rapid taps): its token stops
+            // being current, so no late closure of it can re-anchor the list or
+            // replay the state it was started for.
+            if let old = thinkingToggleTxn {
+                layout.clearTxnAnchor(token: old.token)
+            }
+            let token = ThinkingToggleTxnMath.nextToken(after: thinkingToggleTokenSeq)
+            thinkingToggleTokenSeq = token
+            let ip = IndexPath(item: i, section: 0)
+            let oldFrame = cv.layoutAttributesForItem(at: ip)?.frame
+            let oldHeight = oldFrame?.height ?? 0
+            let anchorY = (oldFrame?.minY ?? cv.contentOffset.y) - cv.contentOffset.y
+            var txn = ThinkingToggleTxn(token: token, blockId: blockId, item: item,
+                                        anchorY: anchorY, targetExpanded: false,
+                                        didApply: false, appliedHeight: oldHeight,
+                                        stableHits: 0, probes: 0, anchorIndex: i,
+                                        probing: true, receiptSeen: false)
+            thinkingToggleTxn = txn
+            // A tap is reading, not following: the bottom pin must not move the
+            // list (restored when the user is still at the bottom, on release).
+            scrollMode = .userBrowsing
+            layout.setTxnAnchor(token: token, index: i, blockId: blockId)
+
+            // No SwiftUI animation either: a second animation clock on the same
+            // card moved the header on its own (see the card path above).
+            var noAnim = Transaction(animation: nil)
+            noAnim.disablesAnimations = true
+            var applied = false
+            UIView.performWithoutAnimation {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                if let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
+                   let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes {
+                    withTransaction(noAnim) {
+                        // The list owns the flip (one-shot request). configureCell
+                        // then hands the cell a root view built from the NEW
+                        // state; the measure below reads that, not the state it
+                        // just left, and the fresh view also makes the plain
+                        // re-measure path unnecessary.
+                        applied = request?.run() ?? false
+                        // Drop this row's cached AND memoized height BEFORE
+                        // measuring: the memo is keyed by content, and a height
+                        // measured for the other state must never be seeded back
+                        // onto this one ([T-thinking-memo-key] keeps the expanded
+                        // flag in the key; this drops the entry the re-measure
+                        // would otherwise hit).
+                        layout.invalidateHeight(at: i)
+                        configureCell(cell, item: item, indexPath: ip)
+                    }
+                    // UIHostingConfiguration applies a new root view on its next
+                    // update; run that update now, then measure.
+                    cell.contentView.setNeedsLayout()
+                    cell.contentView.layoutIfNeeded()
+                    cell.clearCachedHeight()
+                    let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                    if fitted.isFinite, fitted > 1 {
+                        layout.setMeasuredHeight(fitted, at: i)
+                        txn.appliedHeight = fitted
+                    }
+                } else {
+                    applied = request?.run() ?? false
+                    // Cell off screen: re-measure through the ordinary path, but
+                    // keep the anchor parked so the row does not drift when it
+                    // scrolls back in.
+                    (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
+                    layout.invalidateHeight(at: i)
+                    var snap = ds.snapshot()
+                    snap.reconfigureItems([item])
+                    ds.apply(snap, animatingDifferences: false)
+                }
+                txn.didApply = applied
+                // Target from the model, now that the flip has happened.
+                txn.targetExpanded = block?.pendingManualThinkingState
+                    ?? block?.isThinkingExpanded ?? txn.targetExpanded
+                thinkingToggleTxn = txn
+                layout.invalidateLayout()
+                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
+                cv.layoutIfNeeded()
+                applyTxnAnchorOffset(cv: cv, layout: layout, ip: ip, anchorY: anchorY, token: token)
+                CATransaction.commit()
+            }
+
+            log.info("[ThinkingCollapse] TXN block=\(blockId.uuidString.prefix(8)) idx=\(i) token=\(token) target=\(txn.targetExpanded) h=\(String(format: "%.1f→%.1f", oldHeight, txn.appliedHeight)) anchorY=\(String(format: "%.1f", anchorY)) offset=\(String(format: "%.1f", cv.contentOffset.y)) applied=\(applied) request=\(request != nil)")
+            CrashBreadcrumbs.record("think.txn",
+                                    detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(txn.appliedHeight)) token=\(token) applied=\(applied ? 1 : 0)")
+
+            // Verify AFTER a real frame: a burst of main-queue hops can all run
+            // before SwiftUI draws, and would then measure the previous state
+            // twice and call it settled. `probeFrameInterval` is one display
+            // frame; the loop also refuses to settle until the model shows the
+            // flip consumed (`pendingManualThinkingState` cleared by the view).
+            scheduleThinkingToggleProbe(token: token, stableHits: 0)
+        }
+
+        /// Run the next probe one display frame later (never a tight async hop).
+        private func scheduleThinkingToggleProbe(token: Int, stableHits: Int) {
+            guard var txn = thinkingToggleTxn, txn.token == token, txn.probing else { return }
+            if txn.probes >= ThinkingToggleTxnMath.maxProbes {
+                txn.probing = false
+                thinkingToggleTxn = txn
+                CrashBreadcrumbs.record("think.txnstop", detail: "token=\(token) probes=\(txn.probes)")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + ThinkingToggleTxnMath.probeFrameInterval) { [weak self] in
+                self?.verifyThinkingToggle(token: token, stableHits: stableHits)
+            }
+        }
+
+        /// Put the row's top back at `anchorY`, clamped to the scrollable range.
+        /// Never while the user is dragging or decelerating: their finger owns the
+        /// offset, and a transaction must not pull it.
+        private func applyTxnAnchorOffset(cv: UICollectionView, layout: MessageListLayout,
+                                          ip: IndexPath, anchorY: CGFloat, token: Int) {
+            guard ThinkingToggleTxnMath.isCurrent(token: token, currentToken: thinkingToggleTxn?.token),
+                  let frame = cv.layoutAttributesForItem(at: ip)?.frame else { return }
+            guard !cv.isTracking, !cv.isDecelerating else { return }
+            let minOff = -cv.adjustedContentInset.top
+            let maxOff = max(minOff, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
+            let target = ToggleAnchorMath.anchoredOffset(newMinY: frame.minY, anchorY: anchorY,
+                                                         minOffset: minOff, maxOffset: maxOff)
+            if abs(target - cv.contentOffset.y) > 0.5 {
+                cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)
+            }
+        }
+
+        /// [T-thinking-toggle-txn] Re-measure the toggled row until its height is
+        /// the CURRENT state's, the model agrees, and two frame-spaced probes
+        /// (with a render receipt in between) confirm it. The anchor is NOT
+        /// released here: it stays parked until the user scrolls, the session
+        /// changes, the row disappears, or a newer transaction takes over, so a
+        /// late self-size correction can never start compensating again.
+        ///
+        /// Looked up by the transaction's stable identity (`.assistantBlock` item
+        /// + block id) every round, never by the index captured at tap time:
+        /// streaming growth above the row renumbers indices, cells are reused,
+        /// and a session switch replaces the whole snapshot.
+        func verifyThinkingToggle(token: Int, stableHits: Int) {
+            guard let txn = thinkingToggleTxn, txn.token == token else { return }
+            guard txn.probing else { return }
+            guard ThinkingToggleTxnMath.isCurrent(token: token, currentToken: thinkingToggleTxn?.token) else { return }
+            let log = AppLogger(category: "ThinkingCollapse")
+            guard let cv = viewController?.collectionView,
+                  let layout = cv.collectionViewLayout as? MessageListLayout,
+                  let snapshot = dataSource?.snapshot() else {
+                releaseThinkingToggleTxn(token: token, reason: .listTornDown)
+                return
+            }
+            guard case .assistantBlock(_, let bid) = txn.item, bid == txn.blockId,
+                  let i = snapshot.itemIdentifiers.firstIndex(of: txn.item) else {
+                // Row gone (session switch, message deleted, run folded away).
+                releaseThinkingToggleTxn(token: token, reason: .rowGone)
+                return
+            }
+            guard !cv.isTracking, !cv.isDecelerating else {
+                releaseThinkingToggleTxn(token: token, reason: .userScroll)
+                return
+            }
+            var t = txn
+            t.anchorIndex = i
+            // Count EVERY scheduled round, including off-screen/unmeasurable
+            // rounds. Otherwise a row pushed off-screen polls at 60 Hz forever.
+            t.probes += 1
+            // The model is the only trustworthy witness that the state this
+            // transaction installed is the one on screen. A different value means
+            // a newer flip owns the row: stop, keep the anchor, do not fight it.
+            let block = assistantBlock(id: txn.blockId)
+            if txn.didApply, let block, block.isThinkingExpanded != txn.targetExpanded {
+                thinkingToggleTxn = t
+                log.info("[ThinkingCollapse] TXN-STALE block=\(txn.blockId.uuidString.prefix(8)) want=\(txn.targetExpanded) now=\(block.isThinkingExpanded)")
+                releaseThinkingToggleTxn(token: token, reason: .superseded)
+                return
+            }
+            // Render receipt: the view clears the marker when SwiftUI delivers
+            // the flip. Until then the cell may still be drawing the old state,
+            // and an identical measure proves nothing.
+            let receipt = txn.receiptSeen || (block?.pendingManualThinkingState == nil)
+            t.receiptSeen = receipt
+            thinkingToggleTxn = t
+            layout.setTxnAnchor(token: token, index: i, blockId: txn.blockId)
+            guard let cell = cv.cellForItem(at: IndexPath(item: i, section: 0)) as? SelfSizingCell,
+                  let attrs = layout.layoutAttributesForItem(at: IndexPath(item: i, section: 0))?.copy() as? UICollectionViewLayoutAttributes else {
+                // Missing cells/attributes spend the same finite budget as a
+                // measured round. Stop probing at the cap; keep only the anchor.
+                if t.probes >= ThinkingToggleTxnMath.maxProbes {
+                    t.probing = false
+                    thinkingToggleTxn = t
+                } else {
+                    scheduleThinkingToggleProbe(token: token, stableHits: stableHits)
+                }
+                return
+            }
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+            cell.clearCachedHeight()
+            let measured = cell.preferredLayoutAttributesFitting(attrs).size.height
+            let current = attrs.frame.height
+            let t2 = t
+            thinkingToggleTxn = t2
+            let verdict = ThinkingToggleTxnMath.probe(measured: measured, current: current,
+                                                      stableHits: stableHits, probes: t2.probes - 1,
+                                                      receipt: receipt && t2.didApply)
+
+            switch verdict {
+            case .settle:
+                var done = t2
+                done.probing = false
+                thinkingToggleTxn = done
+                // Anchor STAYS parked: a late correction must not compensate.
+                layout.setTxnAnchor(token: token, index: i, blockId: txn.blockId)
+                if isNearBottom() { scrollMode = .autoScrolling }
+                log.info("[ThinkingCollapse] TXN-SETTLED block=\(txn.blockId.uuidString.prefix(8)) idx=\(i) token=\(token) h=\(String(format: "%.1f", current)) probes=\(t2.probes) (anchor kept)")
+
+            case .waitReceipt, .confirm:
+                scheduleThinkingToggleProbe(token: token, stableHits: verdict == .confirm ? stableHits + 1 : stableHits)
+
+            case .fixHeight:
+                // A late SwiftUI measure landed on a different height than the
+                // one the transaction installed. Install the real one and keep
+                // the row's CURRENT on-screen top — not the target offset the old
+                // code compensated with.
+                let topOnScreen = ThinkingToggleTxnMath.lateAnchorY(currentMinY: attrs.frame.minY,
+                                                                   currentOffset: cv.contentOffset.y)
+                layout.setTxnAnchor(token: token, index: i, blockId: txn.blockId)
+                layout.setMeasuredHeight(measured, at: i)
+                layout.invalidateLayout()
+                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
+                cv.layoutIfNeeded()
+                applyTxnAnchorOffset(cv: cv, layout: layout, ip: IndexPath(item: i, section: 0),
+                                     anchorY: topOnScreen, token: token)
+                log.info("[ThinkingCollapse] TXN-FIX block=\(txn.blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", current, measured)) probe=\(t2.probes) receipt=\(receipt)")
+                CrashBreadcrumbs.record("think.txnfix",
+                                        detail: "idx=\(i) h=\(Int(current))->\(Int(measured)) n=\(t2.probes)")
+                scheduleThinkingToggleProbe(token: token, stableHits: 0)
+
+            case .abandon:
+                // Out of probes: stop measuring, but KEEP the anchor parked so a
+                // late correction cannot drag the row. It is released by the user
+                // scrolling, a session change, the row disappearing, or a newer
+                // transaction.
+                var done = t2
+                done.probing = false
+                thinkingToggleTxn = done
+                layout.setTxnAnchor(token: token, index: i, blockId: txn.blockId)
+                log.info("[ThinkingCollapse] TXN-ABANDON block=\(txn.blockId.uuidString.prefix(8)) idx=\(i) probe=\(t2.probes) receipt=\(receipt) (anchor kept)")
+            }
+        }
+
+        /// Give the row back to the list: drop the token-owned anchor (only if
+        /// this token still owns it) and restore the bottom pin if the user is
+        /// still there. Never moves the offset.
+        func releaseThinkingToggleTxn(token: Int, reason: ThinkingToggleTxnMath.ReleaseReason) {
+            guard let txn = thinkingToggleTxn, txn.token == token else { return }
+            thinkingToggleTxn = nil
+            // Do not clear the model's manual marker here. SwiftUI may deliver
+            // its onChange after this transaction ends; that callback must
+            // still recognize the manual flip instead of posting the old path.
+            // The next observed transition consumes it, or a new tap replaces it.
+            viewController?.messageListLayout?.clearTxnAnchor(token: token)
+            // Restore the bottom pin only when the user did NOT take over: a
+            // drag leaves the list in `.userBrowsing` on purpose, and flipping
+            // it back here would re-pin (and scroll) under the user's finger.
+            if reason != .userScroll, isNearBottom() { scrollMode = .autoScrolling }
+            AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] TXN-END block=\(txn.blockId.uuidString.prefix(8)) token=\(token) reason=\(reason.rawValue) probes=\(txn.probes)")
+        }
+
+        /// [T-thinking-toggle-txn] A structural apply renumbers rows. The anchor
+        /// is moved in the SAME pass — waiting for the next probe would leave the
+        /// token parked on an index that now belongs to another row, which is
+        /// exactly the compensation skip this transaction must never apply to a
+        /// bystander. Row gone -> release.
+        func reconcileThinkingToggleTxn(items: [MessageListItem]) {
+            guard let txn = thinkingToggleTxn, let layout = viewController?.messageListLayout else { return }
+            guard items.indices.contains(txn.anchorIndex), items[txn.anchorIndex] != txn.item else {
+                // Same slot: nothing moved (or the list rebuilt identically).
+                if let i = items.firstIndex(of: txn.item) {
+                    if i != txn.anchorIndex {
+                        layout.clearTxnAnchor(token: txn.token)
+                        layout.setTxnAnchor(token: txn.token, index: i, blockId: txn.blockId)
+                        var t = txn
+                        t.anchorIndex = i
+                        thinkingToggleTxn = t
+                    }
+                } else {
+                    releaseThinkingToggleTxn(token: txn.token, reason: .rowGone)
+                }
+                return
+            }
+            if let i = items.firstIndex(of: txn.item) {
+                layout.clearTxnAnchor(token: txn.token)
+                layout.setTxnAnchor(token: txn.token, index: i, blockId: txn.blockId)
+                var t = txn
+                t.anchorIndex = i
+                thinkingToggleTxn = t
+            } else {
+                releaseThinkingToggleTxn(token: txn.token, reason: .rowGone)
+            }
+        }
+
+        /// The user grabbed the list: an explicit takeover wins over keeping the
+        /// row anchored. No offset change — the drag is never pulled.
+        func releaseThinkingToggleOnUserScroll() {
+            guard let txn = thinkingToggleTxn else { return }
+            releaseThinkingToggleTxn(token: txn.token, reason: .userScroll)
+        }
+
+        /// Session change / list rebuild: the transaction's row cannot survive.
+        func releaseThinkingToggleTxnForListChange() {
+            guard let txn = thinkingToggleTxn else { return }
+            releaseThinkingToggleTxn(token: txn.token, reason: .sessionChanged)
+        }
+
         func reconfigureAllCells() {
             viewController?.messageListLayout?.clearHeightCache()
             // [T-ios-listsessions-perf] Not cleared: the font size is IN the

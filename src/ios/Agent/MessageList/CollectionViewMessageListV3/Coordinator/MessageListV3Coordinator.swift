@@ -177,6 +177,17 @@ extension CollectionViewMessageListV3 {
 
         // === Thinking Block Toggle ===
         var thinkingToggleSub: AnyCancellable?
+        /// [T-thinking-toggle-txn] The manual open/close of a thinking row in
+        /// flight, if any. One at a time: a new tap supersedes it (its token
+        /// stops being current, so no late closure of it may move anything).
+        var thinkingToggleTxn: ThinkingToggleTxn?
+        /// Generation counter for `thinkingToggleTxn` (monotonic, never reset).
+        var thinkingToggleTokenSeq: Int = 0
+        /// [T-thinking-toggle-txn] No echo counter here by design: the flip a
+        /// manual tap asks the list to apply is identified on the MODEL
+        /// (`AssistantBlock.pendingManualThinkingState`), which survives cell
+        /// reconfiguration, coalesced updates and a notification that never
+        /// arrives - a count of expected notifications cannot.
 
         /// The runs folded in the last applied snapshot, per message.
         var toolFoldRunsByMessage: [UUID: [ToolFoldRun]] = [:]

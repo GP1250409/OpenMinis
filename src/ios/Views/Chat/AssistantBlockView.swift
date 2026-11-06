@@ -1010,7 +1010,55 @@ struct ThinkingBlockView: View {
                 if !isExpanded.wrappedValue {
                     block.flushThinkingBuffer()
                 }
-                isExpanded.wrappedValue.toggle()
+                // [T-thinking-toggle-txn] Hand the flip to the LIST instead of
+                // flipping here. Flipping in SwiftUI made `onChange` post a
+                // plain `.thinkingBlockToggled`, which clears the cell + layout
+                // caches and re-measures from the ESTIMATE: estimate and real
+                // height are not symmetric between expanded/collapsed, so the
+                // drop and the recovery compensated differently and every
+                // open/close pair walked the list (cumulative drift). The list
+                // applies this one-shot request inside the same no-animation
+                // pass that installs the real height and holds the row's top.
+                //
+                // The target state is recorded on the BLOCK before the flip, so
+                // the state change below is identifiable no matter when — or on
+                // which view instance — SwiftUI delivers the `onChange`. No
+                // notification counting, no timer, no assumption that the echo
+                // exists: an identity-based marker instead.
+                // No target is frozen at tap time: the state that is current
+                // WHEN THE LIST RUNS THE REQUEST is the one to flip. Freezing
+                // `!isThinkingExpanded` here made two taps in the same main
+                // queue compute the same target (both "true"), so a double tap
+                // could not close the row again. The marker is written by the
+                // request itself, together with the flip, so it always
+                // describes the state change SwiftUI is about to observe - and
+                // that change alone is what `onChange` matches.
+                let request = ToggleRequest { [block] in
+                    let target = !block.isThinkingExpanded
+                    block.pendingManualThinkingToken = UUID()
+                    block.pendingManualThinkingState = target
+                    block.isThinkingExpanded = target
+                }
+                NotificationCenter.default.post(
+                    name: .thinkingBlockToggled,
+                    object: block.id,
+                    userInfo: [ToggleAnchorMath.manualThinkingKey: true,
+                               ToggleAnchorMath.toggleRequestKey: request])
+                // [T-thinking-toggle-txn] Fallback: no list is showing this row
+                // (standalone card, sheet, debug preview) - or the row is not in
+                // the list's snapshot. Then nobody consumed the request, so the
+                // view must still open/close AND ask for the re-measure, in the
+                // plain form. The marker is deliberately NOT cleared: a late
+                // `onChange` still matches it and stays silent, so the fallback
+                // produces exactly one plain re-measure, not two.
+                DispatchQueue.main.async {
+                    guard !request.hasRun else { return }
+                    var noAnim = Transaction(animation: nil)
+                    noAnim.disablesAnimations = true
+                    withTransaction(noAnim) { _ = request.run() }
+                    AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] TXN-FALLBACK block=\(block.id.uuidString.prefix(8)) (no list handler consumed the request) -> plain re-measure")
+                    NotificationCenter.default.post(name: .thinkingBlockToggled, object: block.id)
+                }
             }
 
             // Content — only visible when expanded, windowed to the tail
@@ -1164,6 +1212,10 @@ struct ThinkingBlockView: View {
         .onDisappear {
             ThinkingHitchMonitor.shared.stop(owner: block.id)
         }
+        // A hosting cell may retain its previous bounds until the next sizing
+        // pass. Keep the title at its top, never vertically centre the new
+        // shorter content in the old expanded cell during that hand-off.
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(ChatColors.thinkingBg)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
@@ -1222,6 +1274,25 @@ struct ThinkingBlockView: View {
             // [T-thinking-expand-stuck-height] A fresh expansion re-arms the
             // growth reporting below.
             if !newValue { lastReportedBodyHeight = 0 }
+            // [T-thinking-toggle-txn] This flip is the one a manual tap handed
+            // to the list: the list already gave the cell the new state's REAL
+            // height in the same pass and is holding the row's top, so the
+            // plain re-measure below must not run (it would drop the row to its
+            // estimate and drag it). Matched by MODEL STATE, not by a
+            // notification round trip: the marker survives cell reconfiguration
+            // and a coalesced/dropped update — it is cleared here, or by the
+            // next manual tap.
+            if let pending = block.pendingManualThinkingState {
+                // A marker is consumed by the next observed transition, even
+                // when it is not the manual target. It cannot mask a later
+                // automatic transition after an unrelated change.
+                block.pendingManualThinkingState = nil
+                block.pendingManualThinkingToken = nil
+                if pending == newValue {
+                    AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] manual-skip block=\(block.id.uuidString.prefix(8)) expanded=\(newValue) (list transaction owns this flip)")
+                    return
+                }
+            }
             // Single source of truth for cell-height invalidation: fires
             // for BOTH manual taps and the stream-end auto-collapse path
             // above. Previously only the tap gesture posted this, so when

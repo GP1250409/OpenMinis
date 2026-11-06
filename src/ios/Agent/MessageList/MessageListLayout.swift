@@ -108,6 +108,69 @@ final class MessageListLayout: UICollectionViewLayout {
         }
     }
 
+    /// [T-thinking-toggle-txn] A MANUAL thinking-row open/close owns its own
+    /// anchor, keyed by the transaction's token.
+    ///
+    /// Why not reuse `topAnchoredIndex`: the answered-question card's
+    /// `remeasureKeepingTop` / `verifyToggledHeight` release "the" anchor with
+    /// a bare-index check (`if layout?.topAnchoredIndex == i { … = nil }`) from
+    /// delayed closures. A thinking transaction parked on the same field would
+    /// be released by an unrelated card's late callback - and a bare index is
+    /// not an identity: one streaming flush above the row renumbers it. This
+    /// field is therefore (a) separate, (b) carries the token, so only the
+    /// transaction that set it (or a newer one) can clear it, and (c) is read
+    /// through the same unfair lock as the other off-main-read fields.
+    private var _txnAnchor: ToggleTxnAnchor?
+
+    /// Read as a value - off-main callers (invalidationContext) may not alias.
+    var txnAnchor: ToggleTxnAnchor? {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        return _txnAnchor
+    }
+
+    /// Park the anchor for `token`. Only the newest transaction may own it:
+    /// an older token's late call is ignored, so a superseded transaction
+    /// cannot re-anchor the list after the user's newer tap.
+    @discardableResult
+    func setTxnAnchor(token: Int, index: Int, blockId: UUID) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        if let cur = _txnAnchor, cur.token > token { return false }
+        _txnAnchor = ToggleTxnAnchor(token: token, index: index, blockId: blockId)
+        return true
+    }
+
+    /// Release the anchor - but only if it is still `token`'s. Returns whether
+    /// it was (false = a newer transaction owns it now, leave it alone).
+    @discardableResult
+    func clearTxnAnchor(token: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        guard let cur = _txnAnchor, cur.token == token else { return false }
+        _txnAnchor = nil
+        return true
+    }
+
+    /// Drop the anchor if it belongs to `index` (cell gone / row removed).
+    @discardableResult
+    func clearTxnAnchor(forIndex index: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        guard let cur = _txnAnchor, cur.index == index else { return false }
+        _txnAnchor = nil
+        return true
+    }
+
+    /// True while a manual toggle transaction holds this row: the visible-cell
+    /// compensation below must not touch it, or a late self-size correction
+    /// would drag the row's top away from where the user tapped it.
+    func isTxnAnchored(index: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        return ThinkingToggleTxnMath.skipsVisibleCompensation(anchorIndex: _txnAnchor?.index, index: index)
+    }
+
     private var _streamingCellRanges: [Range<Int>] = []
     private var _streamingLock = os_unfair_lock_s()
 
@@ -582,7 +645,13 @@ final class MessageListLayout: UICollectionViewLayout {
                 // visible content in place.
                 ctx.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
             } else if cellTop >= viewportTop && cellTop < viewportBottom && !isStreamingCell(index)
-                        && !ToggleAnchorMath.skipsVisibleCompensation(index: index, anchored: topAnchoredIndex) {
+                        && !ToggleAnchorMath.skipsVisibleCompensation(index: index, anchored: topAnchoredIndex)
+                        // [T-thinking-toggle-txn] A manual thinking-row toggle
+                        // holds its own token-owned anchor (see `setTxnAnchor`):
+                        // keep skipping this row's compensation until the
+                        // transaction settles, the user scrolls, or a newer
+                        // transaction takes over.
+                        && !isTxnAnchored(index: index) {
                 // Cell is visible and NOT the actively streaming cell —
                 // adjust offset so content below doesn't jump (e.g. image
                 // finished loading and changed the cell's height).
@@ -1283,6 +1352,13 @@ enum ToggleAnchorMath {
 
     /// Notification userInfo key for a `ToggleRequest`.
     static let toggleRequestKey = "toggleRequest"
+
+    /// [T-thinking-toggle-txn] Marks a `.thinkingBlockToggled` posted by a
+    /// MANUAL thinking-row tap: the list runs its own no-animation toggle
+    /// transaction for the row instead of the estimate - real-height path.
+    /// Separate from `anchorTopKey` so the answered-question card's
+    /// `remeasureKeepingTop` wiring is untouched (it is not a thinking row).
+    static let manualThinkingKey = "manualThinkingTxn"
 }
 
 /// [T-user-ask-expand-anim] One expand / collapse, applied exactly once. The
@@ -1309,6 +1385,140 @@ final class ToggleRequest {
     }
 }
 // END ToggleAnchorMath
+
+// Kept byte-identical with MinisTests/Standalone/ThinkingToggleTxnTests.swift
+// (the test extracts this block verbatim), pure Swift — no UIKit, no SwiftUI.
+// BEGIN ThinkingToggleTxn
+/// [T-thinking-toggle-txn] Which row a token-owned toggle anchor belongs to.
+struct ToggleTxnAnchor: Equatable {
+    let token: Int
+    let index: Int
+    let blockId: UUID
+}
+
+/// [T-thinking-toggle-txn] One MANUAL open / close of a thinking row.
+///
+/// The tap does not flip `isThinkingExpanded` in SwiftUI any more: the state
+/// change is handed to the list in a `ToggleRequest`, which applies it in the
+/// same no-animation pass that gives the cell its new height. Everything the
+/// transaction needs to decide "is this still mine / is the height right yet"
+/// lives here, so the decisions are testable without a collection view.
+struct ThinkingToggleTxn: Equatable {
+    /// Generation counter value. Every new transaction for this list bumps it;
+    /// a closure carrying an older token must not touch the offset or the
+    /// anchor. This is what keeps a rapid double tap from replaying the first
+    /// tap's late measurement on top of the second one.
+    let token: Int
+    /// Stable identity of the row — an index is not one: a streaming flush
+    /// above renumbers it, cell reuse moves it, a session switch replaces it.
+    let blockId: UUID
+    /// The `.assistantBlock` item this transaction was started for.
+    let item: MessageListItem
+    /// On-screen top of the row (points from the viewport top) to restore.
+    let anchorY: CGFloat
+    /// The state the request set, for logging / dedupe of the flip echo.
+    var targetExpanded: Bool
+    /// True once the handed-off `ToggleRequest` ran (so a plain
+    /// `.thinkingBlockToggled` for this block is that flip's echo, not a new
+    /// re-measure request).
+    var didApply: Bool
+    /// Height the transaction itself installed, for the settle comparison.
+    var appliedHeight: CGFloat
+    /// Consecutive probes that agreed with the installed height.
+    var stableHits: Int
+    /// Probes spent (bounded, see `maxProbes`).
+    var probes: Int
+    /// Position index the anchor was parked on (kept for release).
+    var anchorIndex: Int
+    /// False once the transaction stopped probing (settled or out of probes).
+    /// The anchor outlives it on purpose.
+    var probing: Bool
+    /// True once the model showed the flip consumed by the view (render
+    /// receipt) - without it an identical height proves nothing.
+    var receiptSeen: Bool
+}
+
+/// [T-thinking-toggle-txn] Pure decisions of the transaction. Extraction
+/// target for tests; the shipping code below only calls these.
+enum ThinkingToggleTxnMath {
+    /// Bound on re-measure rounds: a late SwiftUI measure usually lands on the
+    /// first or second probe; more than this means something else owns the
+    /// height and the transaction must stop fighting it.
+    static let maxProbes = 6
+    /// Agreement tolerance between a fresh measure and the installed height.
+    static let heightTolerance: CGFloat = 0.5
+    /// Consecutive agreeing probes needed before the transaction stops probing.
+    static let stableHitsToSettle = 2
+
+    /// Spacing between probes: one display frame at 60 Hz, so each probe runs
+    /// after SwiftUI has had a chance to draw. A burst of main-queue hops all
+    /// lands before the render, measures the previous state twice and calls it
+    /// settled - the exact failure this spacing removes.
+    static let probeFrameInterval: TimeInterval = 1.0 / 60.0
+
+    static func nextToken(after current: Int) -> Int { current &+ 1 }
+
+    /// A late closure may act only while its token is still the current one.
+    static func isCurrent(token: Int, currentToken: Int?) -> Bool { currentToken == token }
+
+    /// A newer transaction supersedes an older one for the same list.
+    static func supersedes(existingToken: Int?, newToken: Int) -> Bool {
+        guard let existingToken else { return false }
+        return newToken > existingToken
+    }
+
+    /// The layout skips its visible-cell compensation for the anchored row.
+    static func skipsVisibleCompensation(anchorIndex: Int?, index: Int) -> Bool {
+        anchorIndex == index
+    }
+
+    /// Where a late measure must put the row: its on-screen top stays exactly
+    /// where it is now. Compensating a target offset instead (the old bug)
+    /// re-used an anchor that the height change itself had invalidated.
+    static func lateAnchorY(currentMinY: CGFloat, currentOffset: CGFloat) -> CGFloat {
+        currentMinY - currentOffset
+    }
+
+    enum Probe: Equatable {
+        /// Height agrees with what the transaction installed, confirmed over
+        /// frame-spaced probes - stop probing (the anchor stays parked).
+        case settle
+        /// Height agrees, but confirm on a later frame first.
+        case confirm
+        /// The measured height is wrong - install it and re-anchor.
+        case fixHeight
+        /// The view has not consumed the flip yet: an identical measure says
+        /// nothing about the new state, so wait for the next frame.
+        case waitReceipt
+        /// Out of probes / not measurable: stop probing, keep the anchor.
+        case abandon
+    }
+
+    /// Decide one probe round. A valid changed height is always installed,
+    /// even if replacing the hosting root meant SwiftUI never delivered the
+    /// old view's onChange receipt. Missing receipts may delay agreement, but
+    /// must never block a real correction (otherwise collapse leaves a gap).
+    static func probe(measured: CGFloat, current: CGFloat,
+                      stableHits: Int, probes: Int,
+                      receipt: Bool = true,
+                      tolerance: CGFloat = heightTolerance,
+                      maxProbes: Int = ThinkingToggleTxnMath.maxProbes,
+                      settleAfter: Int = ThinkingToggleTxnMath.stableHitsToSettle) -> Probe {
+        guard probes < maxProbes else { return .abandon }
+        guard measured.isFinite, measured > 1 else { return .abandon }
+        if abs(measured - current) > tolerance { return .fixHeight }
+        guard receipt else { return .waitReceipt }
+        return stableHits + 1 >= settleAfter ? .settle : .confirm
+    }
+
+    /// The row must keep its anchor until the transaction is stable — but a
+    /// user drag is an explicit takeover and wins immediately.
+    enum ReleaseReason: String {
+        case settled, rowGone, sessionChanged, userScroll, superseded, listTornDown, probesExhausted
+    }
+}
+
+// END ThinkingToggleTxn
 
 // Kept compilable on its own for MinisTests/Standalone/MarkdownHeightEstimateTests.swift
 // (the test extracts this block together with TableColumnPlanner).

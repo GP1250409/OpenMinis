@@ -630,6 +630,17 @@ final class AssistantBlock: Identifiable, ObservableObject {
     /// be silently undone by a streaming sibling's recomposition.
     @Published var thinkingUserToggled: Bool = false
 
+    /// [T-thinking-toggle-txn] The state a MANUAL toggle is about to install
+    /// (and the token of that transaction). The tap writes this BEFORE the
+    /// state flips; `ThinkingBlockView.onChange` matches it, so the flip the
+    /// LIST applied does not also post the plain "clear caches, re-measure
+    /// from the estimate" notification — that post is what dragged the row.
+    /// A plain (non-@Published) field on purpose: it must not re-render the
+    /// cell. Cleared by the consumer, by the next manual tap, and by the list
+    /// transaction when it finds it already satisfied.
+    var pendingManualThinkingState: Bool?
+    var pendingManualThinkingToken: UUID?
+
     init(kind: AssistantBlockKind, content: String, toolStatus: ToolBlockStatus? = nil, toolUseId: String? = nil) {
         self.kind = kind
         self.content = content

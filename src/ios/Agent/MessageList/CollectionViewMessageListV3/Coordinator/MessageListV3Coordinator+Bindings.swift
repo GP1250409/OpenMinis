@@ -228,7 +228,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 .dropFirst()   // skip initial false — only react to true→false after actual load
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] isLoading in
-                    guard let self, !isLoading else { return }
+                    guard let self else { return }
+                    // Both entering and finishing a load invalidate a manual
+                    // row transaction, even before the next messages exist.
+                    self.releaseThinkingToggleTxnForListChange()
+                    guard !isLoading else { return }
                     // Switching into a session resets the up-button turn-walk.
                     self.lastJumpedUserId = nil
                     let isFirstLoad = self.previousSnapshotIds.isEmpty

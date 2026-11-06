@@ -58,6 +58,10 @@ extension CollectionViewMessageListV3.Coordinator {
             stopDecelDisplayLink()
             #endif
             scrollMode = .userBrowsing
+            // [T-thinking-toggle-txn] A drag is an explicit takeover: hand the
+            // toggled row back to the list (no offset is pulled — the finger
+            // owns it), so the parked anchor cannot outlive the user's intent.
+            releaseThinkingToggleOnUserScroll()
             // Cancel session-load clamp immediately — user has started interacting.
             clampAfterSessionLoad = false
             // A manual drag breaks the up-button's turn-walk chain: the next tap
@@ -194,6 +198,9 @@ extension CollectionViewMessageListV3.Coordinator {
                !isAnimatingScrollToBottom,
                !clampAfterSessionLoad,
                offsetY < lastDidScrollOffsetY - indirectScrollExitThreshold {
+                // [T-thinking-toggle-txn] Indirect (wheel / trackpad / keyboard)
+                // scrolling is a user takeover too: release the parked anchor.
+                releaseThinkingToggleOnUserScroll()
                 AppLogger(category: "ScrollDiag").info("[ScrollDiag][indirectScrollExit] offset \(String(format: "%.0f", lastDidScrollOffsetY))→\(String(format: "%.0f", offsetY)) panState=\(scrollView.panGestureRecognizer.state.rawValue) touches=\(scrollView.panGestureRecognizer.numberOfTouches) tracking=\(scrollView.isTracking) decel=\(scrollView.isDecelerating) — auto→browse")
                 scrollMode = .userBrowsing
                 // Same follow-ups willBeginDragging performs for a touch drag.

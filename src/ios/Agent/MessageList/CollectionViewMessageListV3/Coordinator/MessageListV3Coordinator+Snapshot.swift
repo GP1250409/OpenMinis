@@ -124,7 +124,6 @@ extension CollectionViewMessageListV3.Coordinator {
 
         func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?") {
             guard let vm, !vm.isLoadingSession else { return }
-
             // [T-bridge-message-ui-leak] Single UI-collection sink for EVERY
             // path that pushes messages to the list (loadSession, live inject,
             // compact rebuild, snapshot reload, rebind…). Filter the internal
@@ -258,9 +257,26 @@ extension CollectionViewMessageListV3.Coordinator {
                         // future report can be diagnosed from logs alone.
                         var matched = false
                         let anchorTop = notification.userInfo?[ToggleAnchorMath.anchorTopKey] as? Bool == true
-                        for (i, item) in snapshot.itemIdentifiers.enumerated() {
+                        // [T-thinking-toggle-txn] A manual thinking-row tap runs
+                        // the list's own transaction (one no-animation pass:
+                        // flip + real height + top held). Its `ToggleRequest`
+                        // is one-shot, so the card-style path below is never
+                        // involved and the two cannot double-apply.
+                        //
+                        // No echo bookkeeping here: the view's `onChange` matches
+                        // the flip against `block.pendingManualThinkingState` and
+                        // does not post at all, so this branch only ever sees the
+                        // automations (auto-expand / auto-collapse / streaming
+                        // growth) and the explicit fallback re-measure.
+                        let manualThinking = notification.userInfo?[ToggleAnchorMath.manualThinkingKey] as? Bool == true
+                                                for (i, item) in snapshot.itemIdentifiers.enumerated() {
                             if case .assistantBlock(_, let bid) = item, bid == blockId {
                                 matched = true
+                                if manualThinking {
+                                    let request = notification.userInfo?[ToggleAnchorMath.toggleRequestKey] as? ToggleRequest
+                                    self.thinkingToggleAnchored(blockId: blockId, item: item, index: i, request: request)
+                                    break
+                                }
                                 if anchorTop {
                                     let request = notification.userInfo?[ToggleAnchorMath.toggleRequestKey] as? ToggleRequest
                                     self.remeasureKeepingTop(item: item, index: i, blockId: blockId, request: request)
@@ -1145,6 +1161,10 @@ extension CollectionViewMessageListV3.Coordinator {
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = true
             dataSource.apply(snapshot, animatingDifferences: false)
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = false
+            // [T-thinking-toggle-txn] Rows are renumbered by this apply: move the
+            // transaction's token-owned anchor to its row's new index in the SAME
+            // pass (or drop it when the row is gone), never one probe later.
+            reconcileThinkingToggleTxn(items: snapshot.itemIdentifiers)
             // [ToolLifecycle] Stage 5: log newly-inserted tool blocks now in the
             // applied snapshot. Only fires for inserts, so volume stays proportional
             // to actual new tool blocks appearing in the chat UI.
