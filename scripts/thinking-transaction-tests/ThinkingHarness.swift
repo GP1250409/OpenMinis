@@ -54,7 +54,11 @@ struct ThinkingRowFixture: View {
 struct FillerRowFixture: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 15)).frame(maxWidth: .infinity, alignment: .leading)
+        Text(text).font(.system(size: 15))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Keep a real scroll range in collapsed AND expanded states; the
+            // tests deliberately interrupt by 120pt and must not hit a clamp.
+            .frame(minHeight: 100, alignment: .topLeading)
     }
 }
 
@@ -78,6 +82,9 @@ final class ListHarness {
     let rows: [RowModel]
     let targetIndex: Int
     let layout = MessageListLayout()
+    // SelfSizingCell intentionally refuses to re-enter a detached hosting
+    // graph. A real retained window is therefore part of every UI fixture.
+    private let testWindow = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
     private(set) var collection: UICollectionView!
     private(set) var controller: CollectionViewMessageListV3.TxListViewController!
     let coordinator = CollectionViewMessageListV3.Coordinator()
@@ -90,6 +97,9 @@ final class ListHarness {
         // it through a cast (the fixture defines only that member).
         collection = NoAnimationCollectionView(frame: CGRect(x: 0, y: 0, width: 390, height: 700),
                                                collectionViewLayout: layout)
+        collection.contentInsetAdjustmentBehavior = .never
+        // -40 is the valid resting offset used throughout the suite.
+        collection.contentInset = UIEdgeInsets(top: 40, left: 0, bottom: 0, right: 0)
         collection.register(SelfSizingCell.self, forCellWithReuseIdentifier: "cell")
         controller = CollectionViewMessageListV3.TxListViewController(collectionView: collection, messageListLayout: layout)
         coordinator.viewController = controller
@@ -116,8 +126,15 @@ final class ListHarness {
         snap.appendItems(rows.map { $0.item }, toSection: 0)
         ds.apply(snap, animatingDifferences: false)
         controller.view.frame = collection.frame
+        testWindow.rootViewController = controller
+        testWindow.makeKeyAndVisible()
+        testWindow.layoutIfNeeded()
+        collection.layoutIfNeeded()
+        pump(0.08)
         collection.layoutIfNeeded()
     }
+
+    deinit { testWindow.isHidden = true }
 
     var nextTokenValue: Int { tokenSeq }
 
