@@ -4,6 +4,12 @@
 import Foundation
 import UIKit
 
+/// Diagnostics-only timestamp read by the verbatim SelfSizingCell logger.
+/// This does not replace any view-model or sizing behaviour under test.
+enum AIChatViewModel {
+    static let onAppearTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+}
+
 /// Test double for the app's logger. Records lines so a failure can print the
 /// production trace (e.g. the [CellSizing] INVALIDATE lines) instead of nothing.
 final class AppLogger {
