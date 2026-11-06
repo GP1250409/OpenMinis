@@ -70,6 +70,9 @@ final class RowModel {
     var thinking: Bool
     var text: String
     var expanded: Bool
+    // An asynchronous view constraint, deliberately outside the 300pt body
+    // cap, lets the late-sizing test force a REAL additional fitted height.
+    var delayedMinimumHeight: CGFloat = 0
     init(thinking: Bool, text: String, expanded: Bool = false) {
         self.thinking = thinking
         self.text = text
@@ -153,9 +156,10 @@ final class ListHarness {
         layout.setEstimatedHeight(200, at: index)
         let key = cell.contentKey!
         if row.thinking {
-            let text = row.text, expanded = row.expanded
+            let text = row.text, expanded = row.expanded, delayedMinimum = row.delayedMinimumHeight
             cell.applyContentConfiguration(UIHostingConfiguration {
                 ThinkingRowFixture(text: text, isExpanded: expanded, streaming: false)
+                    .frame(minHeight: delayedMinimum > 0 ? delayedMinimum : nil, alignment: .top)
             })
         } else {
             let text = row.text

@@ -224,11 +224,15 @@ final class ThinkingTransactionTests {
         toggleViaTransaction(h, expanded: true)
         let anchoredTop = h.targetTopOnScreen()
         let anchoredOffset = h.collection.contentOffset.y
-        // The row's own content grows by two paragraphs: its real fitted height
-        // changes, so self-sizing must produce a correction.
-        h.rows[5].text += "\nLate paragraph A.\nLate paragraph B.\nLate paragraph C."
+        let beforeLateHeight = h.rowHeight(5)
+        // Extra text in an already capped 300pt body may change no height at
+        // all. Instead deliver a real outer SwiftUI minimum-height constraint;
+        // UIKit must measure it and enter the production correction path.
+        h.rows[5].delayedMinimumHeight = beforeLateHeight + 60
         h.reconfigureItem(5)
         h.layoutNow()
+        check(h.rowHeight(5) >= beforeLateHeight + 59,
+              "late fixture REALLY grew the fitted row by at least 59pt")
         let anchoredDelta = h.targetTopOnScreen() - anchoredTop
         let offsetDelta = h.collection.contentOffset.y - anchoredOffset
         print("THINKING_TXN_LATE_ANCHORED_TOP \(fmt(anchoredDelta)) OFFSET \(fmt(offsetDelta))")
@@ -247,9 +251,12 @@ final class ThinkingTransactionTests {
         togglePlain(c, expanded: true)
         let plainTop = c.targetTopOnScreen()
         let plainOffset = c.collection.contentOffset.y
-        c.rows[5].text += "\nLate paragraph A.\nLate paragraph B.\nLate paragraph C."
+        let beforePlainLateHeight = c.rowHeight(5)
+        c.rows[5].delayedMinimumHeight = beforePlainLateHeight + 60
         c.reconfigureItem(5)
         c.layoutNow()
+        check(c.rowHeight(5) >= beforePlainLateHeight + 59,
+              "unanchored late fixture also REALLY grew by at least 59pt")
         let plainDelta = c.targetTopOnScreen() - plainTop
         print("THINKING_TXN_LATE_PLAIN_TOP \(fmt(plainDelta)) OFFSET \(fmt(c.collection.contentOffset.y - plainOffset)) (control)")
         check(abs(anchoredDelta) <= abs(plainDelta) + 1.0,
