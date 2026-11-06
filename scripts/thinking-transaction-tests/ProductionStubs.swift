@@ -10,6 +10,13 @@ enum AIChatViewModel {
     static let onAppearTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 }
 
+/// Fixed default message scale used only to qualify cross-session memo keys.
+/// The real row and text measurement still use SwiftUI's actual font metrics.
+final class FontSettings {
+    static let shared = FontSettings()
+    func scaledMessage(_ reference: CGFloat) -> CGFloat { reference }
+}
+
 /// Test double for the app's logger. Records lines so a failure can print the
 /// production trace (e.g. the [CellSizing] INVALIDATE lines) instead of nothing.
 final class AppLogger {

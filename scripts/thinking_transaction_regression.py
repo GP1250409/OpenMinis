@@ -275,6 +275,7 @@ def main():
     note('PRODUCTION_EXCEPTION_BRIDGE_OK')
 
     sources = [layout_path, item_src, cell_src, txn_src,
+               root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
                tests / 'ProductionStubs.swift', tests / 'TxCoordinatorStub.swift',
                tests / 'ThinkingHarness.swift', tests / 'ThinkingTransactionTests.swift',
                tests / 'ThinkingToggleTxnMathTests.swift']
