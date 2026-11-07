@@ -170,8 +170,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 } else if delta < 0 && self.scrollMode == .autoScrolling {
                     // Content shrank while auto-scrolling — clamp to prevent overscroll.
                     // Skip during deceleration: settleAfterInteraction will handle it.
+                    // [T-scroll-bottom-native-animation] Skip while a jump
+                    // animation is in flight too: this write would abort it.
+                    // The terminal `scrollViewDidEndScrollingAnimation` clamps.
                     let maxOff = max(0, newH - cv.bounds.height + cv.adjustedContentInset.bottom)
-                    if cv.contentOffset.y > maxOff && !cv.isDecelerating {
+                    if cv.contentOffset.y > maxOff && !cv.isDecelerating && !self.isAnimatingScrollToBottom {
                         cv.contentOffset.y = maxOff
                     }
                 } else if delta < 0 && self.scrollMode != .autoScrolling {

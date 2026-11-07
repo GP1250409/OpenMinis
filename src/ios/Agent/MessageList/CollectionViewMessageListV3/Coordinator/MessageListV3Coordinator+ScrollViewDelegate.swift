@@ -58,6 +58,13 @@ extension CollectionViewMessageListV3.Coordinator {
             stopDecelDisplayLink()
             #endif
             scrollMode = .userBrowsing
+            // [T-scroll-bottom-native-animation] The touch that starts this drag
+            // already aborted any in-flight jump animation, and UIKit does NOT
+            // call `scrollViewDidEndScrollingAnimation` for an interrupted
+            // animation — clear the flag here or every later pin (streaming
+            // follow, coalesced scroll) would stay deferred.
+            isAnimatingScrollToBottom = false
+            scrollBottomRealigns = 0
             // [T-thinking-toggle-txn] A drag is an explicit takeover: hand the
             // toggled row back to the list (no offset is pulled — the finger
             // owns it), so the parked anchor cannot outlive the user's intent.
@@ -273,6 +280,7 @@ extension CollectionViewMessageListV3.Coordinator {
             }
         }
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            let wasBottomJump = isAnimatingScrollToBottom
             isAnimatingScrollToBottom = false
             // Final clamp: ensure offset doesn't exceed actual content bounds
             // after the animation completes (contentSize may have changed mid-flight).
@@ -281,6 +289,21 @@ extension CollectionViewMessageListV3.Coordinator {
             if cv.contentOffset.y > maxOff {
                 cv.contentOffset.y = maxOff
             }
+            // [T-scroll-bottom-native-animation] Rows below the old viewport
+            // were ESTIMATED when the manual jump started; laying them out
+            // measured their real heights, so the flight target is no longer
+            // the bottom. Land on the true resting offset instead of stopping
+            // short. Bounded (two attempts): a re-align can itself end short
+            // while a stream keeps growing the content, and that case belongs
+            // to the KVO / coalesced pin.
+            guard wasBottomJump, scrollMode == .autoScrolling,
+                  !cv.isTracking, !cv.isDecelerating, scrollBottomRealigns < 2 else { return }
+            let bottomInsetBase = searchHidesComposer ? Self.searchBottomInset : baseBottomInset
+            guard let target = bottomRestingOffset(cv, bottomInsetBase: bottomInsetBase),
+                  abs(cv.contentOffset.y - target) > 1 else { return }
+            scrollBottomRealigns += 1
+            AppLogger(category: "ScrollDiag").info("[ScrollDiag][bottomJumpRealign] #\(scrollBottomRealigns) off=\(String(format: "%.1f", cv.contentOffset.y)) target=\(String(format: "%.1f", target)) contentSize=\(String(format: "%.1f", cv.contentSize.height))")
+            scrollToBottomNow(animated: true)
         }
 
         func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {

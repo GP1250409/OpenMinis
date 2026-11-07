@@ -304,6 +304,37 @@ extension CollectionViewMessageListV3.Coordinator {
         var baseContentInsetTop: CGFloat {
             if #available(iOS 26, *) { return extraTopInset } else { return 8 + extraTopInset }
         }
+        /// [T-scroll-bottom-native-animation] The offset the list RESTS at when
+        /// it is pinned to the bottom — the single source of truth shared by the
+        /// pin inside `applySubViewportCompensation` and by the manual
+        /// jump-to-bottom animation. nil when there is nothing to pin to (the
+        /// content does not reach past the top edge).
+        ///
+        /// [PIN-fix] Pinned against the BASE bottom inset, not the inflated one.
+        /// Reading `cv.adjustedContentInset.bottom` here would push the cell up
+        /// by `bottomI - base` (= the sub-viewport compensation amount, up to
+        /// ~90pt observed), because the inflated inset effectively reserves
+        /// blank space BELOW the input bar that nobody can see. The
+        /// compensation's sole job is to make UIKit's natural maxOffset
+        /// positive so the user can scroll up to reveal the last cell — it is
+        /// NOT meant to define the resting position. Pinning to base keeps the
+        /// last cell glued to the input-bar top.
+        ///
+        /// `adjustedContentInset.top` still applies (safe-area / navigation
+        /// bar) — the target is clamped to that top limit, and to the inflated
+        /// maximum so a pin can never over-scroll past content end.
+        func bottomRestingOffset(_ cv: UIScrollView, bottomInsetBase: CGFloat) -> CGFloat? {
+            let pinBottomInset = bottomInsetBase + cv.safeAreaInsets.bottom
+            let rawTarget = cv.contentSize.height - cv.bounds.height + pinBottomInset
+            // Clamp: don't let target go below -adjustedTop (would scroll past
+            // the top edge), and don't exceed the inflated-inset maxOff (would
+            // over-scroll past content end).
+            let inflatedMaxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+            let topLimit = -cv.adjustedContentInset.top
+            let target = min(max(rawTarget, topLimit), inflatedMaxOff)
+            return target > topLimit - 0.5 ? target : nil
+        }
+
         /// When content overflows the visible area but is still smaller than the
         /// UIKit-scrollable threshold, UIKit clamps maxOffset at 0 and the
         /// bottom of the content gets hidden behind the bottom overlay.
@@ -399,34 +430,22 @@ extension CollectionViewMessageListV3.Coordinator {
             // Pin offset so content's bottom reaches the overlay top
             // (= bounds - bottomInset in viewport coords). Active in both the
             // compensation and the natural-scroll regime, as long as we are in
-            // autoScrolling mode and there's something to pin to. Read the
-            // INFLATED inset (cv.adjustedContentInset.bottom) for the pin
-            // target so we glue to the just-applied bottom.
-            if scrollMode == .autoScrolling {
-                // [PIN-fix] Pin against the BASE bottom inset, not the
-                // inflated one. Reading inflated `cv.adjustedContentInset.bottom`
-                // here would push the cell up by `bottomI - base` (= the
-                // sub-viewport compensation amount, up to ~90pt observed),
-                // because the inflated inset effectively reserves blank space
-                // BELOW the input bar that nobody can see. The compensation's
-                // sole job is to make UIKit's natural maxOffset positive so
-                // the user can scroll up to reveal the last cell — it is NOT
-                // meant to define the resting position. Pinning to base keeps
-                // the last cell glued to the input-bar top.
-                //
-                // adjustedContentInset.top still applies (safe-area /
-                // navigation bar) — keep that as-is.
-                let pinBottomInset = bottomInsetBase + cv.safeAreaInsets.bottom
-                let rawTarget = cv.contentSize.height - cv.bounds.height + pinBottomInset
-                // Clamp: don't let target go below -adjustedTop (would scroll
-                // past the top edge), and don't exceed the inflated-inset
-                // maxOff (would over-scroll past content end).
-                let inflatedMaxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
-                let topLimit = -cv.adjustedContentInset.top
-                let target = min(max(rawTarget, topLimit), inflatedMaxOff)
-                if target > topLimit - 0.5 && abs(cv.contentOffset.y - target) > 0.5 {
-                    cv.contentOffset.y = target
-                }
+            // autoScrolling mode and there's something to pin to. Target
+            // semantics (base inset, clamped) live in `bottomRestingOffset`.
+            //
+            // [T-scroll-bottom-native-animation] NOT while an animated
+            // jump-to-bottom owns the offset. This writes `contentOffset`
+            // directly, which cancels UIKit's scroll animation on the spot.
+            // It runs FIRST inside `scrollToBottomNow` (so the old code pinned
+            // to the bottom and then "animated" a zero-distance move — the
+            // reported no-animation), and again from `updateUIViewController` /
+            // the contentSize KVO while the flight is in progress. The jump
+            // animation targets this same resting offset, and
+            // `scrollViewDidEndScrollingAnimation` re-aligns to it.
+            if scrollMode == .autoScrolling, !isAnimatingScrollToBottom,
+               let target = bottomRestingOffset(cv, bottomInsetBase: bottomInsetBase),
+               abs(cv.contentOffset.y - target) > 0.5 {
+                cv.contentOffset.y = target
             }
             return needsCompensation
         }
@@ -491,20 +510,63 @@ extension CollectionViewMessageListV3.Coordinator {
             cv.layer.add(glide, forKey: "composerShrinkGlide")
         }
 
+        /// [T-scroll-bottom-native-animation] Should this jump animate? Pure so
+        /// the UIKit fixture can assert both branches (Reduce Motion cannot be
+        /// toggled inside one test process).
+        static func animatesJumpToBottom(animated: Bool, reduceMotion: Bool) -> Bool {
+            animated && !reduceMotion
+        }
+
         func scrollToBottomNow(animated: Bool = false) {
             guard let cv = viewController?.collectionView else { return }
             absorbPendingComposerShrink(caller: "scrollToBottom")
-            // Sub-viewport overflow path: re-evaluate compensation, then pin.
-            if applySubViewportCompensation(caller: "scrollToBottom") {
+            // [T-scroll-bottom-native-animation] The manual down-arrow jump is
+            // an ordinary UIKit animated scroll (`setContentOffset(animated:)`).
+            // Three direct `contentOffset` writes used to eat it, which is why
+            // the button snapped instead of gliding:
+            //   1. this call's own sub-viewport pin (inside
+            //      `applySubViewportCompensation`, called just below) wrote the
+            //      bottom offset BEFORE the animated set, so the animation had
+            //      no distance left to travel — the reported no-animation;
+            //   2. `scheduleCoalescedScroll`, armed by the contentSize KVO while
+            //      the rows below the old viewport measure, fired a
+            //      NON-animated pin 80 ms into the flight;
+            //   3. the KVO / snapshot pins did the same whenever a snapshot
+            //      landed mid-flight.
+            // All three are now gated on `isAnimatingScrollToBottom`, claimed
+            // BEFORE the compensation pass so the pin cannot pre-empt it.
+            // Reduce Motion keeps the old instant jump (the list must still
+            // reach the bottom, just without the glide).
+            let animate = Self.animatesJumpToBottom(animated: animated,
+                                                    reduceMotion: UIAccessibility.isReduceMotionEnabled)
+                && !cv.isTracking && !cv.isDecelerating
+            if animate {
+                isAnimatingScrollToBottom = true
+                // Safety net: a direct offset write we do not control can cancel
+                // UIKit's animation without `scrollViewDidEndScrollingAnimation`,
+                // and a stuck flag would defer every streaming pin. Token-gated
+                // so a newer jump is never cleared by an older deadline.
+                scrollBottomJumpToken &+= 1
+                let token = scrollBottomJumpToken
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                    guard let self, self.scrollBottomJumpToken == token,
+                          self.isAnimatingScrollToBottom else { return }
+                    AppLogger(category: "ScrollDiag").info("[ScrollDiag][bottomJumpSafetyNet] clearing isAnimatingScrollToBottom after 1.2s")
+                    self.isAnimatingScrollToBottom = false
+                }
+            }
+            // Inset bookkeeping only while animating: the pin inside is skipped
+            // for the flight (see `bottomRestingOffset` for the target).
+            applySubViewportCompensation(caller: "scrollToBottom")
+            let bottomInsetBase = searchHidesComposer ? Self.searchBottomInset : baseBottomInset
+            guard let target = bottomRestingOffset(cv, bottomInsetBase: bottomInsetBase) else {
+                isAnimatingScrollToBottom = false
                 syncScrollFlags()
                 return
             }
-            let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
-            guard maxOff > 0 else { return }
-            let target = CGPoint(x: 0, y: maxOff)
-            if animated {
-                isAnimatingScrollToBottom = true
-                cv.setContentOffset(target, animated: true)
+            let destination = CGPoint(x: cv.contentOffset.x, y: target)
+            if animate && abs(cv.contentOffset.y - target) > 0.5 {
+                cv.setContentOffset(destination, animated: true)
                 // The animated set's final scrollViewDidScroll should land within
                 // the near-bottom threshold, but an interrupted animation or
                 // sub-pixel/inset rounding can leave vm.isNearBottom stuck false,
@@ -512,7 +574,8 @@ extension CollectionViewMessageListV3.Coordinator {
                 // the bottom. Re-sync once the animation settles.
                 DispatchQueue.main.async { [weak self] in self?.syncScrollFlags() }
             } else {
-                cv.contentOffset = target
+                isAnimatingScrollToBottom = false
+                cv.contentOffset = destination
                 syncScrollFlags()
             }
         }

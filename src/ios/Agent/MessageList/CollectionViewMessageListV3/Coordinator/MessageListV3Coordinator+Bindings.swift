@@ -208,6 +208,9 @@ extension CollectionViewMessageListV3.Coordinator {
                     self.composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
                     // Jumping to the bottom resets the up-button's turn-walk.
                     self.lastJumpedUserId = nil
+                    // [T-scroll-bottom-native-animation] A manual tap starts a
+                    // fresh re-align budget for this jump.
+                    self.scrollBottomRealigns = 0
                     self.scrollToBottomNow(animated: true)
                 }
                 .store(in: &subscriptions)

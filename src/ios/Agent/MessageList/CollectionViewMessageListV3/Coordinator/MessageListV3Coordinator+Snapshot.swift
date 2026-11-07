@@ -1275,13 +1275,22 @@ extension CollectionViewMessageListV3.Coordinator {
                     // forceRelax bypasses the monotonic guard.
                     applySubViewportCompensation(caller: "snapshot-shrink", forceRelax: true)
                 } else if scrollMode == .autoScrolling && maxOff > 0 {
-                    cv.contentOffset.y = maxOff
-                    // Deferred pin-to-bottom: UIHostingConfiguration self-sizing may
-                    // complete asynchronously after layoutIfNeeded(), updating contentSize
-                    // via KVO. But if another applySnapshot starts before that KVO fires,
-                    // isFlushing suppresses it. The coalesced scroll (80ms) catches the
-                    // final contentSize and corrects any undershoot.
-                    scheduleCoalescedScroll()
+                    // [T-scroll-bottom-native-animation] While the manual
+                    // jump-to-bottom animation is in flight a snapshot can land
+                    // (streaming): a direct write here would cut the glide
+                    // short. Hand the pin to the coalesced scroll, which waits
+                    // for the flight to end.
+                    if isAnimatingScrollToBottom {
+                        scheduleCoalescedScroll()
+                    } else {
+                        cv.contentOffset.y = maxOff
+                        // Deferred pin-to-bottom: UIHostingConfiguration self-sizing may
+                        // complete asynchronously after layoutIfNeeded(), updating contentSize
+                        // via KVO. But if another applySnapshot starts before that KVO fires,
+                        // isFlushing suppresses it. The coalesced scroll (80ms) catches the
+                        // final contentSize and corrects any undershoot.
+                        scheduleCoalescedScroll()
+                    }
                 } else {
                     // Sub-viewport (rawMaxOff <= 0) or non-autoScrolling: keep
                     // the top-inset compensation tracking contentSize so the

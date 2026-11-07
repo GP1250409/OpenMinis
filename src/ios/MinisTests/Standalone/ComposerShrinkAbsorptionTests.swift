@@ -225,7 +225,9 @@ let messagesArea = source("Views/Chat/AIChatView/AIChatView+MessagesArea.swift")
 
 check("the three pins that follow content growth absorb first: scrollToBottomNow …",
       index(scroll, "absorbPendingComposerShrink(caller: \"scrollToBottom\")") > index(scroll, "func scrollToBottomNow(animated: Bool = false) {")
-      && index(scroll, "absorbPendingComposerShrink(caller: \"scrollToBottom\")") < index(scroll, "if applySubViewportCompensation(caller: \"scrollToBottom\") {"))
+      // [T-scroll-bottom-native-animation] The compensation pass is no longer
+      // wrapped in `if`, but it must still follow the absorption.
+      && index(scroll, "absorbPendingComposerShrink(caller: \"scrollToBottom\")") < index(scroll, "applySubViewportCompensation(caller: \"scrollToBottom\")"))
 check("… the content-size observer, before it computes its target …",
       index(setup, "self.absorbPendingComposerShrink(caller: \"contentSizeKVO\")") > index(setup, "if delta > 0 && self.scrollMode == .autoScrolling {")
       && index(setup, "self.absorbPendingComposerShrink(caller: \"contentSizeKVO\")") < index(setup, "let maxOff = newH - cv.bounds.height + cv.adjustedContentInset.bottom"))

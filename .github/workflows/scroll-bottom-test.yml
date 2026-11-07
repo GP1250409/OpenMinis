@@ -1,0 +1,24 @@
+name: Scroll-to-bottom UIKit animation regression
+on:
+  push:
+    branches: [mod-scroll-bottom-animation]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Drive the manual down-arrow jump on a real UICollectionView
+        run: |
+          set -o pipefail
+          python3 scripts/scroll_bottom_regression.py 2>&1 | tee scroll-bottom.log
+          grep -E 'SCROLL_BOTTOM_UIKIT_PASS|REPORT_|PASS:|FAIL:' scroll-bottom.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scroll-bottom-regression
+          path: |
+            scroll-bottom.log
+            build/scroll-bottom/*.log
+            build/scroll-bottom/*.swift

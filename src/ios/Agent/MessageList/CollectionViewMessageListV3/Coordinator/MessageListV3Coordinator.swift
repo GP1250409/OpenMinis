@@ -89,7 +89,22 @@ extension CollectionViewMessageListV3 {
         /// True while an animated setContentOffset is in flight. KVO grow events must not
         /// directly mutate contentOffset during this window — UIKit animation interpolation
         /// can produce a corrupted final offset. Instead, defer via scheduleCoalescedScroll().
+        ///
+        /// [T-scroll-bottom-native-animation] Also the single gate that keeps
+        /// the direct-offset pins (sub-viewport compensation, coalesced scroll,
+        /// KVO shrink clamp, snapshot pin) from cancelling the manual
+        /// jump-to-bottom animation: every one of them writes `contentOffset`,
+        /// and UIKit aborts an in-flight scroll animation on any such write.
         var isAnimatingScrollToBottom = false
+        /// Token for the safety-net deadline that clears `isAnimatingScrollToBottom`
+        /// if UIKit never calls `scrollViewDidEndScrollingAnimation` (cancelled
+        /// by a write we do not control). Bumped by every animated jump.
+        var scrollBottomJumpToken = 0
+        /// [T-scroll-bottom-native-animation] Bounded re-aligns after one manual
+        /// jump: the rows below the old viewport were ESTIMATED when the flight
+        /// started, so their measured heights can leave the flight target short
+        /// of the true bottom. Reset per manual jump and on user drag.
+        var scrollBottomRealigns = 0
 
         // === O(1) Lookup Indices ===
         var messageIndex: [UUID: Int] = [:]

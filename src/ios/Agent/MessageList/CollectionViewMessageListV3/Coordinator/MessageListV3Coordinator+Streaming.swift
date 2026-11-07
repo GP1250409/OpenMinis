@@ -192,6 +192,13 @@ extension CollectionViewMessageListV3.Coordinator {
             pendingScrollWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
+                // [T-scroll-bottom-native-animation] A jump animation owns the
+                // offset: a pin here is a direct `contentOffset` write, and
+                // UIKit aborts the animated scroll on it. 80 ms after a manual
+                // down-arrow tap this fired mid-flight and cut the glide short —
+                // the contentSize KVO arms it as rows below the old viewport
+                // measure. Re-arm instead; the jump ends at the bottom anyway.
+                if self.isAnimatingScrollToBottom { self.scheduleCoalescedScroll(); return }
                 let isTracking = self.viewController?.collectionView?.isTracking ?? false
                 if self.scrollMode != .autoScrolling || isTracking { return }
                 self.scrollToBottomNow()
