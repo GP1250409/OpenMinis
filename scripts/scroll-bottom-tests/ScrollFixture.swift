@@ -72,7 +72,7 @@ enum CollectionViewMessageListV3 {
         }
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
+    final class Coordinator: NSObject, UICollectionViewDelegate, UIScrollViewDelegate {
         weak var viewController: ScrollListViewController?
         var vm: ScrollViewModel?
         var scrollMode: ScrollMode = .autoScrolling
@@ -145,7 +145,9 @@ final class ListFixture: NSObject {
         window.makeKeyAndVisible()
 
         collectionView.dataSource = self
-        collectionView.delegate = self
+        // The production coordinator IS the scroll view delegate in the app, so
+        // UIKit's terminal `scrollViewDidEndScrollingAnimation` must reach it.
+        collectionView.delegate = coordinator
         viewController.loadViewIfNeeded()
         viewController.view.frame = CGRect(origin: .zero, size: viewport)
         collectionView.frame = CGRect(origin: .zero, size: viewport)
@@ -177,7 +179,6 @@ extension ListFixture: UICollectionViewDataSource {
     }
 }
 
-extension ListFixture: UICollectionViewDelegate {}
 
 // MARK: - Frame sampling
 

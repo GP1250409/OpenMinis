@@ -103,11 +103,19 @@ final class ScrollBottomRunner {
         recorder.pump(0.10) { f.collectionView.contentOffset.y }
         let midOffset = f.collectionView.contentOffset.y
         check(midOffset > 1 && midOffset < target - 1, "fixture: the first tap is still travelling when the second lands")
+        let secondTapAt = recorder.samples.last?.t ?? 0
         f.coordinator.scrollToBottomNow(animated: true)
         recorder.pump(1.8) { f.collectionView.contentOffset.y }
 
-        check(maxStep(recorder.samples) <= 80,
-              "a second tap mid-flight restarts from the current offset without a jump (max frame step \(String(format: "%.1f", maxStep(recorder.samples))))")
+        let reachedAfterSecondTap = recorder.samples
+            .filter { $0.t >= secondTapAt }
+            .first(where: { abs($0.y - target) <= 1.0 })?.t
+        let secondTapTravel = (reachedAfterSecondTap ?? -1) - secondTapAt
+        check(secondTapTravel >= 0.08,
+              "a second tap mid-flight keeps gliding instead of snapping (reached \(String(format: "%.2f", secondTapTravel))s after the tap)")
+        var reversed = false
+        for (a, b) in zip(recorder.samples, recorder.samples.dropFirst()) where b.y < a.y - 1.5 { reversed = true }
+        check(!reversed, "the jump never travels back up while it runs")
         check(abs(f.collectionView.contentOffset.y - target) <= 1.5, "rapid taps still land on the bottom")
         check(!f.coordinator.isAnimatingScrollToBottom, "rapid taps leave no in-flight flag behind")
     }
