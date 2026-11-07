@@ -46,7 +46,9 @@ enum CollectionViewMessageListV3 {
     }
 
     final class ScrollListViewController: UIViewController {
-        let collectionView: UICollectionView
+        /// Implicitly unwrapped, exactly like the production view controller:
+        /// the scroll code reads `viewController?.collectionView?....`.
+        var collectionView: UICollectionView!
         var messageListLayout: LayoutPinning?
         init(collectionView: UICollectionView, layout: LayoutPinning) {
             self.collectionView = collectionView
