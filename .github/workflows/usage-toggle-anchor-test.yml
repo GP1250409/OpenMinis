@@ -1,0 +1,24 @@
+name: Usage-toggle anchor UIKit regression
+on:
+  push:
+    branches: [mod-usage-toggle-anchor]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Drive the usage-footer insert/delete on a real UICollectionView
+        run: |
+          set -o pipefail
+          python3 scripts/usage_toggle_anchor_regression.py 2>&1 | tee usage-toggle-anchor.log
+          grep -E 'USAGE_TOGGLE_ANCHOR_UIKIT_PASS|REPORT_|SOURCE_CHECK_|STANDALONE_CONTRACT_CHECKS|SYNTAX_' usage-toggle-anchor.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: usage-toggle-anchor-regression
+          path: |
+            usage-toggle-anchor.log
+            build/usage-toggle-anchor/*.log
+            build/usage-toggle-anchor/*.swift
