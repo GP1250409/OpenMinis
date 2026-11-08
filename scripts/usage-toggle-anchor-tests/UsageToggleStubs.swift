@@ -17,6 +17,23 @@ import SwiftUI
 // `MessageListLayout`, so the 4pt-estimate vs real-height asymmetry that the
 // recording shows is produced by UIKit itself — not by a constant in the test.
 
+/// Diagnostics-only timestamp read by the verbatim `SelfSizingCell` logger
+/// (`sinceAppear` in the `[ScrollStall]` line). Nothing under test reads it, so
+/// the value only has to exist; same stub shape as
+/// `scripts/thinking-transaction-tests/ProductionStubs.swift`.
+enum AIChatViewModel {
+    static let onAppearTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+}
+
+/// Test double for the app's markdown text view. The verbatim `SelfSizingCell`
+/// walks the subtree for `asyncAttachmentRenderSignal()` to qualify its height
+/// memo key; this fixture's rows are plain SwiftUI text, so no such view is ever
+/// hosted and the signal is only here to type-check.
+final class SelectableMarkdownTextView: UIView {
+    private var signal = 0
+    func asyncAttachmentRenderSignal() -> Int { signal }
+}
+
 /// Logging is not under test (same pattern as the other standalone fixtures).
 struct AppLogger {
     let category: String
