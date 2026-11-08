@@ -100,7 +100,6 @@ final class UsageHarness {
         controller = CollectionViewMessageListV3.ListViewController(collectionView: collection,
                                                                     messageListLayout: layout)
         window = UIWindow(frame: CGRect(origin: .zero, size: viewport))
-        super.init()
 
         coordinator.viewController = controller
         coordinator.vm = CollectionViewMessageListV3.ViewModel()
