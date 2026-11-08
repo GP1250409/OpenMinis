@@ -299,6 +299,26 @@ final class UsageHarness {
     }
 
     /// One compact geometry line, so a failing run says WHY it failed.
+    /// Duplicate-render probe: how many cell VIEWS UIKit holds vs how many it
+    /// reports visible, how many carry a pending Core Animation, and how far
+    /// the on-screen (presentation) position of a cell is from its model
+    /// position. A row drawn twice in one frame shows up here as extra views
+    /// or as a presentation/model gap.
+    func renderProbe(_ label: String) {
+        let views = collection.subviews.compactMap { $0 as? UICollectionViewCell }
+        let visible = collection.visibleCells
+        let animated = views.filter { !($0.layer.animationKeys() ?? []).isEmpty }.count
+        var maxGap: CGFloat = 0
+        for v in views {
+            if let p = v.layer.presentation() { maxGap = max(maxGap, abs(p.position.y - v.layer.position.y)) }
+        }
+        let keys = Set(views.flatMap { $0.layer.animationKeys() ?? [] }).sorted().joined(separator: "|")
+        let ys = views.map { Int($0.frame.minY) }.sorted()
+        let dup = ys.count - Set(ys).count
+        print("PROBE \(label) cellViews=\(views.count) visible=\(visible.count) animated=\(animated)"
+              + " presGap=\(f(maxGap)) sameY=\(dup) keys=[\(keys)]")
+    }
+
     func trace(_ label: String) {
         let items = collection.numberOfItems(inSection: 0)
         let foot = footerPresent ? rowHeight(footerIndex) : -1
@@ -320,13 +340,15 @@ final class UsageHarness {
     func cycleBoth(anchored: Bool) -> (above: CGFloat, below: CGFloat) {
         let a0 = screenTop(of: aboveItem), b0 = screenTop(of: referenceItem)
         apply(showFooter: false, anchored: anchored)
-        if traceCycles { trace("hide") }
+        if traceCycles { trace("hide"); renderProbe("hide.apply") }
         settle()
         if traceCycles { trace("hide.settled") }
         apply(showFooter: true, anchored: anchored)
-        if traceCycles { trace("show") }
+        if traceCycles { trace("show"); renderProbe("show.apply") }
+        pump(0.004)
+        if traceCycles { renderProbe("show.+4ms") }
         settle()
-        if traceCycles { trace("show.settled") }
+        if traceCycles { trace("show.settled"); renderProbe("show.settled") }
         return (screenTop(of: aboveItem) - a0, screenTop(of: referenceItem) - b0)
     }
 
