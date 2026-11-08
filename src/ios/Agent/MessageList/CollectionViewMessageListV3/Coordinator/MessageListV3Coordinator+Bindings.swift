@@ -662,9 +662,15 @@ extension CollectionViewMessageListV3.Coordinator {
             // `.thinkingBlockToggled` handler below.
             NotificationCenter.default.publisher(for: .messageListNeedsResnapshot)
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in
+                .sink { [weak self] note in
                     guard let self, let vm = self.vm else { return }
                     self.invalidateFooterHeightCaches()
+                    // This notification has THREE senders: the two usage-toggle
+                    // posts below and AppearanceSettingsView's font/appearance
+                    // re-snapshot. Only the toggle is a pure row insert/delete
+                    // above the viewport; the appearance apply changes every
+                    // height at once and must keep its own (suppressed) path.
+                    let fromUsageToggle = (note.object as? String) == MessageListItem.usageToggleSender
                     // [T-usage-toggle-anchor] This apply INSERTS or DELETES the
                     // footer row (showUsage flipped). Nothing else in the
                     // pipeline restores the reader's position for a structural
@@ -672,8 +678,9 @@ extension CollectionViewMessageListV3.Coordinator {
                     // row's real height on the way out (~21pt) and only pay its
                     // 4pt estimate on the way in — a net upward ratchet of
                     // ~14-21pt per show/hide cycle.
-                    self.applySnapshot(messages: vm.messages, caller: "usageToggle",
-                                       preserveVisibleAnchor: true)
+                    self.applySnapshot(messages: vm.messages,
+                                       caller: fromUsageToggle ? "usageToggle" : "resnapshot",
+                                       preserveVisibleAnchor: fromUsageToggle)
                 }
                 .store(in: &subscriptions)
 

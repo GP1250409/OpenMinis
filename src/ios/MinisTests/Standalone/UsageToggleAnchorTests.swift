@@ -91,9 +91,18 @@ check("the footer is still omitted from the snapshot when showUsage is off (the 
       snapshot.contains("|| (cellBridges[message.id]?.showUsage == true)") && snapshot.contains("if needsFooter {"))
 
 print("▶️  gesture separation (double-tap block vs single-tap capsule) is untouched")
-check("the double tap flips bridge.showUsage and asks for a re-snapshot",
+check("the double tap flips bridge.showUsage and posts the MARKED re-snapshot",
       blockCell.contains("bridge.showUsage = true")
-      && blockCell.contains("NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)"))
+      && blockCell.contains("object: MessageListItem.usageToggleSender)"))
+check("the marker exists and the sink gates on it (AppearanceSettingsView posts the same notification)",
+      source("Agent/MessageList/MessageListInfrastructure.swift").contains("static let usageToggleSender = \"usageToggle\"")
+      && bindings.contains("(note.object as? String) == MessageListItem.usageToggleSender")
+      && bindings.contains("preserveVisibleAnchor: fromUsageToggle"))
+check("the anchor can never be the footer row this apply may delete",
+      snapshot.contains("if case .assistantFooter = item { continue }"))
+check("a stale anchor from an older apply is dropped",
+      snapshot.contains("if requireCurrentApply, anchor.generation != snapshotApplyGeneration { return }")
+      && snapshot.contains("snapshotApplyGeneration &+= 1"))
 check("the single tap only swaps the row's contents (expanded / collapsed), same height",
       source("Agent/MessageList/CollectionViewMessageListV3/Cells/UsageStampRow.swift")
         .contains("stampCapsule(stamp).hidden().frame(width: 0)"))

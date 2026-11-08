@@ -100,6 +100,11 @@ extension CollectionViewMessageListV3 {
         /// if UIKit never calls `scrollViewDidEndScrollingAnimation` (cancelled
         /// by a write we do not control). Bumped by every animated jump.
         var scrollBottomJumpToken = 0
+
+        /// [T-usage-toggle-anchor] Bumped by every `applySnapshot`. A deferred
+        /// anchor restore compares it and drops itself when a newer apply (or a
+        /// different session's reload) has landed in between.
+        var snapshotApplyGeneration = 0
         /// [T-scroll-bottom-native-animation] Bounded re-aligns after one manual
         /// jump: the rows below the old viewport were ESTIMATED when the flight
         /// started, so their measured heights can leave the flight target short

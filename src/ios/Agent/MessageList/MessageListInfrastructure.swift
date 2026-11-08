@@ -19,6 +19,13 @@ import UIKit
 /// Assistant messages are split into header + individual blocks + footer
 /// so each block is its own small cell with a stable height.
 enum MessageListItem: Hashable {
+    /// [T-usage-toggle-anchor] `object` marker on `.messageListNeedsResnapshot`
+    /// for the two posts that come from the footer's usage toggle. The same
+    /// notification is also posted by AppearanceSettingsView after a font /
+    /// appearance change, and only the toggle is a pure single-row insert or
+    /// delete above the viewport.
+    static let usageToggleSender = "usageToggle"
+
     /// A complete user message, compact divider, or system info message.
     case wholeMessage(UUID)
     /// The "sparkles Minis" label row at the top of an assistant turn.

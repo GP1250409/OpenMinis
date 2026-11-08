@@ -1134,6 +1134,7 @@ extension CollectionViewMessageListV3.Coordinator {
             // A caller that knows its rows are being added/removed by a user
             // gesture (the usage toggle) asks for the visible anchor to be put
             // back, so the reader's position survives both directions.
+            snapshotApplyGeneration &+= 1
             let anchorBefore = (preserveVisibleAnchor && !clampAfterSessionLoad) ? captureVisibleAnchor() : nil
             snapshotLayout?.suppressContentOffsetAdjustment = true
             isFlushing = true
@@ -1358,26 +1359,52 @@ extension CollectionViewMessageListV3.Coordinator {
             let item: MessageListItem
             /// `attrs.frame.minY - contentOffset.y` at capture time.
             let screenY: CGFloat
+            /// `snapshotApplyGeneration` the anchor was taken in. A deferred
+            /// restore whose generation is stale (another apply, a session
+            /// switch, a reload) is dropped instead of yanking an old offset
+            /// onto a list that has moved on.
+            let generation: Int
         }
 
         func captureVisibleAnchor() -> VisibleAnchor? {
             guard let cv = viewController?.collectionView,
                   let ds = dataSource else { return nil }
             let items = ds.snapshot().itemIdentifiers
+            let generation = snapshotApplyGeneration
+            func anchor(_ item: MessageListItem, _ attrs: UICollectionViewLayoutAttributes) -> VisibleAnchor {
+                VisibleAnchor(item: item,
+                              screenY: attrs.frame.minY - cv.contentOffset.y,
+                              generation: generation)
+            }
+            // An assistant footer is exactly the row a usage toggle DELETES, so
+            // it can never be the anchor: restoring it would silently no-op
+            // (item gone) and the drift would survive the "fix".
+            var fallback: VisibleAnchor?
             for ip in cv.indexPathsForVisibleItems.sorted(by: { $0.item < $1.item }) {
                 guard ip.item < items.count,
                       let attrs = cv.layoutAttributesForItem(at: ip) else { continue }
-                let screenY = attrs.frame.minY - cv.contentOffset.y
-                // First row whose top edge is still on (or at) the viewport.
-                if screenY >= -0.5 { return VisibleAnchor(item: items[ip.item], screenY: screenY) }
+                let item = items[ip.item]
+                if case .assistantFooter = item { continue }
+                // Prefer a row whose TOP edge is still on screen: a row that is
+                // clipped by the viewport top keeps its top off-screen, and
+                // hanging the whole restore on it would be valid but noisier.
+                if attrs.frame.minY - cv.contentOffset.y >= -0.5 { return anchor(item, attrs) }
+                // Every visible row starts above the viewport (one oversized
+                // row fills the screen): the first of them is still a valid
+                // anchor — holding its top fixes the pixels just as well.
+                if fallback == nil { fallback = anchor(item, attrs) }
             }
-            return nil
+            return fallback
         }
 
         /// Scroll so `anchor.item`'s top edge sits at `anchor.screenY` again.
         /// A no-op when the apply did not move that row (the common case), and
         /// clamped to the legal range so it can never fight the bounds.
-        func restoreVisibleAnchor(_ anchor: VisibleAnchor) {
+        func restoreVisibleAnchor(_ anchor: VisibleAnchor, requireCurrentApply: Bool = true) {
+            // Stale anchor (another apply / session switch happened since the
+            // capture): the rows it refers to belong to a list we no longer
+            // show. Drop it rather than pull the reader back.
+            if requireCurrentApply, anchor.generation != snapshotApplyGeneration { return }
             guard let cv = viewController?.collectionView,
                   let ds = dataSource,
                   let idx = ds.snapshot().itemIdentifiers.firstIndex(of: anchor.item),

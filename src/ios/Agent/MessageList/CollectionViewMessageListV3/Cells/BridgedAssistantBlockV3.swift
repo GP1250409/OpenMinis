@@ -183,13 +183,13 @@ struct BridgedAssistantBlockV3: View {
                 // The footer cell may have been omitted from the snapshot
                 // (no content at build time). Notify the coordinator so it
                 // re-snapshots and removes the now-empty footer.
-                NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
+                NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: MessageListItem.usageToggleSender)
             }
         } else {
             bridge.showUsage = true
             // The footer cell may not exist yet — notify the coordinator to
             // re-snapshot and insert it.
-            NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
+            NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: MessageListItem.usageToggleSender)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 withAnimation(.easeInOut(duration: 0.2)) { bridge.usageContentVisible = true }
             }
