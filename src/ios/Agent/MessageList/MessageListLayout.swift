@@ -1051,7 +1051,17 @@ final class MessageListLayout: UICollectionViewLayout {
         // the last block and the footer until a scroll forces re-measurement.
         // Footers are trivially cheap to self-size from the 4pt estimate, so
         // skipping the memo costs nothing.
-        guard !key.hasPrefix("f:") else { return }
+        // [T-usage-footer-seed] ...but REMEMBER the quiet row's height (never the
+        // prominent banners: typing/error/resume measure 44-56pt) so the usage
+        // toggle can seed the footer it inserts at its real height. It is a
+        // seed for that one path only, never a cached height: the cell still
+        // self-sizes, so a stale value is just a correction.
+        if key.hasPrefix("f:") {
+            if height >= 12, height <= 40 {
+                learnedQuietFooterHeight = (height, boundsWidth, AssistantHeaderMetrics.fontKey())
+            }
+            return
+        }
         measuredHeightByContentKey[key] = (height: height, width: boundsWidth)
         // [T-scroll-estimate-fidelity] Every assistant header has the same
         // layout, so one real measurement is the estimate for all the others.
@@ -1072,6 +1082,18 @@ final class MessageListLayout: UICollectionViewLayout {
     /// it was measured at. Survives clearHeightCache (session switch): it does
     /// not depend on the session, and a font-size change makes it miss by key.
     private var learnedHeaderHeight: (height: CGFloat, width: CGFloat, font: CGFloat)?
+
+    /// [T-usage-footer-seed] The last measured QUIET footer (meta / usage row)
+    /// height with the width and font size it was measured at.
+    private var learnedQuietFooterHeight: (height: CGFloat, width: CGFloat, font: CGFloat)?
+
+    /// The quiet footer's real height at this width and font size, or nil when
+    /// none has been measured yet (the caller then keeps the 4pt seed).
+    func quietFooterEstimate(width: CGFloat) -> CGFloat? {
+        guard let learned = learnedQuietFooterHeight, abs(learned.width - width) < 1,
+              learned.font == AssistantHeaderMetrics.fontKey() else { return nil }
+        return learned.height
+    }
 
     /// Estimate for an assistant header row: the learned height when it was
     /// measured at this width and font size, otherwise the layout formula.
