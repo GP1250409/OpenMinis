@@ -90,6 +90,8 @@ final class UsageHarness {
     let footerIndex: Int
     /// True while the footer item is in the data source.
     private(set) var footerPresent = false
+    /// Hosted-content phase for the footer row (seed strip → real stamp).
+    let phase = FooterPhase()
     /// Production's quiet-footer seed (`+Snapshot.swift`, `footerProminent ? 48 : 4`).
     static let quietFooterSeed: CGFloat = 4
 
