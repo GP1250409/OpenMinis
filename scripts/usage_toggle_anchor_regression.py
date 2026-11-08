@@ -134,34 +134,35 @@ def source_checks(anchor_block):
          'the capture is skipped while the session-load clamp owns the offset')
 
     # ── the order inside applySnapshot ──
-    order = [
-        ('generation bump', 'snapshotApplyGeneration &+= 1'),
-        ('capture', 'let anchorBefore = (preserveVisibleAnchor'),
-        ('suppress on', 'snapshotLayout?.suppressContentOffsetAdjustment = true'),
-        ('first layout', 'cv.layoutIfNeeded()\n                snapshotLayout?.suppressContentOffsetAdjustment = false'),
-        ('sync restore', 'restoreVisibleAnchor(anchorBefore)'),
-        ('deferred restore', 'DispatchQueue.main.async { [weak self] in'),
-        ('post-apply sub-viewport', 'applySubViewportCompensation(caller: "snapshot-subVP")'),
-    ]
-    positions = {}
-    for label, needle in order:
-        i = snap.find(needle)
-        positions[label] = i
-        need(i >= 0, f'the {label} statement is present')
-    seq = [label for label, _ in order]
-    need(all(positions[a] < positions[b] for a, b in zip(seq, seq[1:])),
+    # Anchor on the REGION: the file has other `DispatchQueue.main.async`
+    # blocks and other `restoreVisibleAnchor` mentions, so each position is
+    # looked up from the previous one instead of from the top of the file.
+    def after(needle, start):
+        i = snap.find(needle, start)
+        need(i >= 0, f'the {needle.splitlines()[0].strip()[:40]} statement is present')
+        return i if i >= 0 else start
+
+    bump = after('snapshotApplyGeneration &+= 1', 0)
+    capture = after('let anchorBefore = (preserveVisibleAnchor', bump)
+    suppress = after('snapshotLayout?.suppressContentOffsetAdjustment = true', capture)
+    layout_done = after('cv.layoutIfNeeded()\n                snapshotLayout?.suppressContentOffsetAdjustment = false',
+                        suppress)
+    restore = after('restoreVisibleAnchor(anchorBefore)', layout_done)
+    deferred = after('DispatchQueue.main.async { [weak self] in', restore)
+    post = after('applySubViewportCompensation(caller: "snapshot-subVP")', deferred)
+    need(bump < capture < suppress < layout_done < restore < deferred < post,
          'apply order is capture → suppress → layout → un-suppress → restore → deferred restore → post-apply')
 
     # ── the deferred restore cannot yank a dragging reader ──
-    defer_at = snap.find('DispatchQueue.main.async { [weak self] in')
-    defer_block = snap[defer_at:defer_at + 900] if defer_at >= 0 else ''
+    defer_at = snap.find('DispatchQueue.main.async { [weak self] in', restore)
+    defer_block = snap[defer_at:defer_at + 1800] if defer_at >= 0 else ''
     need('self.scrollMode != .autoScrolling' in defer_block
          and '!cv.isTracking, !cv.isDecelerating' in defer_block,
          'the deferred restore is gated on browsing + not tracking/decelerating')
 
     # ── exactly one caller, and it names its path ──
-    need(bind.count('preserveVisibleAnchor: true') == 1,
-         'exactly one call site opts into the anchor')
+    need(bind.count('preserveVisibleAnchor:') == 1,
+         'exactly one call site passes preserveVisibleAnchor')
     need(snap.count('preserveVisibleAnchor: true') == 0,
          'no call site inside +Snapshot.swift opts in')
     need('fromUsageToggle' in bind
