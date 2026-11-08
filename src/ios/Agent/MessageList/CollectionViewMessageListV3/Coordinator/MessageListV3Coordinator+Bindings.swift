@@ -665,7 +665,15 @@ extension CollectionViewMessageListV3.Coordinator {
                 .sink { [weak self] _ in
                     guard let self, let vm = self.vm else { return }
                     self.invalidateFooterHeightCaches()
-                    self.applySnapshot(messages: vm.messages)
+                    // [T-usage-toggle-anchor] This apply INSERTS or DELETES the
+                    // footer row (showUsage flipped). Nothing else in the
+                    // pipeline restores the reader's position for a structural
+                    // change above the viewport, so the toggle used to lose the
+                    // row's real height on the way out (~21pt) and only pay its
+                    // 4pt estimate on the way in — a net upward ratchet of
+                    // ~14-21pt per show/hide cycle.
+                    self.applySnapshot(messages: vm.messages, caller: "usageToggle",
+                                       preserveVisibleAnchor: true)
                 }
                 .store(in: &subscriptions)
 

@@ -122,7 +122,8 @@ extension CollectionViewMessageListV3.Coordinator {
             return unique
         }
 
-        func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?") {
+        func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?",
+                           preserveVisibleAnchor: Bool = false) {
             guard let vm, !vm.isLoadingSession else { return }
             // [T-bridge-message-ui-leak] Single UI-collection sink for EVERY
             // path that pushes messages to the list (loadSession, live inject,
@@ -1126,6 +1127,14 @@ extension CollectionViewMessageListV3.Coordinator {
             // rapid cell self-sizing doesn't cause visible content jumps. After layout
             // settles, pin to bottom if autoScrolling.
             let snapshotLayout = viewController?.messageListLayout
+            // [T-usage-toggle-anchor] Structural applies have NO compensation
+            // for a row that is inserted or deleted ABOVE the viewport: the
+            // layout's `contentOffsetAdjustment` only covers a cell whose
+            // height changes, and UIKit has no equivalent for a removed row.
+            // A caller that knows its rows are being added/removed by a user
+            // gesture (the usage toggle) asks for the visible anchor to be put
+            // back, so the reader's position survives both directions.
+            let anchorBefore = (preserveVisibleAnchor && !clampAfterSessionLoad) ? captureVisibleAnchor() : nil
             snapshotLayout?.suppressContentOffsetAdjustment = true
             isFlushing = true
             cellConfigCount = 0
@@ -1256,6 +1265,24 @@ extension CollectionViewMessageListV3.Coordinator {
                 cv.layoutIfNeeded()
                 snapshotLayout?.suppressContentOffsetAdjustment = false
                 isFlushing = false
+                // [T-usage-toggle-anchor] Put the reader back on the pixel he
+                // was reading. Runs before the shrink clamp / auto pin below,
+                // so those still own the offset when they apply.
+                if let anchorBefore {
+                    restoreVisibleAnchor(anchorBefore)
+                    // The inserted row's REAL height arrives with the hosting
+                    // graph's self-sizing a runloop later. When that correction
+                    // is compensated (the usual case, the footer cell is in or
+                    // above the viewport) this second pass is a no-op; it only
+                    // matters when the correction is skipped because the user
+                    // started a drag/drag-decel inside the same tick.
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, let cv = self.viewController?.collectionView,
+                              self.scrollMode != .autoScrolling,
+                              !cv.isTracking, !cv.isDecelerating else { return }
+                        self.restoreVisibleAnchor(anchorBefore)
+                    }
+                }
                 // [T-send-composer-shrink-absorb] The sent bubble and the
                 // typing row land here: let them take the space the composer
                 // is giving up before the pin below scrolls for them.
@@ -1314,5 +1341,58 @@ extension CollectionViewMessageListV3.Coordinator {
                 snapshotLayout?.suppressContentOffsetAdjustment = false
                 isFlushing = false
             }
+        }
+
+        // MARK: - [T-usage-toggle-anchor] Visible anchor for structural applies
+
+        /// The top-most visible row and where its top edge sat on screen.
+        ///
+        /// Used by callers whose apply adds or removes a row ABOVE the
+        /// viewport (the usage toggle inserts/deletes `.assistantFooter`), a
+        /// case no other machinery covers: `invalidationContext(forPreferred-
+        /// LayoutAttributes:)` only compensates a cell whose HEIGHT changed,
+        /// `suppressContentOffsetAdjustment` is on for the whole apply, and the
+        /// post-apply corrections (shrink clamp, autoScrolling pin, sub-viewport
+        /// inset) do nothing at all while a browsing user sits mid-list.
+        struct VisibleAnchor {
+            let item: MessageListItem
+            /// `attrs.frame.minY - contentOffset.y` at capture time.
+            let screenY: CGFloat
+        }
+
+        func captureVisibleAnchor() -> VisibleAnchor? {
+            guard let cv = viewController?.collectionView,
+                  let ds = dataSource else { return nil }
+            let items = ds.snapshot().itemIdentifiers
+            for ip in cv.indexPathsForVisibleItems.sorted(by: { $0.item < $1.item }) {
+                guard ip.item < items.count,
+                      let attrs = cv.layoutAttributesForItem(at: ip) else { continue }
+                let screenY = attrs.frame.minY - cv.contentOffset.y
+                // First row whose top edge is still on (or at) the viewport.
+                if screenY >= -0.5 { return VisibleAnchor(item: items[ip.item], screenY: screenY) }
+            }
+            return nil
+        }
+
+        /// Scroll so `anchor.item`'s top edge sits at `anchor.screenY` again.
+        /// A no-op when the apply did not move that row (the common case), and
+        /// clamped to the legal range so it can never fight the bounds.
+        func restoreVisibleAnchor(_ anchor: VisibleAnchor) {
+            guard let cv = viewController?.collectionView,
+                  let ds = dataSource,
+                  let idx = ds.snapshot().itemIdentifiers.firstIndex(of: anchor.item),
+                  let attrs = cv.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))
+            else { return }
+            let target = attrs.frame.minY - anchor.screenY
+            let minOff = -cv.adjustedContentInset.top
+            let maxOff = max(minOff, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
+            let clamped = min(max(target, minOff), maxOff)
+            guard abs(clamped - cv.contentOffset.y) > 0.5 else { return }
+            let before = cv.contentOffset.y
+            cv.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
+            AppLogger(category: "BottomGapDiag").info(
+                "[BottomGapDiag][anchor-restore] item=\(String(describing: anchor.item).prefix(40)) "
+                + "offset \(String(format: "%.1f", before))→\(String(format: "%.1f", clamped)) "
+                + "target=\(String(format: "%.1f", target)) screenY=\(String(format: "%.1f", anchor.screenY))")
         }
 }
