@@ -1087,12 +1087,20 @@ final class MessageListLayout: UICollectionViewLayout {
     /// height with the width and font size it was measured at.
     private var learnedQuietFooterHeight: (height: CGFloat, width: CGFloat, font: CGFloat)?
 
-    /// The quiet footer's real height at this width and font size, or nil when
-    /// none has been measured yet (the caller then keeps the 4pt seed).
-    func quietFooterEstimate(width: CGFloat) -> CGFloat? {
+    /// The quiet footer's real height at this width and font size when it was
+    /// measured in this chat, or nil.
+    func learnedQuietFooterEstimate(width: CGFloat) -> CGFloat? {
         guard let learned = learnedQuietFooterHeight, abs(learned.width - width) < 1,
               learned.font == AssistantHeaderMetrics.fontKey() else { return nil }
         return learned.height
+    }
+
+    /// Seed for a quiet footer the usage toggle inserts: the learned height, else
+    /// the layout formula (same shape as `headerEstimate`). Never 4pt: seeding
+    /// 4pt made the first insert after entering a chat lay the row out at 4pt,
+    /// then again at its real height, inside one apply.
+    func quietFooterEstimate(width: CGFloat) -> CGFloat {
+        learnedQuietFooterEstimate(width: width) ?? QuietFooterMetrics.formulaHeight()
     }
 
     /// Estimate for an assistant header row: the learned height when it was
@@ -1166,6 +1174,21 @@ enum AssistantHeaderMetrics {
     /// What a learned header height depends on besides width: the body size.
     static func fontKey() -> CGFloat {
         UIFont.preferredFont(forTextStyle: .body).pointSize
+    }
+}
+
+/// The quiet footer (usage capsule + completion stamp row), from the view
+/// BridgedAssistantFooterV3 / UsageStampRow builds. Every size in it is fixed
+/// (`.system(size: 10)` monospaced, not Dynamic Type), so the height is a pure
+/// function of that font's line height:
+///   text line + capsule padding (3+3) + footer padding (2+2).
+enum QuietFooterMetrics {
+    static let capsuleVerticalPadding: CGFloat = 3 * 2
+    static let footerVerticalPadding: CGFloat = 2 * 2
+
+    static func formulaHeight() -> CGFloat {
+        let font = UIFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        return ceil(font.lineHeight) + capsuleVerticalPadding + footerVerticalPadding
     }
 }
 

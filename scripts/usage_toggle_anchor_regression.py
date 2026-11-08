@@ -189,8 +189,9 @@ def source_checks(anchor_block):
          'the anchor never animates a SwiftUI property (that cannot move a UIScrollView)')
 
     # ── the asymmetry this fix compensates is still where it was ──
-    need('layout.setEstimatedHeight(footerProminent ? 48 : 4, at: i)' in snap,
-         'the quiet footer is still seeded at 4pt')
+    need('layout.setEstimatedHeight(footerProminent ? 48 : (quietSeed ?? 4), at: i)' in snap
+         and 'layout.quietFooterEstimate(width: cvWidth) : nil' in snap,
+         'the quiet footer is seeded with its learned height, else the layout formula (4pt only off the toggle path)')
     need('|| (cellBridges[message.id]?.showUsage == true)' in snap,
          'the footer is still omitted from the item list when showUsage is off')
 

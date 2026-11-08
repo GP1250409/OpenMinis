@@ -700,16 +700,19 @@ extension CollectionViewMessageListV3.Coordinator {
                         // row while the reader is mid-list. Seeding it at 4pt made
                         // the layout lay it out twice inside the apply (4pt, then
                         // its real height), the heaviest part of that apply
-                        // (~15ms against ~5ms for the delete). When the quiet
-                        // row's real height is already known, seed with it. Only
-                        // for the toggle: elsewhere a quiet footer that ends up
-                        // empty would show a phantom gap until measured.
-                        let quietSeed = (preserveVisibleAnchor && !footerProminent)
+                        // (~15ms against ~3ms once seeded right). Seed the quiet
+                        // row with its learned real height, else with the layout
+                        // formula, exactly like the assistant header. Only for the
+                        // toggle: elsewhere a quiet footer that ends up empty
+                        // would show a phantom gap until measured.
+                        let quietLearned = (preserveVisibleAnchor && !footerProminent)
+                            ? layout.learnedQuietFooterEstimate(width: cvWidth) : nil
+                        let quietSeed: CGFloat? = (preserveVisibleAnchor && !footerProminent)
                             ? layout.quietFooterEstimate(width: cvWidth) : nil
                         layout.setEstimatedHeight(footerProminent ? 48 : (quietSeed ?? 4), at: i)
                         if preserveVisibleAnchor {
                             CrashBreadcrumbs.record("usage.seed",
-                                                    detail: "idx=\(i) seed=\(Int(quietSeed ?? 4)) learned=\(quietSeed != nil ? 1 : 0)")
+                                                    detail: "idx=\(i) seed=\(Int(quietSeed ?? 4)) learned=\(quietLearned != nil ? Int(quietLearned!) : 0) formula=\(Int(QuietFooterMetrics.formulaHeight()))")
                         }
                         #if DEBUG
                         // [BottomGapDiag] The footer is the item DIRECTLY BELOW
