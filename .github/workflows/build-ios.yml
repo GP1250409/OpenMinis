@@ -20,11 +20,23 @@ jobs:
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
       - name: AOJIT images
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p deps/aot && cd deps/aot
-          B=https://github.com/GP1250409/OpenMinis/releases/download/aot-1f3bb5a0
+          # The unauthenticated /releases/download/ URL returned 503/504 for most of an
+          # afternoon (three failed runs); the authenticated asset API served all eight
+          # files at their exact sizes. Same assets, same tag; only the transport differs.
+          API=https://api.github.com/repos/GP1250409/OpenMinis
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            $API/releases/tags/aot-1f3bb5a0 -o rel.json
           for g in core core-cryptossl imaging node python ssh tools pcre2; do
-            curl -fsSL -o aot-$g.tar.xz $B/aot-$g.tar.xz && tar -xJf aot-$g.tar.xz && rm aot-$g.tar.xz
+            id=$(python3 -c "import json,sys;print([a['id'] for a in json.load(open('rel.json'))['assets'] if a['name']=='aot-$g.tar.xz'][0])")
+            curl -fsSL --retry 6 --retry-delay 8 --retry-all-errors \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+              -o aot-$g.tar.xz $API/releases/assets/$id
+            tar -xJf aot-$g.tar.xz && rm aot-$g.tar.xz
           done
           # file names the app catalog expects (AOJITImage.catalog); symbols inside need no change
           mv_() { src=$(ls */aot_$1.S | head -1); cp "$src" "aot_$2.S"; }
