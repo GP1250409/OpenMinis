@@ -246,7 +246,7 @@ def main():
 
     gate = [anchor_src, cell_src, item_src, tests / 'UsageToggleStubs.swift',
             tests / 'UsageToggleHarness.swift', tests / 'UsageToggleAnchorUITests.swift',
-            tests / 'main.swift', snapshot_path, bindings_path, storage_path, infra_path,
+            tests / 'AppMain.swift', snapshot_path, bindings_path, storage_path, infra_path,
             layout_path, block_path]
     if syntax_gate(gate):
         raise SystemExit('swiftc -frontend -parse failed')
@@ -287,7 +287,7 @@ def main():
 
     sources = [layout_path, item_src, cell_src, anchor_src, spacing_path,
                tests / 'UsageToggleStubs.swift', tests / 'UsageToggleHarness.swift',
-               tests / 'UsageToggleAnchorUITests.swift', tests / 'main.swift']
+               tests / 'UsageToggleAnchorUITests.swift', tests / 'AppMain.swift']
     cmd = ['xcrun', '--sdk', 'iphonesimulator', 'swiftc', '-swift-version', '5', '-sdk', sdk,
            '-target', f'{arch}-apple-ios16.0-simulator', '-import-objc-header', str(bridge_header),
            '-o', str(app / 'UsageToggleAnchor')]
