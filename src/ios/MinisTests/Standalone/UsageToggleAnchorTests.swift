@@ -95,8 +95,10 @@ check("a row clipped by the viewport top is still a fallback anchor",
       snapshot.contains("if fallback == nil { fallback = anchor(item, attrs) }"))
 
 print("▶️  the asymmetry the fix has to survive is still where it was")
-check("a quiet footer is still seeded at 4pt (the insert side pays only this)",
-      snapshot.contains("layout.setEstimatedHeight(footerProminent ? 48 : 4, at: i)"))
+check("a quiet footer is seeded with its learned real height on the usage toggle, else 4pt",
+      snapshot.contains("let quietSeed = (preserveVisibleAnchor && !footerProminent)")
+      && snapshot.contains("layout.quietFooterEstimate(width: cvWidth) : nil")
+      && snapshot.contains("layout.setEstimatedHeight(footerProminent ? 48 : (quietSeed ?? 4), at: i)"))
 check("the footer is still omitted from the snapshot when showUsage is off (the structural trigger survives)",
       snapshot.contains("|| (cellBridges[message.id]?.showUsage == true)") && snapshot.contains("if needsFooter {"))
 

@@ -696,7 +696,21 @@ extension CollectionViewMessageListV3.Coordinator {
                         // closer to the real height keeps the first-display
                         // correction (and its scroll shift) small.
                         // (footerProminent computed above, pre-guard.)
-                        layout.setEstimatedHeight(footerProminent ? 48 : 4, at: i)
+                        // [T-usage-footer-seed] The usage toggle INSERTS this
+                        // row while the reader is mid-list. Seeding it at 4pt made
+                        // the layout lay it out twice inside the apply (4pt, then
+                        // its real height), the heaviest part of that apply
+                        // (~15ms against ~5ms for the delete). When the quiet
+                        // row's real height is already known, seed with it. Only
+                        // for the toggle: elsewhere a quiet footer that ends up
+                        // empty would show a phantom gap until measured.
+                        let quietSeed = (preserveVisibleAnchor && !footerProminent)
+                            ? layout.quietFooterEstimate(width: cvWidth) : nil
+                        layout.setEstimatedHeight(footerProminent ? 48 : (quietSeed ?? 4), at: i)
+                        if preserveVisibleAnchor {
+                            CrashBreadcrumbs.record("usage.seed",
+                                                    detail: "idx=\(i) seed=\(Int(quietSeed ?? 4)) learned=\(quietSeed != nil ? 1 : 0)")
+                        }
                         #if DEBUG
                         // [BottomGapDiag] The footer is the item DIRECTLY BELOW
                         // the last block of the live assistant turn — i.e.
