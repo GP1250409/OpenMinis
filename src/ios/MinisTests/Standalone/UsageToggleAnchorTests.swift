@@ -66,11 +66,19 @@ if let capture = index(of: "let anchorBefore = (preserveVisibleAnchor", in: snap
 }
 
 print("▶️  the toggle is the only caller and it names its path")
+// [T-usage-toggle-anchor] The sink does NOT hard-code the opt-in: it passes a
+// flag derived from the notification's sender marker, because
+// `.messageListNeedsResnapshot` has three senders and only the toggle is a pure
+// row insert/delete. A literal `true` at the call site would anchor font /
+// appearance applies too.
 let callers = snapshot.components(separatedBy: "preserveVisibleAnchor: true").count - 1
-let inBindings = bindings.components(separatedBy: "preserveVisibleAnchor: true").count - 1
-check("exactly one call site passes preserveVisibleAnchor: true", callers == 0 && inBindings == 1)
+let inBindings = bindings.components(separatedBy: "preserveVisibleAnchor:").count - 1
+check("no call site hard-codes preserveVisibleAnchor: true", callers == 0)
+check("exactly one call site passes preserveVisibleAnchor", inBindings == 1)
+check("only the marked usage-toggle sender opts in",
+      bindings.contains("preserveVisibleAnchor: fromUsageToggle)"))
 check("the sink labels the apply caller=usageToggle",
-      bindings.contains("applySnapshot(messages: vm.messages, caller: \"usageToggle\","))
+      bindings.contains("caller: fromUsageToggle ? \"usageToggle\" : \"resnapshot\","))
 
 print("▶️  the restore is a plain UIKit offset write, clamped")
 check("no SwiftUI withAnimation in the anchor code",
@@ -82,7 +90,9 @@ check("the target is clamped into the legal range",
 check("a sub-pixel no-op stays a no-op",
       snapshot.contains("guard abs(clamped - cv.contentOffset.y) > 0.5 else { return }"))
 check("the anchor is the FIRST visible row that still has its top on screen",
-      snapshot.contains("if screenY >= -0.5 { return VisibleAnchor(item: items[ip.item], screenY: screenY) }"))
+      snapshot.contains("if attrs.frame.minY - cv.contentOffset.y >= -0.5 { return anchor(item, attrs) }"))
+check("a row clipped by the viewport top is still a fallback anchor",
+      snapshot.contains("if fallback == nil { fallback = anchor(item, attrs) }"))
 
 print("▶️  the asymmetry the fix has to survive is still where it was")
 check("a quiet footer is still seeded at 4pt (the insert side pays only this)",
