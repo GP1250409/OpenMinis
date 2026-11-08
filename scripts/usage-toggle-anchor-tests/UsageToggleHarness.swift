@@ -163,7 +163,10 @@ final class UsageHarness {
     /// footer's `f:` key also withholds the 8pt hug gap, which is a symmetric
     /// effect (report §2) and would only blur the row-height measurement.
     private func configure(_ cell: SelfSizingCell, item: MessageListItem, index: Int) {
-        let row = rows[index]
+        // Resolve the row by IDENTITY. While the footer is hidden every later
+        // item sits one index lower than its slot in `rows`, so `rows[index]`
+        // rendered the wrong content (the row after the footer became a footer).
+        guard let row = rows.first(where: { $0.item == item }) else { return }
         cell.rendersNonEmptyText = true
         cell.contentKey = "t:\(row.id.uuidString)"
         layout.setContentKey(cell.contentKey!, at: index)
@@ -227,6 +230,17 @@ final class UsageHarness {
         collection.setContentOffset(CGPoint(x: 0, y: min(y, maxOffset)), animated: false)
         collection.layoutIfNeeded()
     }
+
+    /// Put the footer INSIDE the viewport (it is realised, so it self-sizes to
+    /// its real height), `topInset` points below the viewport top. This is
+    /// where the recording's double-tap happens: the footer is on screen.
+    func scrollFooterIntoViewport(topInset: CGFloat = 300) {
+        guard let a = attrs(footerIndex) else { return }
+        let y = a.frame.minY - topInset
+        collection.setContentOffset(CGPoint(x: 0, y: max(0, min(y, maxOffset))), animated: false)
+        collection.layoutIfNeeded()
+    }
+    var aboveItem: MessageListItem { rows[footerIndex - 1].item }
 
     func scrollFooterBelowViewport() {
         guard let a = attrs(footerIndex) else { return }
@@ -297,7 +311,23 @@ final class UsageHarness {
               + " off=\(f(collection.contentOffset.y)) cs=\(f(collection.contentSize.height))"
               + " refIdx=\(ri) refY=\(attrs.map { f($0.frame.minY) } ?? "nil")"
               + " refTop=\(attrs.map { f($0.frame.minY - collection.contentOffset.y) } ?? "nil")"
+              + " aboveTop=\(f(screenTop(of: aboveItem)))"
               + " deferred=\(layout.deferredHeightCount)")
+    }
+
+    /// Like `cycle`, but reports BOTH neighbours of the footer: the row above
+    /// it (never displaced by the footer's own height) and the row below it.
+    func cycleBoth(anchored: Bool) -> (above: CGFloat, below: CGFloat) {
+        let a0 = screenTop(of: aboveItem), b0 = screenTop(of: referenceItem)
+        apply(showFooter: false, anchored: anchored)
+        if traceCycles { trace("hide") }
+        settle()
+        if traceCycles { trace("hide.settled") }
+        apply(showFooter: true, anchored: anchored)
+        if traceCycles { trace("show") }
+        settle()
+        if traceCycles { trace("show.settled") }
+        return (screenTop(of: aboveItem) - a0, screenTop(of: referenceItem) - b0)
     }
 
     func pump(_ seconds: Double) {

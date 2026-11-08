@@ -43,6 +43,8 @@ final class UsageToggleAnchorTests {
         caseFooterBelowViewport()
         caseTopClippedOversizedRow()
         caseFooterIsNeverTheAnchor()
+        caseVisibleFooterNegativeControl()
+        caseVisibleFooterAnchored()
     }
 
     // MARK: 1. the asymmetry the fix exists for
@@ -293,5 +295,56 @@ final class UsageToggleAnchorTests {
         print("REPORT_FOOTERTOP_CYCLE \(f(delta))")
         check("a cycle that starts on the footer row still holds position",
               abs(total) <= 1.5, "total=\(f(total))")
+    }
+
+    // MARK: 11. the recording's situation: the footer is ON SCREEN
+
+    func caseVisibleFooterNegativeControl() {
+        print("[11] footer inside the viewport, NO anchor (negative control)")
+        let h = UsageHarness(rowCount: 14, footerIndex: 5, textHeight: 120)
+        h.scrollFooterIntoViewport()
+        h.settle()
+        h.trace("vis.start")
+        let cached = h.layout.cachedHeight(at: h.footerIndex)
+        print("REPORT_VIS_FOOTER_CACHE \(cached.map(f) ?? "nil")")
+        check("the on-screen footer was realised and measured (fixture validity)",
+              (cached ?? 0) >= UsageHarness.quietFooterSeed + 8, "cache=\(cached.map(f) ?? "nil")")
+        let a0 = h.screenTop(of: h.aboveItem), b0 = h.screenTop(of: h.referenceItem)
+        var above: [CGFloat] = [], below: [CGFloat] = []
+        for i in 0..<4 {
+            h.traceCycles = (i == 0)
+            let r = h.cycleBoth(anchored: false)
+            above.append(r.above); below.append(r.below)
+        }
+        h.traceCycles = false
+        let aTot = h.screenTop(of: h.aboveItem) - a0, bTot = h.screenTop(of: h.referenceItem) - b0
+        print("REPORT_VIS_NOANCHOR_ABOVE " + above.map(f).joined(separator: ",") + " total=\(f(aTot))")
+        print("REPORT_VIS_NOANCHOR_BELOW " + below.map(f).joined(separator: ",") + " total=\(f(bTot))")
+        check("without the anchor the row above the footer is dragged upward over four cycles",
+              aTot <= -8, "above total=\(f(aTot)) below total=\(f(bTot))")
+    }
+
+    func caseVisibleFooterAnchored() {
+        print("[12] footer inside the viewport, WITH the production anchor")
+        AnchorTrace.reset()
+        let h = UsageHarness(rowCount: 14, footerIndex: 5, textHeight: 120)
+        h.scrollFooterIntoViewport()
+        h.settle()
+        let a0 = h.screenTop(of: h.aboveItem), b0 = h.screenTop(of: h.referenceItem)
+        var above: [CGFloat] = [], below: [CGFloat] = []
+        for i in 0..<4 {
+            h.traceCycles = (i == 0)
+            let r = h.cycleBoth(anchored: true)
+            above.append(r.above); below.append(r.below)
+        }
+        h.traceCycles = false
+        let aTot = h.screenTop(of: h.aboveItem) - a0, bTot = h.screenTop(of: h.referenceItem) - b0
+        print("REPORT_VIS_ANCHORED_ABOVE " + above.map(f).joined(separator: ",") + " total=\(f(aTot))")
+        print("REPORT_VIS_ANCHORED_BELOW " + below.map(f).joined(separator: ",") + " total=\(f(bTot))")
+        print("REPORT_VIS_ANCHOR_RESTORES \(AnchorTrace.count)")
+        check("with the anchor the row above the footer holds position (|total| <= 1.5pt)",
+              abs(aTot) <= 1.5, "above total=\(f(aTot))")
+        check("with the anchor the row below the footer does not ratchet (|total| <= 1.5pt)",
+              abs(bTot) <= 1.5, "below total=\(f(bTot))")
     }
 }
