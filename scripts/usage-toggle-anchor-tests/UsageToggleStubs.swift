@@ -17,6 +17,32 @@ import SwiftUI
 // `MessageListLayout`, so the 4pt-estimate vs real-height asymmetry that the
 // recording shows is produced by UIKit itself — not by a constant in the test.
 
+/// Fixed default message scale, used only to qualify the layout's cross-session
+/// height-memo key (`MessageListLayout.key(_:width:)`). The row and text
+/// measurement still use SwiftUI's real font metrics. Same stub as
+/// `scripts/thinking-transaction-tests/ProductionStubs.swift`.
+final class FontSettings {
+    static let shared = FontSettings()
+    func scaledMessage(_ reference: CGFloat) -> CGFloat { reference }
+}
+
+/// App-side markdown table column planner called by `MessageListLayout`'s height
+/// estimate. No table is rendered in this fixture; only the `Plan.widths` shape
+/// has to exist to compile.
+enum TableColumnPlanner {
+    struct Column {
+        var natural: CGFloat
+        var minUnbreakable: CGFloat
+    }
+    struct Plan { var widths: [CGFloat]; var isWide: [Bool] }
+    static func plan(columns: [Column], availableWidth: CGFloat) -> Plan {
+        let total = max(columns.reduce(0) { $0 + $1.natural }, 1)
+        let scale = min(1, max(0, availableWidth) / total)
+        return Plan(widths: columns.map { max($0.minUnbreakable, $0.natural * scale) },
+                    isWide: columns.map { _ in false })
+    }
+}
+
 /// Diagnostics-only timestamp read by the verbatim `SelfSizingCell` logger
 /// (`sinceAppear` in the `[ScrollStall]` line). Nothing under test reads it, so
 /// the value only has to exist; same stub shape as
