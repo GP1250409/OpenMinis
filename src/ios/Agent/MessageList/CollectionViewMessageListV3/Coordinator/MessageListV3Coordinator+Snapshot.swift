@@ -1136,6 +1136,15 @@ extension CollectionViewMessageListV3.Coordinator {
             // back, so the reader's position survives both directions.
             snapshotApplyGeneration &+= 1
             let anchorBefore = (preserveVisibleAnchor && !clampAfterSessionLoad) ? captureVisibleAnchor() : nil
+            // [MOD usage-ghost-diag] Numbers only, usage-toggle applies only:
+            // contentOffset / contentSize and how many cell VIEWS UIKit holds
+            // against how many it reports visible, before the apply, right after
+            // the layout pass, after the anchor restore and one runloop later.
+            // A row drawn twice in one frame would show as extra cell views.
+            if preserveVisibleAnchor, let dcv = viewController?.collectionView {
+                CrashBreadcrumbs.record("usage.cap",
+                                        detail: "off=\(Int(dcv.contentOffset.y)) cs=\(Int(dcv.contentSize.height)) views=\(dcv.subviews.filter { $0 is UICollectionViewCell }.count) vis=\(dcv.visibleCells.count) anchorY=\(anchorBefore.map { String(Int($0.screenY)) } ?? "nil")")
+            }
             snapshotLayout?.suppressContentOffsetAdjustment = true
             isFlushing = true
             cellConfigCount = 0
@@ -1270,7 +1279,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 // was reading. Runs before the shrink clamp / auto pin below,
                 // so those still own the offset when they apply.
                 if let anchorBefore {
+                    CrashBreadcrumbs.record("usage.post",
+                                            detail: "off=\(Int(cv.contentOffset.y)) cs=\(Int(cv.contentSize.height)) views=\(cv.subviews.filter { $0 is UICollectionViewCell }.count) vis=\(cv.visibleCells.count)")
                     restoreVisibleAnchor(anchorBefore)
+                    CrashBreadcrumbs.record("usage.rest",
+                                            detail: "off=\(Int(cv.contentOffset.y)) cs=\(Int(cv.contentSize.height))")
                     // The inserted row's REAL height arrives with the hosting
                     // graph's self-sizing a runloop later. When that correction
                     // is compensated (the usual case, the footer cell is in or
@@ -1282,6 +1295,8 @@ extension CollectionViewMessageListV3.Coordinator {
                               self.scrollMode != .autoScrolling,
                               !cv.isTracking, !cv.isDecelerating else { return }
                         self.restoreVisibleAnchor(anchorBefore)
+                        CrashBreadcrumbs.record("usage.async",
+                                                detail: "off=\(Int(cv.contentOffset.y)) cs=\(Int(cv.contentSize.height)) views=\(cv.subviews.filter { $0 is UICollectionViewCell }.count) vis=\(cv.visibleCells.count)")
                     }
                 }
                 // [T-send-composer-shrink-absorb] The sent bubble and the
