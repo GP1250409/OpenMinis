@@ -13,17 +13,41 @@ import SwiftUI
 
 /// The quiet footer's content: one 12pt line + the production footer's 2pt
 /// vertical padding. Real SwiftUI layout, so its height is measured, not fixed.
+/// Drives the footer's hosted content through the two phases production
+/// documents for a freshly inserted row: the FIRST layout pass sees only the
+/// seed (`ready == false`, a 4pt strip), and the real hosted height arrives
+/// with the hosting graph one run-loop later (`ready == true`). The cell
+/// therefore self-sizes twice — exactly the estimate→measured correction the
+/// 2026-11-08 recording shows on the insert side. Without this, a trivial
+/// SwiftUI body resolves inside the very layout pass that runs with
+/// `suppressContentOffsetAdjustment == true`, and the correction is silently
+/// unpaid, which makes the insert and delete sides symmetric (0pt/cycle) and
+/// hides the shipped bug instead of reproducing it.
+final class FooterPhase: ObservableObject {
+    @Published var ready = true
+}
+
+let quietFooterSeedHeight: CGFloat = 4
+
 struct UsageStampFixture: View {
+    @ObservedObject var phase: FooterPhase
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "chart.bar.doc.horizontal").font(.system(size: 10))
-            Text("ctx:14k in:14k out:398 · 10/27 Tue 20:00")
-                .font(.system(size: 12))
-                .lineLimit(1)
-            Spacer(minLength: 0)
+        Group {
+            if phase.ready {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.bar.doc.horizontal").font(.system(size: 10))
+                    Text("ctx:14k in:14k out:398 · 10/27 Tue 20:00")
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 2)
+            } else {
+                // The seed itself: what `setEstimatedHeight(4)` reserves.
+                Color.clear.frame(height: quietFooterSeedHeight)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -120,12 +144,14 @@ final class UsageHarness {
         collection.frame = CGRect(origin: .zero, size: viewport)
         window.layoutIfNeeded()
 
-        var snap = NSDiffableDataSourceSnapshot<CollectionViewMessageListV3.Section, MessageListItem>()
-        snap.appendSections([.main])
-        snap.appendItems(rows.map { $0.item }, toSection: .main)
-        ds.apply(snap, animatingDifferences: false)
-        footerPresent = true
-        collection.layoutIfNeeded()
+        // Production never hands the collection view a snapshot without first
+        // seeding the layout: `applySnapshot`'s seeding loop runs before every
+        // apply, the first one included. Going straight through `ds.apply`
+        // here left every off-screen row on `estimatedItemHeight` (200pt)
+        // until the first toggle re-seeded it at 120pt, and that collapse —
+        // not the footer — is what produced the 6740→4460 contentSize drop and
+        // the −710pt first cycle.
+        apply(showFooter: true, anchored: false)
         settle()
     }
 
@@ -139,8 +165,17 @@ final class UsageHarness {
         cell.rendersNonEmptyText = true
         cell.contentKey = "t:\(row.id.uuidString)"
         layout.setContentKey(cell.contentKey!, at: index)
+        // Production's `configureCell` seeds the estimate at dequeue time
+        // (`MessageListV3Coordinator+CellConfiguration.swift`), before the cell
+        // can self-size. Mirroring it keeps the 4pt footer seed in place for a
+        // cell UIKit realises outside the apply's seeding loop.
+        let estimate = row.isFooter ? quietFooterSeedHeight : row.height
+        if layout.cachedHeight(at: index) == nil { layout.setEstimatedHeight(estimate, at: index) }
         if row.isFooter {
-            cell.applyContentConfiguration(UIHostingConfiguration { UsageStampFixture() })
+            // Zero hosting margins so the row's height is the footer content
+            // itself (seed strip = exactly 4pt) and not SwiftUI's default 8+8.
+            cell.applyContentConfiguration(
+                UIHostingConfiguration { UsageStampFixture(phase: phase) }.margins(.all, 0))
         } else {
             let h = row.height, label = row.label
             cell.applyContentConfiguration(UIHostingConfiguration { TextRowFixture(height: h, label: label) })
@@ -218,22 +253,49 @@ final class UsageHarness {
         for row in rows {
             estimates[row.item] = row.isFooter ? UsageHarness.quietFooterSeed : row.height
         }
+        // Insert side, production timing: the row lays out at the 4pt seed in
+        // the apply's own layout pass (`suppressContentOffsetAdjustment` is on
+        // for it), and the real hosted height lands one run-loop later.
+        if showFooter { phase.ready = false }
         coordinator.onFirstLayout = onFirstLayout
         coordinator.applyStructural(items: items, estimates: estimates, preserveVisibleAnchor: anchored)
         coordinator.onFirstLayout = nil
         footerPresent = showFooter
+        if showFooter {
+            DispatchQueue.main.async { [weak self] in self?.phase.ready = true }
+        }
         return true
     }
 
     /// Let the hosting graph deliver the real heights and let the deferred
     /// restore (DispatchQueue.main.async) run, exactly as a frame boundary does
-    /// in the app.
+    /// in the app. Three layout passes with run-loop turns between them: the
+    /// phase flip is a main-queue hop, the SwiftUI size change is a second
+    /// transaction, and the cell's self-size correction is a third layout.
     func settle(_ seconds: Double = 0.10) {
+        collection.layoutIfNeeded()
+        pump(min(0.06, seconds))
         collection.layoutIfNeeded()
         pump(seconds)
         collection.layoutIfNeeded()
         pump(0.03)
         collection.layoutIfNeeded()
+    }
+
+    /// One compact geometry line, so a failing run says WHY it failed.
+    func trace(_ label: String) {
+        let items = collection.numberOfItems(inSection: 0)
+        let foot = footerPresent ? rowHeight(footerIndex) : -1
+        let ri = index(of: referenceItem) ?? -1
+        let attrs = ri >= 0
+            ? layout.layoutAttributesForItem(at: IndexPath(item: ri, section: 0)) : nil
+        let cached = layout.cachedHeight(at: footerIndex).map { String(format: "%.2f", $0) } ?? "nil"
+        print("TRACE \(label) items=\(items) present=\(footerPresent ? 1 : 0)"
+              + " foot=\(f(foot)) cache=\(cached)"
+              + " off=\(f(collection.contentOffset.y)) cs=\(f(collection.contentSize.height))"
+              + " refIdx=\(ri) refY=\(attrs.map { f($0.frame.minY) } ?? "nil")"
+              + " refTop=\(attrs.map { f($0.frame.minY - collection.contentOffset.y) } ?? "nil")"
+              + " deferred=\(layout.deferredHeightCount)")
     }
 
     func pump(_ seconds: Double) {
@@ -248,12 +310,17 @@ final class UsageHarness {
 
     /// One show/hide cycle as the user performs it: hide, let it settle, show,
     /// let it settle. Returns the net movement of the row the reader watches.
+    var traceCycles = false
     func cycle(anchored: Bool) -> CGFloat {
         let before = screenTop(of: referenceItem)
         apply(showFooter: false, anchored: anchored)
+        if traceCycles { trace("hide") }
         settle()
+        if traceCycles { trace("hide.settled") }
         apply(showFooter: true, anchored: anchored)
+        if traceCycles { trace("show") }
         settle()
+        if traceCycles { trace("show.settled") }
         return screenTop(of: referenceItem) - before
     }
 }

@@ -76,9 +76,15 @@ final class UsageToggleAnchorTests {
         let h = UsageHarness(rowCount: 14, footerIndex: 5, textHeight: 120)
         h.scrollFooterAboveViewport()
         h.settle()
+        h.trace("case2.start")
         let start = h.screenTop(of: h.referenceItem)
         var perCycle: [CGFloat] = []
-        for _ in 0..<4 { perCycle.append(h.cycle(anchored: false)) }
+        for i in 0..<4 {
+            h.traceCycles = (i == 0)
+            perCycle.append(h.cycle(anchored: false))
+            if i == 0 { h.trace("case2.after-cycle-1") }
+        }
+        h.traceCycles = false
         let total = h.screenTop(of: h.referenceItem) - start
         print("REPORT_NOANCHOR_PER_CYCLE " + perCycle.map(f).joined(separator: ","))
         print("REPORT_NOANCHOR_TOTAL \(f(total))")
