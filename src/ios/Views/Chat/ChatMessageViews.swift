@@ -303,6 +303,10 @@ struct ChatMessageRow: View {
                 parts.append("Memory: \(action)\n\(block.content)")
             case .delegateTool(let title):
                 parts.append("Agent: \(title)\n\(block.content)")
+            case .genuiTool:
+                // [MOD genui] The card as text, with the values now shown.
+                let text = MinisUITool.fallbackText(block)
+                if !text.isEmpty { parts.append(text) }
             case .userAskTool:
                 // [T-user-ask] Copy the questions and the result, not the UI.
                 parts.append("Asked: \(UserAskCardModel.questionsSummary(block))\n\(block.content)")

@@ -72,6 +72,17 @@ struct AssistantBlockView: View {
         case .userAskTool:
             // [T-user-ask] The interactive question card.
             UserAskCardView(block: block)
+        case .genuiTool:
+            // [MOD genui] The interactive card once the program validated;
+            // while it streams, or when it failed, the ordinary capsule
+            // (its detail sheet shows the program and the errors).
+            if MinisUITool.renders(block) {
+                MinisUICardView(block: block)
+            } else {
+                ToolCapsuleView(block: block, icon: "rectangle.3.group", accentColor: .indigo,
+                                commandStartTime: commandStartTime, onStop: onStop,
+                                toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
+            }
         case .delegateTool:
             if HelperBlockInfo.controlSummary(block) != nil {
                 // [T-subagent-control-capsule] A status / steer / cancel /
@@ -311,6 +322,7 @@ struct ToolCapsuleView: View {
         case .memoryTool:    toolName = "memory"
         case .delegateTool:  toolName = SubAgentDefinition.toolName
         case .userAskTool:   toolName = UserAskTool.name
+        case .genuiTool:     toolName = MinisUITool.name
         case .text, .thinking, .info: toolName = "unknown"
         }
 

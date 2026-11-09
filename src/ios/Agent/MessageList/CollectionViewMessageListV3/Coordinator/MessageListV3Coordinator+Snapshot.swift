@@ -861,7 +861,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         case .info:
                             let infoLines = max(1, block.content.components(separatedBy: "\n").count)
                             layout.setEstimatedHeight(CGFloat(20 + infoLines * 16), at: i)
-                        case .userAskTool, .delegateTool:
+                        case .userAskTool, .delegateTool, .genuiTool:
                             // [T-user-ask-estimate] Cards, not 36pt capsules: the
                             // estimator knows their real shapes (answered user_ask
                             // 64, pending ~260, sub agent card 58). Falling to the
@@ -1225,6 +1225,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         case .memoryTool: "memory"
                         case .delegateTool: SubAgentDefinition.toolName
                         case .userAskTool: UserAskTool.name
+                        case .genuiTool: MinisUITool.name
                         default: "unknown"
                         }
                         AppLogger(category: "ToolLC").verbose("[ToolLifecycle] RENDERED_CHATUI toolId=\(block.toolUseId?.prefix(20) ?? "nil") tool=\(toolName) sid=\(sid) appState=\(appState) suspended=\(suspended) isProcessing=\(processing) caller=\(caller)")

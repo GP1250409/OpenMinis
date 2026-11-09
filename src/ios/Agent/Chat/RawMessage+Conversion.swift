@@ -276,6 +276,11 @@ extension RawMessage {
                     // and, once paired, the result JSON in `content`.
                     kind = .userAskTool
                     content = ""
+                case MinisUITool.name:
+                    // [MOD genui] The card renders from the input (program);
+                    // its saved values load when the card first appears.
+                    kind = .genuiTool
+                    content = ""
                 default:
                     kind = .shellTool(command: tu.name)
                     content = tu.name

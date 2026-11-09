@@ -253,6 +253,11 @@ extension AIChatViewModel {
             tools.append(Self.userAskToolDefinition)
         }
 
+        // [MOD genui] Interactive cards: main conversation only.
+        if genuiExposed {
+            tools.append(Self.genuiToolDefinition)
+        }
+
         return tools
     }
 

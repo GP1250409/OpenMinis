@@ -530,6 +530,7 @@ extension AIChatViewModel {
         case .memoryTool: toolName = "memory"
         case .delegateTool: toolName = SubAgentDefinition.toolName
         case .userAskTool: toolName = UserAskTool.name
+        case .genuiTool: toolName = MinisUITool.name
         case .info: toolName = "info"
         }
 

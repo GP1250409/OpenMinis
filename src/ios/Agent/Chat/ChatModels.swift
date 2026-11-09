@@ -641,6 +641,10 @@ final class AssistantBlock: Identifiable, ObservableObject {
     var pendingManualThinkingState: Bool?
     var pendingManualThinkingToken: UUID?
 
+    /// [MOD genui] The `show_ui` card's current values (JSON object keyed by
+    /// `$state` name). Published: a change redraws the card.
+    @Published var genuiStateJSON: String?
+
     init(kind: AssistantBlockKind, content: String, toolStatus: ToolBlockStatus? = nil, toolUseId: String? = nil) {
         self.kind = kind
         self.content = content
@@ -678,6 +682,8 @@ final class AssistantBlock: Identifiable, ObservableObject {
             return title.isEmpty ? (ToolDisplayTitle.fixed(forToolName: SubAgentDefinition.toolName) ?? "") : title
         case .userAskTool:
             return ToolDisplayTitle.fixed(forToolName: UserAskTool.name) ?? ""
+        case .genuiTool:
+            return "Interactive card"
         case .fileEditTool(let path):
             let name = (path as NSString).lastPathComponent
             return (!path.isEmpty && name != "/" && name.contains(".")) ? name : "Edit file"
@@ -710,6 +716,9 @@ enum AssistantBlockKind: Equatable {
     /// questions come from `toolInputArgs`; `content` holds the result JSON
     /// once answered; live state is in UserAskCenter (keyed by toolUseId).
     case userAskTool
+    /// [MOD genui] A `show_ui` call: a native interactive card drawn from
+    /// the program in `toolInputArgs`; its values are in `genuiStateJSON`.
+    case genuiTool
     case info
 }
 

@@ -1001,6 +1001,21 @@ extension AIChatViewModel {
             toolOutput = askResult.output
             toolSuccess = askResult.success
 
+        case MinisUITool.name:
+            // [MOD genui] Validate and show the card; errors go back to the
+            // model, which fixes them and calls again.
+            guard genuiExposed else {
+                toolOutput = "Error: show_ui is not available in this run."
+                toolSuccess = false
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].content = toolOutput
+                }
+                break
+            }
+            let uiResult = executeShowUI(args: toolArgs, msgIdx: msgIdx, blockIdx: blockIdx)
+            toolOutput = uiResult.output
+            toolSuccess = uiResult.success
+
         case SubAgentDefinition.toolName:
             // [T-agents-debug-only] A refusal in the sub-agent result dialect,
             // so HelperBlockInfo renders the block as "Rejected" (a plain
@@ -1173,6 +1188,12 @@ extension AIChatViewModel {
                let obj = AIChatViewModel.parseDelegateResult(toolOutput),
                (obj["status"] as? String) == "running" {
                 blk.toolStatus = .running
+            }
+            // [MOD genui] The block just turned from a 36pt capsule into the
+            // card (status .success is what `MinisUITool.renders` checks):
+            // drop its cached height and measure the card.
+            if tu.name == MinisUITool.name, toolSuccess {
+                NotificationCenter.default.post(name: .thinkingBlockToggled, object: blk.id)
             }
             ctLogger.info("[ToolLifecycle] COMPLETED toolId=\(tu.id.prefix(20)) tool=\(tu.name) sid=\(sessionId?.prefix(8) ?? "nil") appState=\(UIApplication.shared.applicationState == .active ? "fg" : "bg") suspended=\(streamingUIUpdatesSuspended) isProcessing=\(isProcessing) success=\(toolSuccess) duration=\(String(format: "%.1f", toolDuration ?? 0))s")
             scrollToBottomSignal.send()

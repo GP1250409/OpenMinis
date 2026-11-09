@@ -38,6 +38,7 @@ struct BridgedAssistantBlockV3: View {
         case .memoryTool: return "assistantMemoryBlock"
         case .delegateTool: return "assistantDelegateBlock"
         case .userAskTool: return "assistantUserAskBlock"
+        case .genuiTool: return "assistantGenUIBlock"
         case .info: return "assistantInfoBlock"
         }
     }

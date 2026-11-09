@@ -166,6 +166,16 @@ extension CollectionViewMessageListV3.Coordinator {
                 // collapsed blocks whose expanded heights were 158 / 195.
                 let isExpandable = block?.kind == .userAskTool || block?.kind == .thinking
                 let x = (isExpandable && block?.isThinkingExpanded == true) ? ":x" : ""
+                // [MOD genui] A card's height follows its values (a quiz verdict
+                // appears, a table grows) and whether it renders yet: neither
+                // may reuse a height measured for the other.
+                if block?.kind == .genuiTool, let block {
+                    let s = block.genuiStateJSON.map { String($0.hashValue, radix: 36) } ?? "-"
+                    // Status only (no parse): this runs per row per snapshot.
+                    let r: String
+                    if case .success = block.toolStatus { r = "c" } else { r = "p" }
+                    return "b:\(mid.uuidString):\(bid.uuidString):\(n):\(r):\(s)"
+                }
                 return "b:\(mid.uuidString):\(bid.uuidString):\(n)\(x)"
             case .toolGroup(let mid, let first):
                 // Identity only — the list uses `itemContentKey`, which adds
@@ -357,6 +367,10 @@ extension CollectionViewMessageListV3.Coordinator {
                     // collapsed (the expanded flag is not persisted), so the
                     // collapsed height is the one that matters here.
                     return block.content.isEmpty ? 260 : 64
+                case .genuiTool:
+                    // [MOD genui] The card from its program and values; a
+                    // capsule (36) while streaming or when it failed.
+                    return MinisUITool.renders(block) ? MinisUITool.estimatedHeight(block, width: width) : 36
                 case .info:
                     let lineCount = max(1, block.content.components(separatedBy: "\n").count)
                     return CGFloat(20 + lineCount * 16)

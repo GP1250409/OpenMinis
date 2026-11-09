@@ -566,6 +566,7 @@ extension AIChatViewModel {
                     case "memory_write", "memory_get": .memoryTool(action: name)
                     case SubAgentDefinition.toolName: .delegateTool(title: "")
                     case UserAskTool.name: .userAskTool  // [T-user-ask]
+                    case MinisUITool.name: .genuiTool  // [MOD genui]
                     default: .shellTool(command: name)
                     }
                     if name == "file_write" || name == "file_edit" {

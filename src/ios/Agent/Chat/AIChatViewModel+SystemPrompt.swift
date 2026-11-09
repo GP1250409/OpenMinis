@@ -100,6 +100,8 @@ extension AIChatViewModel {
             // system prompt, and only when the tool is in this run (switch on,
             // not a sub agent). Everything else travels with the tool itself.
             + UserAskPromptText.systemPromptText(exposed: userAskExposed)
+            // [MOD genui] The show_ui language, only when the tool is in the run.
+            + genuiSystemPromptText
             + "\n"
             + "Current time (approximate): \(approximateTimeString) (\(TimeZone.current.identifier)). "
             + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"

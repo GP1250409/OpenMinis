@@ -463,6 +463,10 @@ extension AIChatViewModel {
             UserAskNotSentGrouping.annotate(msg.blocks)
         }
 
+        // [MOD genui] Cards come back with the values the user last set, before
+        // the first layout pass (so the first measure is already the real one).
+        GenUIStatePersistence.restore(into: loadedUIMessages, sessionId: sessionId)
+
         // [BlocksLost] MERGE TRACE — log every text block of the last assistant
         // message so we can confirm whether the final 839-char (or whatever)
         // block actually made it through the merge.
@@ -1120,7 +1124,7 @@ extension AIChatViewModel {
 
             let isToolBlock: Bool
             switch block.kind {
-            case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool, .browserTool, .readImageTool, .memoryTool, .delegateTool, .userAskTool:
+            case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool, .browserTool, .readImageTool, .memoryTool, .delegateTool, .userAskTool, .genuiTool:
                 isToolBlock = true
             default:
                 isToolBlock = false

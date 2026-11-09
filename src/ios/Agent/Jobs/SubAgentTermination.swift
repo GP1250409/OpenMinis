@@ -288,6 +288,7 @@ extension AIChatViewModel {
         case .memoryTool(let a): a
         case .delegateTool: SubAgentDefinition.toolName
         case .userAskTool: UserAskTool.name
+        case .genuiTool: MinisUITool.name
         default: "other"
         }
     }

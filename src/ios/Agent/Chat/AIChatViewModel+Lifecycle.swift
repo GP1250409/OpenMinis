@@ -68,7 +68,7 @@ extension AIChatViewModel {
                 // delegate block for its sub agent (whose own tools are
                 // marked in that session).
                 switch block.kind {
-                case .userAskTool, .delegateTool: continue
+                case .userAskTool, .delegateTool, .genuiTool: continue
                 default: break
                 }
                 guard let toolStart = block.toolStartTime else { continue }
