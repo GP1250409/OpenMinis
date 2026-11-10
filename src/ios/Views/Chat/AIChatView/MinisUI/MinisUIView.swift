@@ -483,12 +483,41 @@ private struct MUSegmented: View {
     let comp: MUComp
     let ctx: MUContext
     var body: some View {
+        // [MOD genui] Drawn from plain SwiftUI buttons, not
+        // `Picker(.segmented)`: on 13P the UIKit segmented control inside the
+        // list's hosting cell never reported a new selection (saved value
+        // stayed at the default across three cards), while the card's
+        // Button-based inputs (Choice, Stepper, @Set buttons) all worked.
         let name = comp.str("value") ?? ""
-        Picker("", selection: Binding(get: { ctx.str(name) }, set: { ctx.set(name, .str($0)) })) {
-            ForEach(comp.strings("options"), id: \.self) { Text($0).tag($0) }
+        let selected = ctx.str(name)
+        HStack(spacing: 2) {
+            ForEach(Array(comp.strings("options").enumerated()), id: \.offset) { _, opt in
+                let on = opt == selected
+                Button {
+                    guard !on else { return }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    ctx.set(name, .str(opt))
+                } label: {
+                    Text(opt)
+                        .font(.system(size: 13, weight: on ? .semibold : .regular))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(on ? Color(uiColor: .systemBackground) : .clear)
+                                .shadow(color: .black.opacity(on ? 0.12 : 0), radius: 2, y: 1)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(Color.primary.opacity(0.07)))
     }
 }
 
