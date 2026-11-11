@@ -423,9 +423,9 @@ check("keys earlier builds stored for share options are purged when the preview 
 check("debug render accepts hideHeader", renderer.contains("options.hideHeader = params[\"hideHeader\"] as? Bool ?? false"))
 let plannerFile = source("Agent/MessageList/ToolFoldPlanner.swift")
 check("ONE fold rule: the chat list and the share export both use ToolFoldPlanner.foldedRuns",
-      list.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)))")
-      && renderer.contains("let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)))")
-      && plannerFile.contains("static func foldedRuns(in blocks: [AssistantBlock]) -> [FoldedRun] {\n        plan(inputs(for: blocks), enabled: true)"))
+      list.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
+      && renderer.contains("let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)),")
+      && plannerFile.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {\n        plan(inputs(for: blocks), enabled: true, ended: ended)"))
 check("…with the same fold horizon for a reply still being written",
       list.contains("ToolFoldPlanner.foldHorizon(for: message, runningMessageId: runningId,")
       && renderer.contains("ToolFoldPlanner.foldHorizon(for: m, runningMessageId: runningMessageId,")

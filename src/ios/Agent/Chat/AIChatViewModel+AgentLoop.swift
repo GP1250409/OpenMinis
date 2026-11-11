@@ -293,6 +293,10 @@ extension AIChatViewModel {
         defer {
             toolFoldRunningMessageId = nil
             toolFoldSeparators.removeAll()
+            // [T-fold-stopped-tools] The turn is over, however it ended: re-plan
+            // the message whole, so a run with no reply after it folds too. The
+            // list compares plans, so this costs nothing when nothing changed.
+            toolFoldTurnEndedSignal.send()
         }
         /// Track how many blocks were already committed to agentHistory
         /// so subsequent iterations only add new blocks.

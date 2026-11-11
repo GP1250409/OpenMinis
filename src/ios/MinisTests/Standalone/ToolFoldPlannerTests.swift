@@ -88,7 +88,17 @@ func parse(_ s: String) -> [ToolFoldPlanner.Input] {
 func show(_ s: String, enabled: Bool = true) -> String {
     let chars = Array(s)
     let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
-    let g = ToolFoldPlanner.plan(inputs, enabled: enabled)
+    let g = ToolFoldPlanner.plan(inputs, enabled: enabled, ended: true)
+    if g.isEmpty { return "none" }
+    return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.failedCount)/\($0.cancelledCount)" }
+        .joined(separator: ",")
+}
+// [T-fold-stopped-tools] The same message while its task still runs: the run
+// that ends it is the pause before the next calls, so it stays open.
+func live(_ s: String) -> String {
+    let chars = Array(s)
+    let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: false)
     if g.isEmpty { return "none" }
     return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.failedCount)/\($0.cancelledCount)" }
         .joined(separator: ",")
@@ -140,19 +150,41 @@ let cases: [(String, String)] = [
     ("leadThinkNote", "KoTTt"),
     ("leadThinkBarrier", "KBTTt"),
     ("leadThinkRunning", "KRTTt"),
+    // [T-fold-stopped-tools] The task is over and no reply follows the last
+    // call: a Stop, a failed turn or a reply-less end. `stoppedFiveThink` is
+    // the message the user's screenshot shows (5 calls, thinking before,
+    // between and after them).
+    ("stoppedTwo", "TT"),
+    ("stoppedFiveThink", "KTKTKTKTKTK"),
+    ("stoppedCancel", "KTKTC"),
+    ("stoppedFail", "TTF"),
+    ("stoppedFailCancel", "TTCTF"),
+    ("stoppedOne", "C"),
+    ("stoppedNoTools", "KK"),
+    ("stoppedRunning", "TTTR"),
+    ("stoppedBarrier", "TTB"),
+    ("stoppedTrailThink", "TKTK"),
+    ("stoppedAfterNote", "TToT"),
+    ("stoppedTwoRuns", "TTtKTTC"),
 ]
 print("single1=\(ToolFoldPlanner.isSingleLine("  Now checking the logs.  \n"))")
 print("single2=\(ToolFoldPlanner.isSingleLine("line one\nline two"))")
 print("single3=\(ToolFoldPlanner.isSingleLine("\n\nOne line after blank lines\n\n"))")
 print("single4=\(ToolFoldPlanner.isSingleLine(""))")
 for (name, input) in cases { print("\(name)=\(show(input))") }
+// [T-fold-stopped-tools] The same blocks, task still running vs ended.
+print("stStoppedLive=\(live("KTKTC"))|\(show("KTKTC"))")
+print("stStoppedPair=\(live("TT"))|\(show("TT"))")
+print("stStoppedTrail=\(live("TKTK"))|\(show("TKTK"))")
 // [T-fold-at-request-end] Timing. `running(s, h)` is what the list folds in a
 // message whose task is still running: only its first `h` blocks are planned
-// (notes marked within them), h = foldHorizon. `show(s)` is the task-end view.
+// (notes marked within them), h = foldHorizon, `ended: false`. `show(s)` is the
+// task-end view (`ended: true`), `live(s)` the same blocks with the task still
+// running.
 func running(_ s: String, _ horizon: Int) -> String {
     let chars = Array(s.prefix(horizon))
     let inputs = ToolFoldPlanner.markingNotes(parse(String(chars))) { chars[$0] == "o" }
-    let g = ToolFoldPlanner.plan(inputs, enabled: true)
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: false)
     if g.isEmpty { return "none" }
     return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.failedCount)/\($0.cancelledCount)" }
         .joined(separator: ",")
@@ -247,8 +279,7 @@ check("a stretch of thinking (and empty text) after the last tool folds whole (T
 check("lead AND trailing thinking fold: the whole execution is one row (K T K T K t)",
       has("trailingAll=0-4:2/0/0"))
 check("trailing thinking still needs the tool threshold (T K t)", has("trailingOneTool=none"))
-check("trailing thinking with no reply after it folds nothing (T T K — ends on tools, as before)",
-      has("trailingNoReply=none"))
+check("trailing thinking with no reply after it folds once the task has ended (T T K)", has("trailingNoReply=0-2:2/0/0"))
 check("thinking followed by another call was already inside the run (T T K T t)",
       has("trailingThenCall=0-3:3/0/0"))
 check("each run takes its own trailing thinking", has("trailingThinkingRun2=0-1:2/0/0,3-5:2/0/0"))
@@ -258,9 +289,28 @@ print("▶️  barriers")
 check("an info block breaks the run: the 2 before it have no reply, the 2 after it fold", has("infoMid=3-4:2/0/0"))
 check("a delegate block breaks the run; the run after it folds alone", has("delegateSplit=4-6:3/0/0"))
 
-print("▶️  needs a reply after it")
-check("tools at the end of the message do not fold", has("noReply=none"))
-check("an empty text after the tools is not a reply yet", has("noReplyEmpty=none"))
+print("▶️  what closes a run: the reply, or the end of the task [T-fold-stopped-tools]")
+check("a run the task ended on folds with no reply after it (t T T T T)", has("noReply=1-4:4/0/0"))
+check("an empty text is never a reply, but the task end still folds the run (T T T e)", has("noReplyEmpty=0-2:3/0/0"))
+check("while the task runs, a message that ends on its calls folds nothing — the next calls come (T T)",
+      has("stStoppedPair=none|0-1:2/0/0"))
+check("the user's screenshot shape: 5 calls, thinking before/between/after them, nothing after",
+      has("stoppedFiveThink=0-10:5/0/0"))
+check("a stopped run folds with its cancelled call counted (K T K T C)", has("stoppedCancel=0-4:3/0/1"))
+check("thinking left trailing the last call folds into the row too (T K T K)", has("stoppedTrailThink=0-3:2/0/0"))
+check("still one row, thinking at both ends (live: nothing, ended: one row)",
+      has("stStoppedTrail=none|0-3:2/0/0"))
+check("a failed call ends a stopped run the same way (T T F)", has("stoppedFail=0-2:3/1/0"))
+check("cancelled and failed calls are both counted, not split (T T C T F)", has("stoppedFailCancel=0-4:5/1/1"))
+check("after a remark, a stopped run folds whole (T T o T)", has("stoppedAfterNote=0-3:3/0/0"))
+check("two runs in a stopped message: both fold, the second one on the end of the task",
+      has("stoppedTwoRuns=0-1:2/0/0,3-6:3/0/1"))
+check("still needs the threshold at task end (one call, or no call at all)",
+      has("stoppedOne=none") && has("stoppedNoTools=none"))
+check("a call that never finished keeps its capsules visible even at task end (T T T R)",
+      has("stoppedRunning=none"))
+check("an info/delegate row or an unanswered card still breaks the run at task end (T T B)",
+      has("stoppedBarrier=none"))
 
 print("▶️  status")
 check("an unfinished tool before the reply keeps the run open (no fold)", has("running=none"))
@@ -273,7 +323,8 @@ check("a remark between calls folds with them; a multi-line reply closes the run
 check("several remarks keep one run going (4 tools)", has("notesLong=0-5:4/0/0"))
 check("a MULTI-line text between calls still ends the run (two runs)", has("multiLineMid=0-1:2/0/0,3-4:2/0/0"))
 check("live: a remark then a running call -> the part up to the remark stays folded", has("noteLive=0-2:2/0/0"))
-check("message ends on tools after a remark -> fold up to the remark only", has("noteNoReply=0-2:2/0/0"))
+check("message ends on tools after a remark: the task end folds the whole run (T T o T T)",
+      has("noteNoReply=0-4:4/0/0"))
 check("soft end still needs the threshold (1 tool + remark)", has("noteOneTool=none"))
 check("a remark before the first call is not part of the run", has("noteLead=1-2:2/0/0"))
 check("a one-line text with no call after it is the reply, not a remark", has("noteBeforeBarrier=0-1:2/0/0"))
@@ -395,7 +446,20 @@ check("only the loop's running message is planned up to its fold horizon; every 
       && plan.contains("separators: vm.toolFoldSeparators)")
       && plannerSrc.contains("guard message.id == runningMessageId else { return message.blocks.count }")
       && plannerSrc.contains("return foldHorizon(blockIds: message.blocks.map(\\.id), separators: separators[message.id] ?? [])")
-      && plan.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)))"))
+      // [T-fold-stopped-tools] The horizon is where planning STOPS, not where
+      // the task does: `ended` comes from the running message alone.
+      && plan.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
+      && plan.contains("ended: !isRunning)"))
+check("the planner takes the task's end as its own input, defaulting to \"not ended\" [T-fold-stopped-tools]",
+      plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {")
+      && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {")
+      && plannerSrc.contains("if ended, let s = start, tools >= minimumToolCount {")
+      && plannerSrc.contains("[T-fold-stopped-tools]"))
+check("the share export passes the same two inputs (horizon + task end)",
+      read("Views/Chat/ChatExportRenderer.swift")
+        .contains("ended: m.id != runningMessageId)"))
+check("the list re-plans on the vm's turn-ended signal, not only on the isProcessing edge",
+      v3.contains("caller: \"toolFold-turnEnded\"") && v3.contains("vm.toolFoldTurnEndedSignal"))
 let vmSrc = chatViewModelSource()
 check("the vm marks a request end once per request, after its stream result is final",
       ordered(vmSrc, ["let foldRequestStartBlockIds = Set(messages[msgIdx].blocks.map(\\.id))",
@@ -413,8 +477,13 @@ check("the separator decision uses the request's whole text and the shared rule"
 check("re-plan only applies when the plan changed",
       body(of: "func resnapshotIfToolFoldsChanged(caller: String) {").contains("guard planned.runs != toolFoldRunsByMessage else {"))
 check("the list plans from inputs(for:), so remarks become notes [T-fold-tool-notes]",
-      plannerSrc.contains("plan(inputs(for: blocks), enabled: true).map { group in")
+      plannerSrc.contains("plan(inputs(for: blocks), enabled: true, ended: ended).map { group in")
       && plannerSrc.contains("markingNotes(blocks.map(input(for:))) { isSingleLine(blocks[$0].content) }"))
+check("the vm signals the turn's end twice where `isProcessing` cannot: loop unwound, stop cleaned up",
+      vmSrc.contains("let toolFoldTurnEndedSignal = PassthroughSubject<Void, Never>()")
+      && ordered(vmSrc, ["defer {\n            toolFoldRunningMessageId = nil\n            toolFoldSeparators.removeAll()",
+                         "toolFoldTurnEndedSignal.send()"])
+      && vmSrc.contains("let wasStopped = userDidCancel\n        defer { if wasStopped { toolFoldTurnEndedSignal.send() } }"))
 check("a run that changed under the same row is reconfigured (skip path and full apply)",
       v3.contains("guard let old = previousFoldRuns[first], old != run else { return nil }")
       && v3.contains("snap.reconfigureItems(changedToolGroupItems.filter { snap.indexOfItem($0) != nil })")

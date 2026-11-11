@@ -84,7 +84,13 @@ extension CollectionViewMessageListV3.Coordinator {
                                                           separators: vm.toolFoldSeparators)
                 guard horizon > 0 else { continue }
                 // [T-share-fold-tools] The same runs the share export folds.
-                let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)))
+                // [T-fold-stopped-tools] `ended` is the TASK's end, not the
+                // plan's: only a message the loop is not writing into may fold a
+                // run that has no reply after it. A running message whose
+                // horizon stops on a tool must leave it open — those calls are
+                // about to run.
+                let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),
+                                                        ended: !isRunning)
                 guard !folded.isEmpty else { continue }
                 var runs: [ToolFoldRun] = []
                 for run in folded {

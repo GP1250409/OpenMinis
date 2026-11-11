@@ -183,6 +183,13 @@ extension AIChatViewModel {
     /// Case 2 (text/parameter streaming cancel): Preserve partial text, remove incomplete
     ///   tool blocks, commit to agentHistory, and inject a "Continue" user message.
     func handleUserCancelledCleanup() {
+        // [T-fold-stopped-tools] A cancelled turn's blocks are only final once
+        // this cleanup is done: `cancel()` already flipped `isProcessing`, so
+        // the list planned the message while its last tool was still
+        // `.running` (an unfinished tool, never folded). Re-plan when this
+        // cleanup finishes, whichever case below returns first.
+        let wasStopped = userDidCancel
+        defer { if wasStopped { toolFoldTurnEndedSignal.send() } }
         let blockCount = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let hasContent = (messages.last?.role == .assistant) ? messages.last!.blocks.contains(where: { !$0.content.isEmpty }) : false
         let lastRole = messages.last.map { $0.role == .assistant ? "assistant" : "user" } ?? "nil"

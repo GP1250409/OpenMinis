@@ -341,6 +341,18 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
                 .store(in: &subscriptions)
 
+            // 4e. [T-fold-stopped-tools] The turn is over for good — the loop
+            //     unwound, or a cancelled turn's leftovers were just finalized.
+            //     Plan the message whole now: a run with no reply after it (a
+            //     Stop's last, cancelled tool included) folds too. `isProcessing`
+            //     alone fires too early on a Stop, while the loop unwinds.
+            vm.toolFoldTurnEndedSignal
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    self?.resnapshotIfToolFoldsChanged(caller: "toolFold-turnEnded")
+                }
+                .store(in: &subscriptions)
+
             // 5. State changes → bridge updates
             Publishers.CombineLatest4(
                 vm.$isProcessing, vm.$autoRetryAttempt,

@@ -23,21 +23,32 @@ import Foundation
 ///
 /// It ends at a non-empty text block, an info block, a delegate block, or a
 /// tool that has not finished (streaming / running / awaiting confirmation).
-/// Only a run of at least `minimumToolCount` tools that ends at a NON-EMPTY
-/// text block folds: while the tools are still going, and when the message
-/// ends on tools, every capsule stays visible. A fold covers the first tool
-/// through the last tool (or note) of the run; thinking or empty text after it
-/// stays outside, next to the reply it leads into.
+///
+/// A run of at least `minimumToolCount` tools folds in two cases:
+/// - a NON-EMPTY text block closes it — the reply it produced;
+/// - [T-fold-stopped-tools] the task that wrote the blocks is over (`ended`)
+///   and every tool of the run finished: a user stop, a failed turn or an
+///   end with no reply at all would otherwise leave the capsules expanded for
+///   good. Mid-task that shape is exactly the pause before the next calls
+///   run, so `ended == false` folds nothing there.
+///
+/// A fold covers the run from its first block — the lead thinking, when there
+/// is one — through its last block: the last tool or note, or the thinking
+/// that trails it into the reply (or into the end of a stopped turn).
 ///
 /// [T-fold-lead-thinking] Thinking right before the run's first tool (only
 /// empty text may sit between them) folds with the run too — it is the
 /// reasoning that led to those calls, and left outside it hung alone above
-/// the folded row. Thinking after the last member stays outside, next to the
-/// reply it leads into.
+/// the folded row. [T-fold-trailing-thinking] Thinking after the last member
+/// folds as well, once a reply closes the run or the task ends; while that
+/// thinking is still being written it stays outside, so the pill never
+/// vanishes before the reply it leads into.
 ///
 /// WHEN a message is planned (during its task: at qualifying request ends,
 /// over the part before them; after it: all of it) is a separate rule, see
-/// `foldHorizon`. [T-fold-at-request-end]
+/// `foldHorizon`. [T-fold-at-request-end] Note that the end of the planned
+/// PREFIX is not the end of the task: `ended` is, and only `ended` lets a
+/// run fold without a reply.
 ///
 /// A note is also a soft end: when the run is then cut by an unfinished tool,
 /// a barrier or the end of the message, the part up to its latest note still
@@ -79,7 +90,19 @@ enum ToolFoldPlanner {
         let cancelledCount: Int
     }
 
-    static func plan(_ blocks: [Input], enabled: Bool) -> [Group] {
+    /// - Parameters:
+    ///   - blocks: the message's blocks, in order (see `Input`).
+    ///   - enabled: the user setting.
+    ///   - ended: [T-fold-stopped-tools] whether the task that wrote these
+    ///     blocks is OVER — a finished turn, a stopped/cancelled or failed
+    ///     one, or history read back from disk. Only then may a run with no
+    ///     reply after it fold. A message the agent loop is still writing
+    ///     into is planned with `ended: false` even when the planned prefix
+    ///     happens to end on a tool: the prefix ends at the latest finished
+    ///     request, the task does not, and those calls are about to run.
+    ///     Defaults to false — the safe direction: a forgotten argument
+    ///     leaves a run open, it never folds one early.
+    static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {
         guard enabled else { return [] }
         var groups: [Group] = []
         var start: Int?
@@ -151,9 +174,22 @@ enum ToolFoldPlanner {
                 leadThinking = nil
             }
         }
-        // A run still open here has no reply after it: only its part up to
-        // the latest note folds; the rest stays unfolded.
-        closeAtSoftEnd()
+        // [T-fold-stopped-tools] The task is over and the message ends on a
+        // run with no reply after it (a user stop, a failed turn, a reply-less
+        // end): fold the whole run — cancelled and failed calls included, plus
+        // the thinking before, between and after them. A tool that never
+        // finished closed the run above, so a call that is still running (or
+        // still waiting for its confirmation) keeps its capsules visible even
+        // here. While the task runs, this shape is the pause before the next
+        // calls: only the part up to the latest note folds then.
+        if ended, let s = start, tools >= minimumToolCount {
+            groups.append(Group(range: s...lastBlock(), toolCount: tools,
+                                failedCount: failed, cancelledCount: cancelled))
+        } else {
+            // A run still open here has no reply after it: only its part up to
+            // the latest note folds; the rest stays unfolded.
+            closeAtSoftEnd()
+        }
         return groups
     }
 
@@ -192,8 +228,10 @@ enum ToolFoldPlanner {
     // whose task is still running folds only at the end of a request (one LLM
     // call) whose reply was long enough, and then only the part of the message
     // up to that request's last block — see `foldHorizon`. Once the task ends,
-    // the whole message is planned with `plan` as before, whatever the reply
-    // lengths (the catch-all for short replies). History is always "ended".
+    // the whole message is planned with `plan(..., ended: true)`, whatever the
+    // reply lengths and even with no reply at all ([T-fold-stopped-tools]).
+    // History is always "ended". The horizon is where planning STOPS, not
+    // where the task does.
 
     /// The fewest lines a request's reply needs for the end of that request to
     /// fold the tool runs before it. A shorter reply (a one-line remark between
@@ -300,8 +338,13 @@ extension ToolFoldPlanner {
     /// [T-share-fold-tools] The runs `blocks` fold into (`plan` over
     /// `inputs(for:)`), with what drawing them needs. Shared by the message
     /// list and the share export so a shared image folds exactly like the chat.
-    static func foldedRuns(in blocks: [AssistantBlock]) -> [FoldedRun] {
-        plan(inputs(for: blocks), enabled: true).map { group in
+    /// - Parameter ended: [T-fold-stopped-tools] whether the task that wrote
+    ///   these blocks is over — the same value `plan` takes: true for a
+    ///   finished or stopped turn and for history, false for the message the
+    ///   agent loop is still writing into. Explicit on purpose: a prefix cut
+    ///   at the fold horizon is not the end of the task.
+    static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {
+        plan(inputs(for: blocks), enabled: true, ended: ended).map { group in
             let members = blocks[group.range]
             let firstTool = members.first { $0.toolUseId != nil } ?? members[members.startIndex]
             let durations = members.compactMap(\.toolDuration)

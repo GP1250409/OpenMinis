@@ -145,7 +145,11 @@ enum ChatExportContent {
                 let horizon = ToolFoldPlanner.foldHorizon(for: m, runningMessageId: runningMessageId,
                                                           separators: separators)
                 guard horizon > 0 else { continue }
-                let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)))
+                // [T-fold-stopped-tools] Same two inputs as the chat list: the
+                // horizon says how far to plan, `ended` whether the task that
+                // wrote these blocks is over (every message but the running one).
+                let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)),
+                                                      ended: m.id != runningMessageId)
                 if !runs.isEmpty {
                     folds[m.id] = runs.map {
                         ChatShareFold(memberIds: $0.memberIds, toolCount: $0.group.toolCount,

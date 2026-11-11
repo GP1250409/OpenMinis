@@ -1206,6 +1206,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var toolFoldSeparators: [UUID: Set<UUID>] = [:]
     /// Fires with the message id after a request added to `toolFoldSeparators`.
     let toolFoldSeparatorSignal = PassthroughSubject<UUID, Never>()
+    /// [T-fold-stopped-tools] Fires when a turn is over for good: the loop has
+    /// unwound (its running message cleared), or a cancelled turn's leftover
+    /// running/streaming blocks were just finalized. The list re-plans then, so
+    /// a run that ends without a reply folds too — a Stop's last, cancelled tool
+    /// included. The `isProcessing` edge alone is not enough: `cancel()` flips
+    /// it to false immediately, while the loop is still unwinding, so that plan
+    /// still sees the message as running and its last tool as `.running`.
+    let toolFoldTurnEndedSignal = PassthroughSubject<Void, Never>()
     /// Content offset Y published on each scroll event (for debug jitter monitoring).
     let contentOffsetYSignal = PassthroughSubject<CGFloat, Never>()
     /// Content size height delta signal (for debug jitter monitoring).
