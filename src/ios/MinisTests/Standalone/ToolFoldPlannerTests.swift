@@ -1,7 +1,9 @@
 // Tests for [T-fold-consecutive-tools] — which runs of tool calls the message
-// list folds into one "Ran N tools" row. Compiles the REAL ToolFoldPlanner out
-// of Agent/MessageList/ToolFoldPlanner.swift and runs it, then checks the list,
-// settings and localization wiring in source.
+// list folds into one "Ran N tools" row — and for [T-fold-all-process], which
+// makes that row the whole process of a request: a single call, and a run of
+// thinking on its own ("Thinking process"). Compiles the REAL ToolFoldPlanner
+// out of Agent/MessageList/ToolFoldPlanner.swift and runs it, then checks the
+// list, settings and localization wiring in source.
 //
 // Standalone: `swift ToolFoldPlannerTests.swift` from this directory.
 import Foundation
@@ -150,6 +152,22 @@ let cases: [(String, String)] = [
     ("leadThinkNote", "KoTTt"),
     ("leadThinkBarrier", "KBTTt"),
     ("leadThinkRunning", "KRTTt"),
+    // [T-fold-all-process] One row per process, whatever it is made of.
+    ("singleToolReply", "Tt"),
+    ("singleToolLong", "Ttt"),
+    ("singleToolStop", "T"),
+    ("oneToolBothEndsThink", "KTKt"),
+    ("thinkReply", "Kt"),
+    ("thinkTwoReplies", "Ktt"),
+    ("thinkOnlyEmptyText", "KeKt"),
+    ("thinkBetweenReplies", "tKt"),
+    ("thinkAfterReply", "tK"),
+    ("twoThinkRuns", "KtKt"),
+    ("leadEmptyThenThink", "eKt"),
+    ("emptyThinkEmpty", "eKe"),
+    ("pureText", "tt"),
+    ("oneLineText", "o"),
+    ("emptyOnly", "e"),
     // [T-fold-stopped-tools] The task is over and no reply follows the last
     // call: a Stop, a failed turn or a reply-less end. `stoppedFiveThink` is
     // the message the user's screenshot shows (5 calls, thinking before,
@@ -171,11 +189,31 @@ print("single1=\(ToolFoldPlanner.isSingleLine("  Now checking the logs.  \n"))")
 print("single2=\(ToolFoldPlanner.isSingleLine("line one\nline two"))")
 print("single3=\(ToolFoldPlanner.isSingleLine("\n\nOne line after blank lines\n\n"))")
 print("single4=\(ToolFoldPlanner.isSingleLine(""))")
+// [T-fold-all-process] What the row is: a run with no call at all is the
+// thinking, and must never be drawn as "Ran 0 tools".
+func kinds(_ s: String) -> String {
+    let chars = Array(s)
+    let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: true)
+    if g.isEmpty { return "none" }
+    return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.kind == .thinking ? "thinking" : "tools"):\($0.toolCount)/\($0.thinkingCount)" }
+        .joined(separator: ",")
+}
 for (name, input) in cases { print("\(name)=\(show(input))") }
+print("kindTool=\(kinds("Tt"))")
+print("kindThink=\(kinds("KKKt"))")
+print("kindMixed=\(kinds("KTKt"))")
+print("kindTwoRuns=\(kinds("KtKt"))")
+print("kindNone=\(kinds("tt"))")
+print("minThink=\(ToolFoldPlanner.minimumThinkingCount)")
 // [T-fold-stopped-tools] The same blocks, task still running vs ended.
 print("stStoppedLive=\(live("KTKTC"))|\(show("KTKTC"))")
 print("stStoppedPair=\(live("TT"))|\(show("TT"))")
 print("stStoppedTrail=\(live("TKTK"))|\(show("TKTK"))")
+print("stStoppedThink=\(live("KK"))|\(show("KK"))")
+print("stStoppedThinkOne=\(live("K"))|\(show("K"))")
+print("stStreamThink=\(running("K", 0))|\(running("Kt", 1))|\(running("Kt", 2))")
+print("stLiveThinkNoReply=\(live("Kt"))")
 // [T-fold-at-request-end] Timing. `running(s, h)` is what the list folds in a
 // message whose task is still running: only its first `h` blocks are planned
 // (notes marked within them), h = foldHorizon, `ended: false`. `show(s)` is the
@@ -260,16 +298,18 @@ func has(_ l: String) -> Bool { lines.contains(l) }
 print("▶️  threshold")
 check("3 tools + reply fold", has("three=0-2:3/0/0"))
 check("2 tools + reply fold ([T-fold-tools-min2])", has("two=0-1:2/0/0"))
-check("1 tool + reply stays unfolded", has("one=none"))
-check("threshold is 2", has("min=2"))
+check("a single call before a reply folds too [T-fold-all-process]", has("one=0-0:1/0/0"))
+check("one call is the threshold now (was 2)", has("min=1") && has("minThink=1"))
 check("text before the run is not part of it", has("leadText=1-4:4/0/0"))
 
 print("▶️  thinking and empty text")
 check("interleaved thinking folds along, counts only tools (K T K T T t -> 3 tools, leading K too)", has("interleaved=0-4:3/0/0"))
 check("thinking between tools does not break the run", has("thinkMid=0-4:3/0/0"))
 check("thinking between 2 tools folds along (T K K T t -> 2 tools)", has("thinkOnly=0-3:2/0/0"))
-check("thinking does not count toward the threshold (1 tool + thinking)", has("oneThink=none"))
-check("thinking alone never folds", has("allThinking=none"))
+check("thinking does not count toward the tool threshold (1 tool + thinking is one call)",
+      has("oneThink=0-2:1/0/0"))
+check("thinking alone IS a run: three thoughts and a reply fold into one row (K K K t)",
+      has("allThinking=0-2:0/0/0"))
 check("an empty text block does not break the run", has("emptyMid=0-3:3/0/0"))
 print("▶️  thinking that trails the run [T-fold-trailing-thinking]")
 check("thinking between the last tool and the reply folds with the run (T T T K t)",
@@ -278,7 +318,7 @@ check("a stretch of thinking (and empty text) after the last tool folds whole (T
       has("trailingThinks=0-4:2/0/0"))
 check("lead AND trailing thinking fold: the whole execution is one row (K T K T K t)",
       has("trailingAll=0-4:2/0/0"))
-check("trailing thinking still needs the tool threshold (T K t)", has("trailingOneTool=none"))
+check("one call with trailing thinking folds (T K t)", has("trailingOneTool=0-1:1/0/0"))
 check("trailing thinking with no reply after it folds once the task has ended (T T K)", has("trailingNoReply=0-2:2/0/0"))
 check("thinking followed by another call was already inside the run (T T K T t)",
       has("trailingThenCall=0-3:3/0/0"))
@@ -305,8 +345,8 @@ check("cancelled and failed calls are both counted, not split (T T C T F)", has(
 check("after a remark, a stopped run folds whole (T T o T)", has("stoppedAfterNote=0-3:3/0/0"))
 check("two runs in a stopped message: both fold, the second one on the end of the task",
       has("stoppedTwoRuns=0-1:2/0/0,3-6:3/0/1"))
-check("still needs the threshold at task end (one call, or no call at all)",
-      has("stoppedOne=none") && has("stoppedNoTools=none"))
+check("at task end a single cancelled call folds, and so do two thoughts with no call at all",
+      has("stoppedOne=0-0:1/0/1") && has("stoppedNoTools=0-1:0/0/0"))
 check("a call that never finished keeps its capsules visible even at task end (T T T R)",
       has("stoppedRunning=none"))
 check("an info/delegate row or an unanswered card still breaks the run at task end (T T B)",
@@ -325,7 +365,7 @@ check("a MULTI-line text between calls still ends the run (two runs)", has("mult
 check("live: a remark then a running call -> the part up to the remark stays folded", has("noteLive=0-2:2/0/0"))
 check("message ends on tools after a remark: the task end folds the whole run (T T o T T)",
       has("noteNoReply=0-4:4/0/0"))
-check("soft end still needs the threshold (1 tool + remark)", has("noteOneTool=none"))
+check("soft end: one call and a remark already qualify (T o R)", has("noteOneTool=0-1:1/0/0"))
 check("a remark before the first call is not part of the run", has("noteLead=1-2:2/0/0"))
 check("a one-line text with no call after it is the reply, not a remark", has("noteBeforeBarrier=0-1:2/0/0"))
 check("thinking and a remark between calls both fold along", has("noteThink=0-3:2/0/0"))
@@ -338,7 +378,7 @@ check("thinking just before the first tool folds with the run", has("leadThink=0
 check("a stretch of thinking (and empty text) before it folds whole", has("leadThinks=0-4:2/0/0"))
 check("text before that thinking stays out", has("leadThinkAfterText=1-3:2/0/0"))
 check("the second run takes its own leading thinking", has("leadThinkSecondRun=0-1:2/0/0,3-5:2/0/0"))
-check("still needs the tool threshold", has("leadThinkOneTool=none"))
+check("one call still takes its lead thinking along (K T t)", has("leadThinkOneTool=0-1:1/0/0"))
 check("a remark between the thinking and the first tool keeps the thinking out", has("leadThinkNote=2-3:2/0/0"))
 check("a barrier between them keeps the thinking out", has("leadThinkBarrier=2-3:2/0/0"))
 check("an unfinished tool between them keeps the thinking out", has("leadThinkRunning=2-3:2/0/0"))
@@ -378,6 +418,34 @@ check("browse hold: the row lookup runs only when the cheap conditions leave it 
 check("a folded run stays the same group as the task goes on (no flip-flop)",
       has("stLongEnd=0-1:2/0/0") && has("stToolRuns=0-1:2/0/0") && has("stNextStream=0-1:2/0/0"))
 
+print("▶️  one row per process, whatever it is made of [T-fold-all-process]")
+check("a single call and its reply (the memory_write screenshot: no thinking, one call)",
+      has("singleToolReply=0-0:1/0/0") && has("singleToolLong=0-0:1/0/0"))
+check("a stopped message that is nothing but one finished call still folds", has("singleToolStop=0-0:1/0/0"))
+check("one call with thinking on BOTH sides is one row, not a pill + a capsule + a pill",
+      has("oneToolBothEndsThink=0-2:1/0/0"))
+check("thinking and a reply, no call at all: one 'Thinking process' row (K t)", has("thinkReply=0-0:0/0/0"))
+check("the reply stays outside however many blocks it was loaded as (K t t)", has("thinkTwoReplies=0-0:0/0/0"))
+check("empty text between thoughts does not split the run (K e K t)", has("thinkOnlyEmptyText=0-2:0/0/0"))
+check("thinking between two segments of the body: the body stays out on both sides (t K t)",
+      has("thinkBetweenReplies=1-1:0/0/0"))
+check("thinking after the body is still a run of its own (t K)", has("thinkAfterReply=1-1:0/0/0"))
+check("two processes in one message stay two rows (K t K t)", has("twoThinkRuns=0-0:0/0/0,2-2:0/0/0"))
+check("an empty text before the thinking is not part of it (e K t)", has("leadEmptyThenThink=1-1:0/0/0"))
+check("empty text is never a member: the run is the thought alone (e K e), and (e) is no run",
+      has("emptyThinkEmpty=1-1:0/0/0") && has("emptyOnly=none"))
+check("no thinking and no call is never a run (t t / one-line o)", has("pureText=none") && has("oneLineText=none"))
+check("the kind comes from the members: no call at all = thinking, never 'Ran 0 tools'",
+      has("kindTool=0-0:tools:1/0") && has("kindThink=0-2:thinking:0/3")
+      && has("kindMixed=0-2:tools:1/2") && has("kindTwoRuns=0-0:thinking:0/1,2-2:thinking:0/1")
+      && has("kindNone=none"))
+check("a stopped message that was only thinking folds once ended, and not while it streams",
+      has("stStoppedThink=none|0-1:0/0/0") && has("stStoppedThinkOne=none|0-0:0/0/0"))
+check("a thinking block still being written folds nothing: no reply yet, or past the horizon",
+      has("stStreamThink=none|none|0-0:0/0/0"))
+check("mid-task a thought followed by a reply closes at that request end, like a call run",
+      has("stLiveThinkNoReply=0-0:0/0/0"))
+
 print("▶️  several runs")
 check("two runs in one message give two groups", has("twoRuns=0-2:3/0/0,4-7:4/0/0"))
 
@@ -392,6 +460,8 @@ let content = contentViewSource()
 let registry = read("Shared/Config/ConfigRegistry+Builtins.swift")
 let catalog = read("Localizable.xcstrings")
 let blockView = read("Views/Chat/AssistantBlockView.swift")
+let shareView = read("Views/Chat/ChatShareSelectionView.swift")
+let exportRenderer = read("Views/Chat/ChatExportRenderer.swift")
 
 print("▶️  list wiring")
 check("MessageListItem has a toolGroup case", infra.contains("case toolGroup(UUID, UUID)"))
@@ -516,6 +586,28 @@ check("the toggle re-lays the open chat out",
 check("ConfigRegistry registers it, default false",
       registry.contains("path: \"chat.foldTools\"") && registry.contains("userDefaultsKey: \"chat.foldConsecutiveTools\",\n            defaultValue: false"))
 
+print("▶️  a thinking run is drawn as thinking [T-fold-all-process]")
+check("the row title switches on the run's kind: 'Thinking process' when it has no call",
+      row.contains("private var isThinkingOnly: Bool { toolCount == 0 }")
+      && row.contains("isThinkingOnly ? AppLocalized(\"Thinking process\") : AppLocalized(\"Ran \\(toolCount) tools\")"))
+check("it can never print a tool count of zero — there is no other title",
+      row.components(separatedBy: "AppLocalized(\"Ran ").count - 1 == 1 && !row.contains("Ran 0"))
+check("no invented time on a thinking run: a thinking block records none",
+      row.contains("private var durationText: String? { isThinkingOnly ? nil : duration.map(Self.durationText) }"))
+check("accessibility says what the row holds, and keeps working for thinking",
+      row.contains("return isExpanded ? AppLocalized(\"Hide Thinking\") : AppLocalized(\"Show Thinking\")")
+      && row.contains(".accessibilityLabel(accessibilityText)")
+      && row.contains(".accessibilityAddTraits(.isButton)"))
+check("expanding still inserts the ORIGINAL blocks, so each thinking block keeps its own chevron",
+      v3.contains("newItems.append(contentsOf: run.memberIds.map { .assistantBlock(message.id, $0) })"))
+check("the memory tool is a foldable call, not a barrier (the memory_write screenshot)",
+      plannerSrc.contains(".browserTool, .readImageTool, .memoryTool:")
+      && plannerSrc.contains("case .success: return .tool(.succeeded)"))
+check("the share picker hides a thinking run under Hide Thinking, next to the thinking blocks",
+      shareView.contains("return cell.kind == .toolGroup && (cell.fold?.toolCount ?? 0) == 0"))
+check("the export follows the same split: tool runs with the tools, thinking runs with the thinking",
+      exportRenderer.contains("return (cell.fold?.toolCount ?? 0) > 0 ? includeTools : includeThinking"))
+
 print("▶️  localization")
 let keys = ["Fold Consecutive Tool Calls", "Tool Calls",
             "Consecutive tool calls are shown as one line. Tap it to see each call.",
@@ -528,6 +620,18 @@ for k in keys {
     let missing = locales.filter { !entry.contains("\"\($0)\" : {") }
     check("xcstrings \"\(k)\" has all 18 locales\(missing.isEmpty ? "" : " — missing \(missing)")", missing.isEmpty)
 }
+for k in ["Thinking process", "Ran 1 tool"] {
+    check("xcstrings has \"\(k)\"", catalog.contains("\n    \"\(k)\" : {") || catalog.contains("\"value\" : \"\(k)\""))
+}
+check("\"Thinking process\" is 思考过程 in both Chinese variants",
+      catalog.range(of: "\n    \"Thinking process\" : {").map { r in
+          let next = catalog.range(of: "\n    \"", range: r.upperBound..<catalog.endIndex)?.lowerBound ?? catalog.endIndex
+          let entry = catalog[r.upperBound..<next]
+          return entry.contains("\"value\" : \"思考过程\"") && entry.contains("\"value\" : \"思考過程\"")
+      } ?? false)
+check("English counts one call in the singular (plural variation on the existing key)",
+      catalog.contains("\"one\" : {") && catalog.contains("\"value\" : \"Ran 1 tool\"")
+      && blockView.contains("AppLocalized(\"Ran \\(toolCount) tools\")"))
 check("the switch description never says 'default'",
       !keys[2].lowercased().contains("default"))
 check("the group row uses the localized strings",

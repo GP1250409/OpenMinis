@@ -896,7 +896,13 @@ enum ChatExportDebugRPC {
         let selected = Set(cells.filter { cell in
             guard wanted.contains(cell.unitId) else { return false }
             switch cell.kind {
-            case .tool, .toolGroup: return includeTools
+            case .tool: return includeTools
+            case .toolGroup:
+                // [T-fold-all-process] A folded run with no call in it is the
+                // thinking, so it follows the thinking switch — otherwise
+                // "Hide Thinking" would export a "Thinking process" row whose
+                // contents the caller asked to leave out.
+                return (cell.fold?.toolCount ?? 0) > 0 ? includeTools : includeThinking
             case .thinking: return includeThinking
             default: return true
             }

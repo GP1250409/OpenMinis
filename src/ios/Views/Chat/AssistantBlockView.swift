@@ -689,6 +689,12 @@ struct ToolCapsuleView: View {
 /// another capsule. Type breakdown and durations live on the member capsules,
 /// visible once the row is expanded.
 ///
+/// [T-fold-all-process] The same row stands in for a run of THINKING only
+/// (`toolCount == 0`): it reads "Thinking process" — never "Ran 0 tools" —
+/// and carries no time, because a thinking block records no execution time
+/// and a made-up one would be a lie. Expanding it shows the original thinking
+/// blocks, each with its own chevron working exactly as before.
+///
 /// Tapping posts `.toolGroupToggled` (object: `firstBlockId`) instead of
 /// calling back into the list: the list owns the expanded state and the
 /// height invalidation, the same split the thinking block uses.
@@ -705,10 +711,16 @@ struct ToolGroupRowView: View {
     /// `estimateItemHeight`), with no first-measure correction.
     static let rowHeight: CGFloat = 28
 
-    private var title: String { AppLocalized("Ran \(toolCount) tools") }
+    /// [T-fold-all-process] A run with no tool call is the thinking that led
+    /// to the reply (or answered the request), not an empty tool run.
+    private var isThinkingOnly: Bool { toolCount == 0 }
+
+    private var title: String {
+        isThinkingOnly ? AppLocalized("Thinking process") : AppLocalized("Ran \(toolCount) tools")
+    }
     private var failedText: String { AppLocalized("\(failedCount) failed") }
     private var cancelledText: String { AppLocalized("\(cancelledCount) cancelled") }
-    private var durationText: String? { duration.map(Self.durationText) }
+    private var durationText: String? { isThinkingOnly ? nil : duration.map(Self.durationText) }
 
     /// The tool capsule's own duration format ("0.4s", "45s", "2m 10s"), so
     /// the total reads like the per-call times it adds up.
@@ -718,6 +730,15 @@ struct ToolGroupRowView: View {
         let mins = Int(dur) / 60
         let secs = Int(dur) % 60
         return "\(mins)m \(secs)s"
+    }
+
+    /// [T-fold-all-process] Reads the row's own contents, so a thinking run
+    /// says "shows the thinking" instead of "shows each tool call".
+    private var accessibilityHint: String {
+        if isThinkingOnly {
+            return isExpanded ? AppLocalized("Hide Thinking") : AppLocalized("Show Thinking")
+        }
+        return isExpanded ? AppLocalized("Hides the tool calls") : AppLocalized("Shows each tool call")
     }
 
     private var accessibilityText: String {
@@ -759,7 +780,7 @@ struct ToolGroupRowView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityText)
-            .accessibilityHint(isExpanded ? AppLocalized("Hides the tool calls") : AppLocalized("Shows each tool call"))
+            .accessibilityHint(accessibilityHint)
             .accessibilityAddTraits(.isButton)
             Spacer(minLength: 0)
         }

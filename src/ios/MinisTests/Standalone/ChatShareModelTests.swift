@@ -253,14 +253,18 @@ do {
         ChatShareFold(memberIds: Array(ids[g.range]), toolCount: g.toolCount, failedCount: g.failedCount,
                       cancelledCount: g.cancelledCount, duration: 9)
     }
-    expect("fold: the chat folds lead thinking + 2 tools + the remark between them (not the lone third tool)",
-           groups.count == 1 && groups[0].range == 0...3 && groups[0].toolCount == 2 && groups[0].failedCount == 1)
+    expect("fold: the chat folds lead thinking + 2 tools + the remark between them",
+           groups.count == 2 && groups[0].range == 0...3 && groups[0].toolCount == 2 && groups[0].failedCount == 1)
+    // [T-fold-all-process] The third call is no longer left bare: one call
+    // before a reply is a run of its own now, so this message has two rows.
+    expect("fold: the lone third tool folds on its own, one call is a run",
+           groups[1].range == 5...5 && groups[1].toolCount == 1)
     let plain = ChatShareCells.cells(units: units, blocks: blocks, errors: [])
     let folded = ChatShareCells.cells(units: units, blocks: blocks, errors: [], folds: [a.id: folds])
     expect("fold: unfolded, every block is its own row",
            plain.map(\.kind) == [.user, .thinking, .tool, .text, .tool, .text, .tool, .text])
-    expect("fold: folded, the run is ONE row where the chat shows it, the rest unchanged",
-           folded.map(\.kind) == [.user, .toolGroup, .text, .tool, .text])
+    expect("fold: folded, each run is ONE row where the chat shows it, the rest unchanged",
+           folded.map(\.kind) == [.user, .toolGroup, .text, .toolGroup, .text])
     let row = folded[1]
     expect("fold: the row carries the chat's counts and summed time",
            row.fold?.toolCount == 2 && row.fold?.failedCount == 1 && row.fold?.duration == 9

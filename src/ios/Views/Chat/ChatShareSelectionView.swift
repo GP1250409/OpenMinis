@@ -84,16 +84,20 @@ struct ChatShareSelectionView: View {
 
     /// The rows on show — everything but hidden thinking.
     private var cells: [ChatShareCell] {
-        allCells.filter { !isHidden($0.kind) }
+        allCells.filter { !isHidden($0) }
     }
 
-    private func isHidden(_ kind: ChatShareCell.Kind) -> Bool {
-        hideThinking && kind == .thinking
+    private func isHidden(_ cell: ChatShareCell) -> Bool {
+        guard hideThinking else { return false }
+        if cell.kind == .thinking { return true }
+        // [T-fold-all-process] A folded run of thinking only IS thinking: it
+        // would otherwise stay on show with every one of its members hidden.
+        return cell.kind == .toolGroup && (cell.fold?.toolCount ?? 0) == 0
     }
 
     /// Drops rows that are no longer on show from the selection.
     private func deselectHidden() {
-        selection.subtract(allCells.filter { isHidden($0.kind) }.map(\.id))
+        selection.subtract(allCells.filter { isHidden($0) }.map(\.id))
     }
 
     /// [T-share-fold-tools] Fold or unfold, keeping what was selected: a

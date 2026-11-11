@@ -7,24 +7,35 @@
 //  row. Pure: it sees only a compact description of each block, so the rule
 //  is unit-tested without the list (MinisTests/Standalone/ToolFoldPlannerTests).
 //
+//  [T-fold-all-process] A run is the PROCESS of a request, not just its calls:
+//  thinking on its own folds the same way, as one "Thinking process" row.
+//
 
 import Foundation
 
-/// Folding rule for consecutive tool calls (Settings → Appearance → Tool Calls).
+/// Folding rule for one request's process (Settings → Appearance → Tool Calls).
 ///
-/// A run starts at the first tool block and continues through
+/// [T-fold-all-process] A run is one continuous stretch of PROCESS: tool calls
+/// and the thinking around them. It starts at
+/// - the first finished tool block, or
+/// - [T-fold-all-process] the first thinking block when no call has come yet —
+///   thinking alone is process too, and a reply that follows it folds it into
+///   one "Thinking process" row instead of leaving every pill expanded.
+///
+/// and continues through
 /// - more finished tool blocks (counted),
-/// - thinking blocks (folded along, not counted — interleaved-thinking models
-///   alternate thinking/tool and would otherwise never reach the threshold),
-/// - empty text blocks (a text block that has not received content yet).
-///
+/// - thinking blocks (members; a run of thinking only has `toolCount == 0`),
+/// - empty text blocks (a text block that has not received content yet),
 /// - one-line remarks between tool calls (`note`, see `markingNotes`): folded
-///   along, not counted. [T-fold-tool-notes]
+///   along, not counted. [T-fold-tool-notes] A remark before the FIRST call is
+///   not part of the process: it stays visible and separates the thinking above
+///   it from the call below it, as it always has.
 ///
 /// It ends at a non-empty text block, an info block, a delegate block, or a
 /// tool that has not finished (streaming / running / awaiting confirmation).
 ///
-/// A run of at least `minimumToolCount` tools folds in two cases:
+/// A run folds when it has at least `minimumToolCount` tools — or, with no tool
+/// at all, at least `minimumThinkingCount` thinking blocks — and one of:
 /// - a NON-EMPTY text block closes it — the reply it produced;
 /// - [T-fold-stopped-tools] the task that wrote the blocks is over (`ended`)
 ///   and every tool of the run finished: a user stop, a failed turn or an
@@ -34,7 +45,9 @@ import Foundation
 ///
 /// A fold covers the run from its first block — the lead thinking, when there
 /// is one — through its last block: the last tool or note, or the thinking
-/// that trails it into the reply (or into the end of a stopped turn).
+/// that trails it into the reply (or into the end of a stopped turn). Text is
+/// NEVER a member: the reply (and every further segment of it) stays outside,
+/// however many blocks it was loaded as.
 ///
 /// [T-fold-lead-thinking] Thinking right before the run's first tool (only
 /// empty text may sit between them) folds with the run too — it is the
@@ -57,9 +70,15 @@ import Foundation
 /// then), and close again once that call finished.
 enum ToolFoldPlanner {
     /// The minimum number of tool blocks in a run before it folds.
-    /// [T-fold-tools-min2] 2, lowered from 3 at the user's request: a pair
-    /// of calls before a reply is already enough to crowd the conversation.
-    static let minimumToolCount = 2
+    /// [T-fold-all-process] 1: a single call between two replies is process
+    /// too, and the user asked for one row per process whatever its size.
+    /// (Was 2 with [T-fold-tools-min2].)
+    static let minimumToolCount = 1
+
+    /// [T-fold-all-process] The minimum number of thinking blocks in a run
+    /// with NO tool call at all. 1 — one thought is a process. A run that
+    /// reaches neither minimum (only empty text) is not a run and never folds.
+    static let minimumThinkingCount = 1
 
     enum ToolOutcome: Equatable {
         case unfinished
@@ -82,12 +101,36 @@ enum ToolFoldPlanner {
         case barrier
     }
 
+    /// What a folded run is made of. Derived from `toolCount` so the two can
+    /// never disagree: a run without a single call IS the thinking.
+    enum Kind: Equatable {
+        case tools
+        /// [T-fold-all-process] A run of thinking only: drawn as one
+        /// "Thinking process" row, never as "Ran 0 tools".
+        case thinking
+    }
+
     struct Group: Equatable {
-        /// Indices of the folded blocks, first tool through last tool.
+        /// Indices of the folded blocks, first block of the run through its
+        /// last member. Never empty — a run always opens on a real block.
         let range: ClosedRange<Int>
         let toolCount: Int
         let failedCount: Int
         let cancelledCount: Int
+        /// [T-fold-all-process] How many thinking blocks the run covers.
+        let thinkingCount: Int
+
+        /// A run with no tool call is a thinking run ([T-fold-all-process]).
+        var kind: Kind { toolCount > 0 ? .tools : .thinking }
+
+        init(range: ClosedRange<Int>, toolCount: Int, failedCount: Int, cancelledCount: Int,
+             thinkingCount: Int = 0) {
+            self.range = range
+            self.toolCount = toolCount
+            self.failedCount = failedCount
+            self.cancelledCount = cancelledCount
+            self.thinkingCount = thinkingCount
+        }
     }
 
     /// - Parameters:
@@ -105,12 +148,10 @@ enum ToolFoldPlanner {
     static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {
         guard enabled else { return [] }
         var groups: [Group] = []
+        /// First block of the open run, while one is open.
         var start: Int?
-        /// First thinking block of the unbroken thinking / empty-text stretch
-        /// just before the current position, while no run is open.
-        var leadThinking: Int?
         var lastMember = 0
-        var tools = 0, failed = 0, cancelled = 0
+        var tools = 0, thinks = 0, failed = 0, cancelled = 0
         /// The run as it stood at its latest note (the soft end).
         var softEnd: Group?
         /// [T-fold-trailing-thinking] Last thinking block of the stretch that
@@ -120,9 +161,15 @@ enum ToolFoldPlanner {
 
         func reset() {
             start = nil
-            tools = 0; failed = 0; cancelled = 0
+            tools = 0; thinks = 0; failed = 0; cancelled = 0
             softEnd = nil
             trailingThinking = nil
+        }
+        /// Whether a run with `t` calls and `k` thinking blocks is worth a row:
+        /// one call, or — with no call at all — one thought. Anything less is
+        /// only empty text, which is never a run.
+        func qualifies(_ t: Int, _ k: Int) -> Bool {
+            t >= minimumToolCount || k >= minimumThinkingCount
         }
         /// The run's last folded block: its last member, or the thinking that
         /// trails it when that thinking leads into the reply.
@@ -130,61 +177,72 @@ enum ToolFoldPlanner {
         /// The run was cut without a reply: fold what came before its latest
         /// note, if that much qualifies on its own.
         func closeAtSoftEnd() {
-            if let g = softEnd, g.toolCount >= minimumToolCount { groups.append(g) }
+            if let g = softEnd, qualifies(g.toolCount, g.thinkingCount) { groups.append(g) }
         }
 
         for (i, block) in blocks.enumerated() {
             switch block {
             case .tool(.unfinished), .barrier:
+                // A call that can still make progress — or a row that is
+                // always visible — cuts the run. What was already closed by a
+                // note still folds; a run of thinking only is dropped with the
+                // rest (the pills stay where they were, as before).
                 closeAtSoftEnd()
                 reset()
-                leadThinking = nil
             case .tool(let outcome):
-                if start == nil { start = leadThinking ?? i }
-                leadThinking = nil
+                // [T-fold-all-process] A call joins the run its lead thinking
+                // opened, or opens one.
+                if start == nil { start = i }
                 lastMember = i
+                trailingThinking = nil
                 tools += 1
                 if outcome == .failed { failed += 1 }
                 if outcome == .cancelled { cancelled += 1 }
             case .note:
-                // Only after a tool: a remark before the first call is not
-                // part of any run and stays visible — and it separates any
+                // Only after a call: a remark before the first one is not part
+                // of the process and stays visible — and it separates any
                 // thinking before it from the call after it.
-                guard let s = start else { leadThinking = nil; continue }
+                guard let s = start, tools > 0 else { reset(); continue }
                 lastMember = i
                 trailingThinking = nil
                 softEnd = Group(range: s...i, toolCount: tools,
-                                failedCount: failed, cancelledCount: cancelled)
+                                failedCount: failed, cancelledCount: cancelled,
+                                thinkingCount: thinks)
             case .thinking:
-                if start == nil {
-                    if leadThinking == nil { leadThinking = i }
-                } else {
-                    // [T-fold-trailing-thinking] Only the latest counts: the
-                    // stretch has no tool, note or barrier in it by now.
-                    trailingThinking = i
-                }
+                // [T-fold-all-process] Thinking IS the process: it opens the
+                // run when no call has come yet (the old `leadThinking` case)
+                // and joins it afterwards — including as the trailing member
+                // that folds once the reply arrives.
+                if start == nil { start = i }
+                thinks += 1
+                trailingThinking = i
             case .text(isEmpty: true):
                 continue
             case .text(isEmpty: false):
-                if let s = start, tools >= minimumToolCount {
+                // The reply — never a member, however many segments it has.
+                if let s = start, qualifies(tools, thinks) {
                     groups.append(Group(range: s...lastBlock(), toolCount: tools,
-                                        failedCount: failed, cancelledCount: cancelled))
+                                        failedCount: failed, cancelledCount: cancelled,
+                                        thinkingCount: thinks))
                 }
                 reset()
-                leadThinking = nil
             }
         }
         // [T-fold-stopped-tools] The task is over and the message ends on a
         // run with no reply after it (a user stop, a failed turn, a reply-less
         // end): fold the whole run — cancelled and failed calls included, plus
-        // the thinking before, between and after them. A tool that never
+        // the thinking before, between and after them. [T-fold-all-process]
+        // The same holds for a run of thinking only: a stopped turn whose
+        // whole content was one thought becomes one "Thinking process" row
+        // instead of a stray pill (or nothing at all). A tool that never
         // finished closed the run above, so a call that is still running (or
         // still waiting for its confirmation) keeps its capsules visible even
         // here. While the task runs, this shape is the pause before the next
         // calls: only the part up to the latest note folds then.
-        if ended, let s = start, tools >= minimumToolCount {
+        if ended, let s = start, qualifies(tools, thinks) {
             groups.append(Group(range: s...lastBlock(), toolCount: tools,
-                                failedCount: failed, cancelledCount: cancelled))
+                                failedCount: failed, cancelledCount: cancelled,
+                                thinkingCount: thinks))
         } else {
             // A run still open here has no reply after it: only its part up to
             // the latest note folds; the rest stays unfolded.
@@ -302,7 +360,15 @@ extension ToolFoldPlanner {
             // block on every snapshot, so it must not copy or scan the reply.
             return .text(isEmpty: !block.content.contains(where: { !$0.isWhitespace }))
         case .thinking:
-            return .thinking
+            // [T-fold-all-process] Thinking with no text yet (a fresh stream,
+            // or a block that never got one) is transparent, exactly like an
+            // empty text block: there is nothing to fold and nothing to hide,
+            // and a run must not open on a pill that is still empty. The
+            // buffer counts as content: it is text that is about to show.
+            let buffered = block.thinkingContentBuffer
+            let hasContent = block.content.contains { !$0.isWhitespace }
+                || buffered.contains { !$0.isWhitespace }
+            return hasContent ? .thinking : .text(isEmpty: true)
         case .info, .delegateTool, .userAskTool, .genuiTool:  // [T-user-ask] never folded
             return .barrier
         case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool,
@@ -317,13 +383,18 @@ extension ToolFoldPlanner {
     }
 
     /// [T-share-fold-tools] One folded run as every surface draws it: the
-    /// message list's "Ran N tools · 9s" row and the share picker / export.
+    /// message list's "Ran N tools · 9s" row and the share picker / export,
+    /// or — [T-fold-all-process] for a run with no call at all — one
+    /// "Thinking process" row.
     struct FoldedRun: Equatable {
         /// Expanded-state key: the first TOOL's provider `toolUseId`, which
         /// survives a session reload (block ids are regenerated on every
         /// load); its block id when there is none. [T-fold-lead-thinking]
         /// The first TOOL, not the first block: the run may open on a
-        /// thinking block, which has neither.
+        /// thinking block, which has neither. [T-fold-all-process] A run of
+        /// thinking only has no provider id anywhere, so it keys on its first
+        /// block and comes back CLOSED after a reload — the same direction the
+        /// row starts in, never a fold that reopens on its own.
         let key: String
         /// The first folded block (a thinking block when lead thinking folds).
         let firstBlockId: UUID
