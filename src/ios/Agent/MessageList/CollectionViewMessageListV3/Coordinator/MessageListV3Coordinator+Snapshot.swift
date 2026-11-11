@@ -451,11 +451,9 @@ extension CollectionViewMessageListV3.Coordinator {
                                 // there to hide. (It is not a member — the
                                 // planner treats it as empty text — but a
                                 // contiguous range can still cover one.)
-                                newItems.append(contentsOf: blocks[run.group.range].compactMap { block in
-                                    guard !(block.kind == .thinking
-                                            && ToolFoldPlanner.isBlankThinking(block)) else { return nil }
-                                    return .assistantBlock(message.id, block.id)
-                                })
+                                newItems.append(contentsOf: blocks[run.group.range]
+                                    .filter { !($0.kind == .thinking && ToolFoldPlanner.isBlankThinking($0)) }
+                                    .map { .assistantBlock(message.id, $0.id) })
                             }
                             bi += run.memberIds.count
                             continue

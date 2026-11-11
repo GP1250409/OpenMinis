@@ -621,7 +621,8 @@ check("the list gives a settled blank thinking no row and keeps the block still 
       && v3.contains("blocks[bi].id != liveTailBlockId,")
       && v3.contains("ToolFoldPlanner.isBlankThinking(blocks[bi]) {"))
 check("an expanded run leaves blank thinking members out too",
-      v3.contains("ToolFoldPlanner.isBlankThinking(block)) else { return nil }"))
+      v3.contains(".filter { !($0.kind == .thinking && ToolFoldPlanner.isBlankThinking($0)) }")
+      && v3.contains("blocks[run.group.range]"))
 check("thinking input, the list row and the share export all use one blank rule",
       plannerSrc.contains("return isBlankThinking(block) ? .text(isEmpty: true) : .thinking")
       && plannerSrc.contains("static func isBlankThinking(_ block: AssistantBlock) -> Bool {\n        isBlank(block.content) && isBlank(block.thinkingContentBuffer)")

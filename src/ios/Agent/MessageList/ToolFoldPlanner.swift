@@ -210,7 +210,7 @@ enum ToolFoldPlanner {
                 // note still folds; a run of thinking only is dropped with the
                 // rest (the pills stay where they were, as before).
                 // [T-fold-card-boundary] A CARD is not in this group: it closes
-                // the run below instead of dropping it.
+                // the run before it instead of dropping it.
                 closeAtSoftEnd()
                 reset()
             case .tool(let outcome):
