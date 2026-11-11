@@ -90,12 +90,20 @@ enum ToolFoldPlanner {
         var tools = 0, failed = 0, cancelled = 0
         /// The run as it stood at its latest note (the soft end).
         var softEnd: Group?
+        /// [T-fold-trailing-thinking] Last thinking block of the stretch that
+        /// follows the run's latest member, while no tool, note or barrier has
+        /// come after it: it folds when the reply closes the run.
+        var trailingThinking: Int?
 
         func reset() {
             start = nil
             tools = 0; failed = 0; cancelled = 0
             softEnd = nil
+            trailingThinking = nil
         }
+        /// The run's last folded block: its last member, or the thinking that
+        /// trails it when that thinking leads into the reply.
+        func lastBlock() -> Int { max(lastMember, trailingThinking ?? lastMember) }
         /// The run was cut without a reply: fold what came before its latest
         /// note, if that much qualifies on its own.
         func closeAtSoftEnd() {
@@ -121,15 +129,22 @@ enum ToolFoldPlanner {
                 // thinking before it from the call after it.
                 guard let s = start else { leadThinking = nil; continue }
                 lastMember = i
+                trailingThinking = nil
                 softEnd = Group(range: s...i, toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled)
             case .thinking:
-                if start == nil, leadThinking == nil { leadThinking = i }
+                if start == nil {
+                    if leadThinking == nil { leadThinking = i }
+                } else {
+                    // [T-fold-trailing-thinking] Only the latest counts: the
+                    // stretch has no tool, note or barrier in it by now.
+                    trailingThinking = i
+                }
             case .text(isEmpty: true):
                 continue
             case .text(isEmpty: false):
                 if let s = start, tools >= minimumToolCount {
-                    groups.append(Group(range: s...lastMember, toolCount: tools,
+                    groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                         failedCount: failed, cancelledCount: cancelled))
                 }
                 reset()

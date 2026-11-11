@@ -112,6 +112,12 @@ let cases: [(String, String)] = [
     ("failCancel", "TFCTt"),
     ("twoRuns", "TTTtTTTTt"),
     ("trailingThink", "TTTKt"),
+    ("trailingThinks", "TTKeKt"),
+    ("trailingAll", "KTKTKt"),
+    ("trailingNoReply", "TTK"),
+    ("trailingOneTool", "TKt"),
+    ("trailingThenCall", "TTKTt"),
+    ("trailingThinkingRun2", "TTtTTKt"),
     ("allThinking", "KKKt"),
     // [T-fold-tool-notes]
     ("noteExample", "ToTo"),
@@ -177,6 +183,11 @@ print("stShortEnd=\(running("TToR", 0))")        // that request ended on a 1-li
 print("stLongEnd=\(running("TTtR", 4))")         // ended on >=2 lines: separator = its last block (R)
 print("stToolRuns=\(running("TTtTT", 4))")       // the next calls finish: nothing new folds mid-task
 print("stNextStream=\(running("TTtTTt", 4))")    // next reply streams: still only the first run
+// [T-fold-trailing-thinking] The thinking that trails the last call folds with
+// the run only once the reply closing it is there; while it streams, nothing.
+print("stTrailThink=\(running("KTKTK", 5))")     // thinking streams after the last call: no fold
+print("stTrailThinkEnd=\(running("KTKTKt", 6))") // request ended on >=2 lines: one row for all of it
+print("stTrailThinkHistory=\(show("KTKTKt"))")   // history / task end: the same group
 print("stTaskEnd=\(show("TTtTTt"))")             // task ends: whole message, no line limit
 // Retry / resume: the message's existing 6 blocks are a separator (floor), the
 // new request's call (R) is past it — the folds from the ended task stay as-is.
@@ -228,7 +239,20 @@ check("thinking between 2 tools folds along (T K K T t -> 2 tools)", has("thinkO
 check("thinking does not count toward the threshold (1 tool + thinking)", has("oneThink=none"))
 check("thinking alone never folds", has("allThinking=none"))
 check("an empty text block does not break the run", has("emptyMid=0-3:3/0/0"))
-check("thinking after the last tool stays outside the fold", has("trailingThink=0-2:3/0/0"))
+print("▶️  thinking that trails the run [T-fold-trailing-thinking]")
+check("thinking between the last tool and the reply folds with the run (T T T K t)",
+      has("trailingThink=0-3:3/0/0"))
+check("a stretch of thinking (and empty text) after the last tool folds whole (T T K e K t)",
+      has("trailingThinks=0-4:2/0/0"))
+check("lead AND trailing thinking fold: the whole execution is one row (K T K T K t)",
+      has("trailingAll=0-4:2/0/0"))
+check("trailing thinking still needs the tool threshold (T K t)", has("trailingOneTool=none"))
+check("trailing thinking with no reply after it folds nothing (T T K — ends on tools, as before)",
+      has("trailingNoReply=none"))
+check("thinking followed by another call was already inside the run (T T K T t)",
+      has("trailingThenCall=0-3:3/0/0"))
+check("each run takes its own trailing thinking", has("trailingThinkingRun2=0-1:2/0/0,3-5:2/0/0"))
+check("the planner declares the rule", planner.contains("[T-fold-trailing-thinking]"))
 
 print("▶️  barriers")
 check("an info block breaks the run: the 2 before it have no reply, the 2 after it fold", has("infoMid=3-4:2/0/0"))
@@ -284,6 +308,11 @@ check("a request ending on a 1-line remark folds nothing mid-task", has("stShort
 check("a request ending on >=2 lines folds the run before it", has("stLongEnd=0-1:2/0/0"))
 check("tools finishing after the separator do not fold mid-task", has("stToolRuns=0-1:2/0/0"))
 check("the next reply streaming does not fold the next run yet", has("stNextStream=0-1:2/0/0"))
+check("thinking streaming after the last call does not fold yet (the pill never vanishes mid-stream)",
+      has("stTrailThink=none"))
+check("the request end that carries the reply folds lead thinking, calls and trailing thinking into one row",
+      has("stTrailThinkEnd=0-4:2/0/0"))
+check("a reloaded/history message plans the same group", has("stTrailThinkHistory=0-4:2/0/0"))
 check("task end folds the whole message, the run before a short reply included", has("stTaskEnd=0-1:2/0/0,3-4:2/0/0"))
 check("only short replies: nothing mid-task, all folded at task end",
       has("stShortOnly=none,0-4:4/0/0"))
