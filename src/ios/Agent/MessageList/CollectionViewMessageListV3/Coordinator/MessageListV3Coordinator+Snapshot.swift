@@ -433,15 +433,47 @@ extension CollectionViewMessageListV3.Coordinator {
                     var nextRun = 0
                     var bi = 0
                     let blocks = message.blocks
+                    // [T-fold-blank-thinking] The one block that may still grow:
+                    // the last block of the message the agent loop is writing
+                    // into. Every other blank thinking block is settled — it
+                    // will never receive a character.
+                    let liveTailBlockId: UUID? = (vm.isProcessing && message.id == vm.toolFoldRunningMessageId)
+                        ? message.blocks.last?.id : nil
                     while bi < blocks.count {
                         if nextRun < runs.count, runs[nextRun].firstBlockId == blocks[bi].id {
                             let run = runs[nextRun]
                             nextRun += 1
                             newItems.append(.toolGroup(message.id, run.firstBlockId))
                             if expandedToolGroups.contains(run.key) {
-                                newItems.append(contentsOf: run.memberIds.map { .assistantBlock(message.id, $0) })
+                                // [T-fold-blank-thinking] A blank thinking block
+                                // inside the run keeps no row either: expanded,
+                                // it would be exactly the empty pill the fold is
+                                // there to hide. (It is not a member — the
+                                // planner treats it as empty text — but a
+                                // contiguous range can still cover one.)
+                                newItems.append(contentsOf: blocks[run.group.range].compactMap { block in
+                                    guard !(block.kind == .thinking
+                                            && ToolFoldPlanner.isBlankThinking(block)) else { return nil }
+                                    return .assistantBlock(message.id, block.id)
+                                })
                             }
                             bi += run.memberIds.count
+                            continue
+                        }
+                        // [T-fold-blank-thinking] A thinking block with nothing
+                        // visible in it gets no row once it cannot grow any
+                        // more. The planner sees it as empty text, so it can
+                        // never be a fold member and never be hidden with one:
+                        // it stayed on screen as a leftover pill (header, count
+                        // of 1, empty body when opened) beside the fold row it
+                        // was left out of. The block still being written keeps
+                        // its row — that placeholder IS the "thinking…" the
+                        // user is waiting on. Skipped rather than drawn empty:
+                        // a cell with no content still measures a row.
+                        if blocks[bi].kind == .thinking,
+                           blocks[bi].id != liveTailBlockId,
+                           ToolFoldPlanner.isBlankThinking(blocks[bi]) {
+                            bi += 1
                             continue
                         }
                         // [T-user-ask-notsent-merge] A not-sent user_ask after the

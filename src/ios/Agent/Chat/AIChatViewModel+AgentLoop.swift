@@ -78,6 +78,19 @@ extension AIChatViewModel {
               let message = messages.first(where: { $0.id == messageId }),
               let lastBlock = message.blocks.last,
               !startBlockIds.contains(lastBlock.id) else { return }
+        // [T-fold-card-boundary] A request that ends on a card is over whatever
+        // its text says: the model asked the user something (user_ask) or handed
+        // over a generated UI (show_ui) and is waiting. Registering its last
+        // block as a separator is what lets the list fold the runs BEFORE the
+        // card while the answer is still pending — the card's own request is
+        // complete, so this is not "fold to the end of the message": the planner
+        // extends the horizon over settled cards only, and an unfinished tool or
+        // a streaming block behind the card still cuts the plan.
+        if ToolFoldPlanner.isCard(lastBlock) {
+            toolFoldSeparators[messageId, default: []].insert(lastBlock.id)
+            toolFoldSeparatorSignal.send(messageId)
+            return
+        }
         let text = message.blocks
             .filter { !startBlockIds.contains($0.id) && $0.kind == .text }
             .map(\.content)

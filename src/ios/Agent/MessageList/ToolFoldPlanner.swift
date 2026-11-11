@@ -31,8 +31,25 @@ import Foundation
 ///   not part of the process: it stays visible and separates the thinking above
 ///   it from the call below it, as it always has.
 ///
-/// It ends at a non-empty text block, an info block, a delegate block, or a
-/// tool that has not finished (streaming / running / awaiting confirmation).
+/// It ends at a non-empty text block, [T-fold-card-boundary] an interactive
+/// card for the user (a question, a generated UI), an info block, a delegate
+/// block, or a tool that has not finished (streaming / running / awaiting
+/// confirmation).
+///
+/// [T-fold-card-boundary] A CARD closes the run before it instead of dropping
+/// it: the card is a boundary the model drew on purpose — it asked, or handed
+/// over a form, and the request is over — while the calls and thinking before
+/// it are a finished process that has to read as one row. The card itself is
+/// never a member and is never hidden (it may still be waiting for an answer),
+/// and the thinking between two cards is a run of its own, so the shape is
+/// "process · card · thinking · card · thinking · reply". Info rows and
+/// sub-agent delegations stay plain barriers: they are process, not a handover,
+/// and keep cutting a run without folding it.
+///
+/// [T-fold-blank-thinking] A thinking block with nothing visible in it is
+/// transparent, exactly like an empty text block: it never opens, joins or
+/// closes a run, and the list gives it no row of its own once it cannot grow
+/// any more (`isBlankThinking` is the one test every surface uses).
 ///
 /// A run folds when it has at least `minimumToolCount` tools — or, with no tool
 /// at all, at least `minimumThinkingCount` thinking blocks — and one of:
@@ -97,7 +114,12 @@ enum ToolFoldPlanner {
         /// [T-fold-tool-notes] A one-line text with a tool call after it — a
         /// remark between calls, not the reply. See `markingNotes`.
         case note
-        /// Always visible and ends a run: info rows and sub agent delegations.
+        /// [T-fold-card-boundary] A card for the user (a question, a generated
+        /// UI). Always visible, never a member, and it CLOSES the run before
+        /// it like a reply does — the process up to the card is over.
+        case card
+        /// Always visible and ends a run WITHOUT folding it: info rows and sub
+        /// agent delegations.
         case barrier
     }
 
@@ -187,6 +209,8 @@ enum ToolFoldPlanner {
                 // always visible — cuts the run. What was already closed by a
                 // note still folds; a run of thinking only is dropped with the
                 // rest (the pills stay where they were, as before).
+                // [T-fold-card-boundary] A CARD is not in this group: it closes
+                // the run below instead of dropping it.
                 closeAtSoftEnd()
                 reset()
             case .tool(let outcome):
@@ -218,8 +242,11 @@ enum ToolFoldPlanner {
                 trailingThinking = i
             case .text(isEmpty: true):
                 continue
-            case .text(isEmpty: false):
+            case .card, .text(isEmpty: false):
                 // The reply — never a member, however many segments it has.
+                // [T-fold-card-boundary] A card closes the run the same way:
+                // what came before it is a finished process (its trailing
+                // thinking included), and the card stays outside it, on show.
                 if let s = start, qualifies(tools, thinks) {
                     groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                         failedCount: failed, cancelledCount: cancelled,
@@ -280,6 +307,42 @@ enum ToolFoldPlanner {
         return !text[first...last].contains(where: \.isNewline)
     }
 
+    // MARK: Nothing to show [T-fold-blank-thinking]
+    //
+    // A thinking block whose text is a lone space, a newline or a zero-width
+    // marker holds nothing a reader can see, yet it is a block with its own
+    // row: measured, drawn as the "Deep Thinking" header with a count of 1 and
+    // an empty body when opened. The planner already treats it as empty text,
+    // so it never folds and can never be hidden with a run — it stayed on
+    // screen as a residual pill next to the fold row it was left out of.
+    // ONE test decides "nothing to show", shared by the planner, the list's
+    // rows and the share export.
+
+    /// Characters that occupy no space of their own: the zero-width markers a
+    /// model sometimes emits instead of nothing at all. Deliberately NARROW —
+    /// whitespace is covered by `isWhitespace`, and marks that change how their
+    /// NEIGHBOURS render (U+200E LRM, U+200F RLM, U+00AD soft hyphen, the
+    /// variation selectors) are NOT here: a block holding only one of those
+    /// must keep its row rather than have text hidden on a guess.
+    static let invisibleScalars: Set<Unicode.Scalar> = [
+        "\u{200B}",  // zero width space
+        "\u{200C}",  // zero width non-joiner
+        "\u{200D}",  // zero width joiner
+        "\u{2060}",  // word joiner
+        "\u{FEFF}",  // zero width no-break space (BOM)
+    ]
+
+    /// Whether `text` has no visible character at all. Stops at the first
+    /// visible one, so a long thought costs one comparison.
+    static func isBlank(_ text: String) -> Bool {
+        for ch in text {
+            if ch.isWhitespace { continue }
+            if ch.unicodeScalars.allSatisfy(invisibleScalars.contains) { continue }
+            return false
+        }
+        return true
+    }
+
     // MARK: When a run folds [T-fold-at-request-end]
     //
     // Folding never happens while a reply streams or a tool runs. A message
@@ -324,10 +387,26 @@ enum ToolFoldPlanner {
     /// request that ended with a long-enough reply (`separators` holds those
     /// requests' last block ids); 0 before the first one. Ids no longer in the
     /// message (a retried round rolled back) are ignored.
-    static func foldHorizon<ID: Hashable>(blockIds: [ID], separators: Set<ID>) -> Int {
-        guard !separators.isEmpty,
-              let last = blockIds.lastIndex(where: { separators.contains($0) }) else { return 0 }
-        return last + 1
+    ///
+    /// [T-fold-card-boundary] `isCard` extends that prefix over the cards that
+    /// follow it. A card is final the moment it is on screen — the model asked
+    /// the user something (or handed over a generated UI) and that request is
+    /// over, so nothing more can arrive in it — and planning THROUGH it is what
+    /// lets the run before the card fold while the answer is still pending.
+    /// This is not a blanket "plan to the end": the scan stops at the first
+    /// block that is not a settled card, so a request still streaming behind
+    /// the card keeps everything after it out of the plan, and a message
+    /// ending on a running tool still folds nothing.
+    static func foldHorizon<ID: Hashable>(blockIds: [ID], separators: Set<ID>,
+                                          isCard: (ID) -> Bool = { _ in false }) -> Int {
+        var horizon: Int
+        if let last = blockIds.lastIndex(where: { separators.contains($0) }) {
+            horizon = last + 1
+        } else {
+            horizon = 0
+        }
+        while horizon < blockIds.count, isCard(blockIds[horizon]) { horizon += 1 }
+        return horizon
     }
 
     /// [T-fold-browse-hold] Whether a run that is due to fold is held back
@@ -365,12 +444,17 @@ extension ToolFoldPlanner {
             // empty text block: there is nothing to fold and nothing to hide,
             // and a run must not open on a pill that is still empty. The
             // buffer counts as content: it is text that is about to show.
-            let buffered = block.thinkingContentBuffer
-            let hasContent = block.content.contains { !$0.isWhitespace }
-                || buffered.contains { !$0.isWhitespace }
-            return hasContent ? .thinking : .text(isEmpty: true)
-        case .info, .delegateTool, .userAskTool, .genuiTool:  // [T-user-ask] never folded
+            // [T-fold-blank-thinking] "Empty" is the shared `isBlankThinking`
+            // rule (whitespace AND lone zero-width markers) — the same one the
+            // list uses to give such a block no row of its own.
+            return isBlankThinking(block) ? .text(isEmpty: true) : .thinking
+        case .info, .delegateTool:  // [T-user-ask] never folded
             return .barrier
+        case .userAskTool, .genuiTool:
+            // [T-fold-card-boundary] A card the user sees and answers closes
+            // the process before it; a show_ui still being written is a call
+            // in progress and stays a plain barrier until it renders.
+            return isCard(block) ? .card : .barrier
         case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool,
              .browserTool, .readImageTool, .memoryTool:
             switch block.toolStatus {
@@ -379,6 +463,33 @@ extension ToolFoldPlanner {
             case .cancelled: return .tool(.cancelled)
             case .streaming, .running, .none: return .tool(.unfinished)
             }
+        }
+    }
+
+    /// [T-fold-blank-thinking] A thinking block with nothing to show: neither
+    /// its text nor the buffer that is about to become text holds a visible
+    /// character (see `isBlank`). ONE test for every surface — the planner's
+    /// input, the list's rows and the share export — so a block can never be a
+    /// leftover pill in the chat while the exported image drops it.
+    static func isBlankThinking(_ block: AssistantBlock) -> Bool {
+        isBlank(block.content) && isBlank(block.thinkingContentBuffer)
+    }
+
+    /// [T-fold-card-boundary] A block drawn as a card the user acts on: a
+    /// `user_ask` question (waiting, answered, failed or never sent — the card
+    /// is on screen in every one of those states) or a `show_ui` that rendered.
+    /// Info rows and sub-agent delegations are NOT cards: they are process.
+    static func isCard(_ block: AssistantBlock) -> Bool {
+        switch block.kind {
+        case .userAskTool:
+            return true
+        case .genuiTool:
+            // While the program streams, or when it failed to validate, the
+            // block draws as an ordinary capsule: a call, not a handover.
+            if case .success = block.toolStatus { return true }
+            return false
+        default:
+            return false
         }
     }
 
@@ -434,7 +545,12 @@ extension ToolFoldPlanner {
     static func foldHorizon(for message: ChatMessage, runningMessageId: UUID?,
                             separators: [UUID: Set<UUID>]) -> Int {
         guard message.id == runningMessageId else { return message.blocks.count }
-        return foldHorizon(blockIds: message.blocks.map(\.id), separators: separators[message.id] ?? [])
+        // [T-fold-card-boundary] The cards already on screen may be planned
+        // through (see the generic rule above).
+        let cards = Set(message.blocks.filter(isCard).map(\.id))
+        return foldHorizon(blockIds: message.blocks.map(\.id),
+                           separators: separators[message.id] ?? [],
+                           isCard: { cards.contains($0) })
     }
 
     /// Settings key for the feature. Off unless the user turns it on.

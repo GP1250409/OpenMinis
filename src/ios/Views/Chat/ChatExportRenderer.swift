@@ -134,7 +134,15 @@ enum ChatExportContent {
                 }
                 let empty = kind == .tool
                     ? toolTitle(b).isEmpty
-                    : b.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    // [T-fold-blank-thinking] The chat gives a blank thinking
+                    // block no row at all, so the export must not carry one
+                    // either — one shared rule (`isBlankThinking`: whitespace,
+                    // a lone zero-width marker, or a block with only a pending
+                    // buffer) instead of the old whitespace comparison on
+                    // `content` alone.
+                    : (kind == .thinking
+                        ? ToolFoldPlanner.isBlankThinking(b)
+                        : b.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 return ChatShareBlockSource(id: b.id, kind: kind, isEmpty: empty)
             }
             if m.error?.isEmpty == false { errors.insert(m.id) }

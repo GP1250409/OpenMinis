@@ -83,6 +83,7 @@ func parse(_ s: String) -> [ToolFoldPlanner.Input] {
         case "K": return .thinking
         case "t", "o": return .text(isEmpty: false)
         case "e": return .text(isEmpty: true)
+        case "Q": return .card            // [T-fold-card-boundary]
         default: return .barrier
         }
     }
@@ -184,6 +185,19 @@ let cases: [(String, String)] = [
     ("stoppedTrailThink", "TKTK"),
     ("stoppedAfterNote", "TToT"),
     ("stoppedTwoRuns", "TTtKTTC"),
+    // [T-fold-card-boundary] The user's screenshot shape: thinking + 2 calls +
+    // thinking, then three answered ask-cards with the thinking between them,
+    // then the reply. Q = a card (user_ask / a rendered show_ui).
+    ("cardUserScreenshot", "KTTKQKQKQKt"),
+    ("cardWaiting", "KTTKQKQKQ"),
+    ("cardThenRun", "TTQTTt"),
+    ("cardTwoInARow", "TTQQt"),
+    ("cardTextOnly", "tQt"),
+    ("cardUnfinishedTool", "TTRQt"),
+    ("cardCancelTool", "TCQ"),
+    ("cardFailTool", "TFQ"),
+    ("cardTrailingThinking", "TQK"),
+    ("cardNoThinking", "TTQ"),
 ]
 print("single1=\(ToolFoldPlanner.isSingleLine("  Now checking the logs.  \n"))")
 print("single2=\(ToolFoldPlanner.isSingleLine("line one\nline two"))")
@@ -246,6 +260,26 @@ print("hOne=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["c"]))")
 print("hLatest=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["b", "d"]))")
 print("hGone=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["x"]))")
 print("hGoneOne=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["b", "x"]))")
+// [T-fold-card-boundary] The horizon runs on over settled cards, and stops at
+// the first block that is not one.
+let cardIds: Set<String> = ["c", "d"]
+print("hCardRun=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["b"], isCard: { cardIds.contains($0) }))")
+print("hCardFar=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["b"], isCard: { $0 == "d" }))")
+print("hCardLast=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["d"], isCard: { $0 == "e" }))")
+print("hCardStop=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["a"], isCard: { $0 == "c" }))")
+print("hCardNone=\(ToolFoldPlanner.foldHorizon(blockIds: ids, separators: ["d"], isCard: { cardIds.contains($0) }))")
+// [T-fold-blank-thinking] One blank rule: whitespace and lone zero-width
+// markers are nothing to show; anything a reader could see is not.
+print("blankEmpty=\(ToolFoldPlanner.isBlank(""))")
+print("blankSpace=\(ToolFoldPlanner.isBlank(" "))")
+print("blankNewlines=\(ToolFoldPlanner.isBlank("\n \t\r\n"))")
+print("blankZWSP=\(ToolFoldPlanner.isBlank("\u{200B}"))")
+print("blankBOM=\(ToolFoldPlanner.isBlank("\u{FEFF}\u{200B}\u{200D}"))")
+print("blankInside=\(ToolFoldPlanner.isBlank(" \u{200B}x\n"))")
+print("blankText=\(ToolFoldPlanner.isBlank(" x "))")
+print("blankHan=\(ToolFoldPlanner.isBlank("思考"))")
+print("blankSoftHyphen=\(ToolFoldPlanner.isBlank("\u{00AD}"))")
+print("blankLRM=\(ToolFoldPlanner.isBlank("\u{200E}"))")
 // One task, step by step: T T, then a request whose reply streams ("t"), then
 // a call (R) that runs and finishes (T), then the final reply.
 print("stStreaming=\(running("TTt", 0))")        // reply streaming, no request end yet
@@ -275,6 +309,11 @@ print("hbFreshSession=\(hb(true, false, false, false))")
 probed = 0; _ = hb(false, false, false, true); _ = hb(true, true, false, true); _ = hb(true, false, true, true)
 print("hbLazy=\(probed)")
 print("stShortOnly=\(running("TToTTo", 0)),\(show("TToTTo"))") // only short replies: open until the end
+// [T-fold-card-boundary] A card is the boundary while its answer is pending AND
+// after it: the run before it is closed by the card, not by the end of the task.
+print("stCardWaiting=\(live("KTTKQKQKQ"))|\(show("KTTKQKQKQ"))")
+print("stCardKinds=\(kinds("KTTKQK"))")
+print("stCardText=\(show("tQt"))|\(live("tQt"))")
 print("off=\(show("TTTTt", enabled: false))")
 print("min=\(ToolFoldPlanner.minimumToolCount)")
 """#
@@ -327,6 +366,24 @@ check("the planner declares the rule", planner.contains("[T-fold-trailing-thinki
 
 print("▶️  barriers")
 check("an info block breaks the run: the 2 before it have no reply, the 2 after it fold", has("infoMid=3-4:2/0/0"))
+check("a CARD closes the run before it instead of dropping it — the user's screenshot: process, card, "
+      + "thinking, card, thinking, card, thinking, reply",
+      has("cardUserScreenshot=0-3:2/0/0,5-5:0/0/0,7-7:0/0/0,9-9:0/0/0"))
+check("the same message while the third card waits for its answer: the two earlier runs are already folded "
+      + "and the thinking after the last card stays open",
+      has("stCardWaiting=0-3:2/0/0,5-5:0/0/0,7-7:0/0/0|0-3:2/0/0,5-5:0/0/0,7-7:0/0/0"))
+check("the thinking AFTER the last card is a row of its own, not part of the run before the card "
+      + "(K T T K Q K)", has("stCardKinds=0-3:tools:2/2,5-5:thinking:0/1"))
+check("two cards in a row do not make an empty group (T T Q Q t)", has("cardTwoInARow=0-1:2/0/0"))
+check("a card cuts what follows it, so the next run folds on its own reply (T T Q T T t)",
+      has("cardThenRun=0-1:2/0/0,3-4:2/0/0"))
+check("pure text around a card is not a process: no row (t Q t)", has("cardTextOnly=none") && has("stCardText=none|none"))
+check("a call that never finished keeps the run open across a card (T T R Q t)", has("cardUnfinishedTool=none"))
+check("cancelled and failed calls close on a card like any finished call (T C Q / T F Q)",
+      has("cardCancelTool=0-1:2/0/1") && has("cardFailTool=0-1:2/1/0"))
+check("a card with nothing before it makes no row (T T Q)", has("cardNoThinking=0-1:2/0/0"))
+check("thinking after the last card folds into its own row at task end (T Q K)",
+      has("cardTrailingThinking=0-0:1/0/0,2-2:0/0/0"))
 check("a delegate block breaks the run; the run after it folds alone", has("delegateSplit=4-6:3/0/0"))
 
 print("▶️  what closes a run: the reply, or the end of the task [T-fold-stopped-tools]")
@@ -349,8 +406,17 @@ check("at task end a single cancelled call folds, and so do two thoughts with no
       has("stoppedOne=0-0:1/0/1") && has("stoppedNoTools=0-1:0/0/0"))
 check("a call that never finished keeps its capsules visible even at task end (T T T R)",
       has("stoppedRunning=none"))
-check("an info/delegate row or an unanswered card still breaks the run at task end (T T B)",
+check("an info/delegate row still cuts the run WITHOUT folding it, even at task end (T T B)",
       has("stoppedBarrier=none"))
+
+print("▶️  nothing to show: one blank rule [T-fold-blank-thinking]")
+check("whitespace is blank (empty, a space, mixed newlines/tabs)",
+      has("blankEmpty=true") && has("blankSpace=true") && has("blankNewlines=true"))
+check("a lone zero-width marker is blank too (ZWSP, BOM, ZWJ)", has("blankZWSP=true") && has("blankBOM=true"))
+check("a visible character anywhere makes it content, whatever surrounds it",
+      has("blankInside=false") && has("blankText=false") && has("blankHan=false"))
+check("marks that change their neighbours are NOT stripped (soft hyphen, LRM)",
+      has("blankSoftHyphen=false") && has("blankLRM=false"))
 
 print("▶️  status")
 check("an unfinished tool before the reply keeps the run open (no fold)", has("running=none"))
@@ -393,6 +459,8 @@ check("separator: empty and 1-line replies are not; 1 line plus blank lines is n
 check("separator: the whole request's text counts (two one-line blocks = 2 lines)", has("sep2blocks=true"))
 check("horizon: none before the first separator; through its block; the latest wins; rolled-back ids ignored",
       has("hNone=0") && has("hOne=3") && has("hLatest=4") && has("hGone=0") && has("hGoneOne=2"))
+check("a settled card extends the horizon: over the card(s) that follow a separator, and no further",
+      has("hCardRun=4") && has("hCardFar=2") && has("hCardLast=5") && has("hCardStop=1") && has("hCardNone=4"))
 check("streaming: a reply that is still streaming folds nothing (the task-end rule alone would)",
       has("stStreaming=none") && has("three=0-2:3/0/0"))
 check("a request ending on a 1-line remark folds nothing mid-task", has("stShortEnd=none"))
@@ -523,13 +591,46 @@ check("only the loop's running message is planned up to its fold horizon; every 
 check("the planner takes the task's end as its own input, defaulting to \"not ended\" [T-fold-stopped-tools]",
       plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {")
       && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {")
-      && plannerSrc.contains("if ended, let s = start, tools >= minimumToolCount {")
+      && plannerSrc.contains("if ended, let s = start, qualifies(tools, thinks) {")
       && plannerSrc.contains("[T-fold-stopped-tools]"))
 check("the share export passes the same two inputs (horizon + task end)",
       read("Views/Chat/ChatExportRenderer.swift")
         .contains("ended: m.id != runningMessageId)"))
 check("the list re-plans on the vm's turn-ended signal, not only on the isProcessing edge",
       v3.contains("caller: \"toolFold-turnEnded\"") && v3.contains("vm.toolFoldTurnEndedSignal"))
+
+print("▶️  cards and blank thinking [T-fold-card-boundary] [T-fold-blank-thinking]")
+check("user_ask and a rendered show_ui are cards; info rows and delegations stay barriers",
+      plannerSrc.contains("case .userAskTool, .genuiTool:")
+      && plannerSrc.contains("return isCard(block) ? .card : .barrier")
+      && plannerSrc.contains("case .info, .delegateTool:  // [T-user-ask] never folded"))
+check("a card closes the run like a reply and is never a member",
+      plannerSrc.contains("case .card, .text(isEmpty: false):")
+      && ordered(plannerSrc, ["case .card, .text(isEmpty: false):",
+                              "if let s = start, qualifies(tools, thinks) {", "reset()"]))
+check("a request ending on a card registers a fold separator, so the run before it closes while the answer waits",
+      ordered(vmSrc, ["if ToolFoldPlanner.isCard(lastBlock) {",
+                      "toolFoldSeparators[messageId, default: []].insert(lastBlock.id)",
+                      "toolFoldSeparatorSignal.send(messageId)",
+                      "return"]))
+check("the horizon runs over settled cards only — not a blanket end of message",
+      plannerSrc.contains("while horizon < blockIds.count, isCard(blockIds[horizon]) { horizon += 1 }")
+      && plannerSrc.contains("let cards = Set(message.blocks.filter(isCard).map(\\.id))"))
+check("the list gives a settled blank thinking no row and keeps the block still being written",
+      v3.contains("let liveTailBlockId: UUID? = (vm.isProcessing && message.id == vm.toolFoldRunningMessageId)")
+      && v3.contains("blocks[bi].id != liveTailBlockId,")
+      && v3.contains("ToolFoldPlanner.isBlankThinking(blocks[bi]) {"))
+check("an expanded run leaves blank thinking members out too",
+      v3.contains("ToolFoldPlanner.isBlankThinking(block)) else { return nil }"))
+check("thinking input, the list row and the share export all use one blank rule",
+      plannerSrc.contains("return isBlankThinking(block) ? .text(isEmpty: true) : .thinking")
+      && plannerSrc.contains("static func isBlankThinking(_ block: AssistantBlock) -> Bool {\n        isBlank(block.content) && isBlank(block.thinkingContentBuffer)")
+      && read("Views/Chat/ChatExportRenderer.swift").contains("ToolFoldPlanner.isBlankThinking(b)"))
+check("the blank rule is whitespace plus a narrow zero-width set, never every format character",
+      plannerSrc.contains("static let invisibleScalars: Set<Unicode.Scalar> = [")
+      && plannerSrc.contains("\"\\u{200B}\"") && plannerSrc.contains("\"\\u{FEFF}\"")
+      && !plannerSrc.contains("Unicode.Scalar.Properties.isWhiteSpace")
+      && plannerSrc.contains("U+00AD soft hyphen, the"))
 let vmSrc = chatViewModelSource()
 check("the vm marks a request end once per request, after its stream result is final",
       ordered(vmSrc, ["let foldRequestStartBlockIds = Set(messages[msgIdx].blocks.map(\\.id))",
