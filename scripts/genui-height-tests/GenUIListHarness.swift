@@ -13,17 +13,21 @@ final class GenUIRowModel {
     var options: [String] = ["红色", "绿色", "蓝色"]
     /// Production block kind / tool status (a `.genuiTool` `.success` block is
     /// the only one the commit method may consume).
+    /// Two lists of one session may hold DIFFERENT AssistantBlock instances
+    /// for the SAME block UUID.
+    var blockId: UUID?
     var blockKind: CollectionViewMessageListV3.BlockKind = .genuiTool
     var toolStatus: CollectionViewMessageListV3.ToolStatus = .success
-    init(kind: Kind, text: String = "", card: GenUICardState = GenUICardState()) {
+    init(kind: Kind, text: String = "", card: GenUICardState = GenUICardState(), blockId: UUID? = nil) {
         self.kind = kind
         self.text = text
         self.card = card
+        self.blockId = blockId
     }
     var item: MessageListItem {
         switch kind {
         case .header: return .assistantHeader(id)
-        case .card: return .assistantBlock(id, id)
+        case .card: return .assistantBlock(blockId ?? id, blockId ?? id)
         case .text, .footer: return .wholeMessage(id)
         }
     }
@@ -130,7 +134,7 @@ final class GenUIListHarness {
 
     func block(at index: Int) -> CollectionViewMessageListV3.AssistantBlock {
         let row = rows[index]
-        let block = CollectionViewMessageListV3.AssistantBlock(id: row.id, kind: row.blockKind,
+        let block = CollectionViewMessageListV3.AssistantBlock(id: row.blockId ?? row.id, kind: row.blockKind,
                                                               toolStatus: row.toolStatus)
         block.genuiStateJSON = row.card.json
         return block
@@ -155,7 +159,9 @@ final class GenUIListHarness {
         layout.setPrecalcHeight(GenUIListHarness.precalcEstimate, at: index)
         switch row.kind {
         case .card:
-            let state = row.card
+            // The card renders the BLOCK's state, exactly like SwiftUI observing
+            // the model block (two lists = two block instances, one UUID).
+            let state = (cardBlocks[row.id]?.genuiStateJSON).flatMap(GenUICardState.init(json:)) ?? row.card
             let options = row.options
             cell.applyContentConfiguration(UIHostingConfiguration {
                 GenUICardFixture(state: state, options: options)
@@ -211,8 +217,34 @@ final class GenUIListHarness {
                     _ mutate: @escaping (GenUICardState) -> GenUICardState) {
         let row = rows[targetIndex]
         let after = mutate(row.card)
-        MinisUIStore.update(blockId: blockId ?? row.id, sessionId: session ?? sessionId) {
+        let blocks = cardBlocks
+        MinisUIStore.update(blockId: blockId ?? row.blockId ?? row.id, sessionId: session ?? sessionId,
+                            state: { blocks[row.id]?.genuiStateJSON }) {
             row.card = after
+            blocks[row.id]?.genuiStateJSON = after.json
+        }
+    }
+
+    /// The state this list would render right now (from its own block).
+    func cardStateFromBlock() -> GenUICardState? {
+        cardBlocks[rows[targetIndex].id]?.genuiStateJSON.flatMap(GenUICardState.init(json:))
+    }
+
+    /// Production's queued control path: `MinisUIStore.enqueue` → re-read the
+    /// LATEST state → touch only this control's key → `MinisUIStore.update`.
+    func queuedCardChange(session: String? = nil,
+                          _ mutate: @escaping (GenUICardState) -> GenUICardState) {
+        let row = rows[targetIndex]
+        let expected = session ?? sessionId
+        MinisUIStore.enqueue { [weak self] in
+            guard let self, self.coordinator.vm?.sessionId == expected else { return }
+            let latest = self.cardStateFromBlock() ?? row.card
+            let after = mutate(latest)
+            MinisUIStore.update(blockId: row.blockId ?? row.id, sessionId: self.sessionId,
+                                state: { self.cardBlocks[row.id]?.genuiStateJSON }) {
+                self.rows[self.targetIndex].card = after
+                self.cardBlocks[row.id]?.genuiStateJSON = after.json
+            }
         }
     }
 
@@ -236,8 +268,11 @@ final class GenUIListHarness {
     func sliderCommit() {
         let row = rows[targetIndex]
         let state = row.card
-        MinisUIStore.update(blockId: row.id, sessionId: sessionId) {
+        let blocks = cardBlocks
+        MinisUIStore.update(blockId: row.blockId ?? row.id, sessionId: sessionId,
+                            state: { blocks[row.id]?.genuiStateJSON }) {
             row.card = state
+            blocks[row.id]?.genuiStateJSON = state.json
         }
     }
 

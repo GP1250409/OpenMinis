@@ -25,10 +25,14 @@ final class MinisUIStateUpdate {
     let blockId: UUID
     let sessionId: String?
     let request: ToggleRequest
+    /// The origin's final state, read AFTER the one-shot request. Other mounted
+    /// lists of this session may hold a different AssistantBlock instance.
+    let state: (() -> String?)?
 
-    init(blockId: UUID, sessionId: String?, apply: @escaping () -> Void) {
+    init(blockId: UUID, sessionId: String?, state: (() -> String?)? = nil, apply: @escaping () -> Void) {
         self.blockId = blockId
         self.sessionId = sessionId
+        self.state = state
         self.request = ToggleRequest(apply)
     }
 }
@@ -36,17 +40,25 @@ final class MinisUIStateUpdate {
 enum MinisUIStore {
     static let stateChanged = Notification.Name("MinisUIStateChanged")
 
+    /// Leave the originating Button/Slider callback BEFORE replacing its hosting
+    /// configuration. The whole mutation is queued, NOT just the size update:
+    /// no frame can draw new content at the old height. Mutations read current
+    /// state when executed, so several queued controls cannot overwrite each other.
+    static func enqueue(_ work: @escaping () -> Void) {
+        DispatchQueue.main.async(execute: work)
+    }
+
     /// Do NOT publish state first and then hop to the main queue to resize:
     /// that drew new content in the old cell, followed by an animated rebuild.
     /// NotificationCenter delivery is synchronous on the UI thread on purpose.
-    static func update(blockId: UUID, sessionId: String?, _ apply: @escaping () -> Void) {
-        assert(Thread.isMainThread)
-        let change = MinisUIStateUpdate(blockId: blockId, sessionId: sessionId, apply: apply)
+    static func update(blockId: UUID, sessionId: String?, state: (() -> String?)? = nil, _ apply: @escaping () -> Void) {
+        precondition(Thread.isMainThread)
+        let change = MinisUIStateUpdate(blockId: blockId, sessionId: sessionId, state: state, apply: apply)
         NotificationCenter.default.post(name: stateChanged, object: change)
         if !change.request.hasRun {
             var noAnim = Transaction(animation: nil)
             noAnim.disablesAnimations = true
-            withTransaction(noAnim) { change.request.run() }
+            withTransaction(noAnim) { _ = change.request.run() }
         }
     }
 }
@@ -150,7 +162,7 @@ struct MinisUICardView: View {
             if let root {
                 MUNodeView(comp: root, ctx: MUContext(state: state, program: compiled.0, defaults: compiled.1,
                                                      set: { name, value, live in setState(name, value, live: live, defaults: compiled.1) },
-                                                     commit: { persist(currentState(compiled.1), force: true) },
+                                                     commit: { enqueueStateChange { persist(currentState(compiled.1), force: true) } },
                                                      run: { act in runAction(act, program: compiled.0, defaults: compiled.1) }),
                            topLevel: true)
             } else {
@@ -186,7 +198,22 @@ struct MinisUICardView: View {
                 block.genuiStateJSON = MinisUITool.encodeState(st)
             }
         } else {
-            persist(st)
+            enqueueStateChange {
+                // Resolve after earlier queued controls, not from the snapshot
+                // the Button action read before those controls were committed.
+                var latest = currentState(defaults)
+                guard latest[name] != nil else { return }
+                latest[name] = value
+                persist(latest)
+            }
+        }
+    }
+
+    private func enqueueStateChange(_ work: @escaping () -> Void) {
+        let sessionId = vm.sessionId
+        MinisUIStore.enqueue {
+            guard vm.sessionId == sessionId else { return }
+            work()
         }
     }
 
@@ -195,13 +222,17 @@ struct MinisUICardView: View {
         guard force || block.genuiStateJSON != after else { return }
         // The list owns the state write AND any size change in one no-animation
         // pass. Even a slider's force-commit must measure its final live state.
-        MinisUIStore.update(blockId: block.id, sessionId: vm.sessionId) {
+        MinisUIStore.update(blockId: block.id, sessionId: vm.sessionId, state: { block.genuiStateJSON }) {
             block.genuiStateJSON = after
         }
         GenUIStatePersistence.save(blockToolUseId: block.toolUseId, sessionId: vm.sessionId, json: after)
     }
 
     private func runAction(_ act: MUAction, program: MUProgram, defaults: [String: MUValue]) {
+        enqueueStateChange { applyAction(act, program: program, defaults: defaults) }
+    }
+
+    private func applyAction(_ act: MUAction, program: MUProgram, defaults: [String: MUValue]) {
         let st = currentState(defaults)
         let (newState, events, _) = MinisUIEngine.run(act, state: st, prog: program, defaults: defaults)
         persist(newState)

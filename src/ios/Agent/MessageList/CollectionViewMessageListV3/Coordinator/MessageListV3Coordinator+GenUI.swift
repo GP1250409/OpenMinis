@@ -10,7 +10,7 @@ extension CollectionViewMessageListV3.Coordinator {
     /// pass. Keep real geometry until its replacement is measured; never run
     /// the answered-question animation/reveal or its delayed anchor callbacks.
     func commitGenUIStateChange(_ change: MinisUIStateUpdate) {
-        guard Thread.isMainThread, !change.request.hasRun,
+        guard Thread.isMainThread,
               let vm, vm.sessionId == change.sessionId,
               let cv = viewController?.collectionView, cv.window != nil,
               let layout = cv.collectionViewLayout as? MessageListLayout,
@@ -44,7 +44,13 @@ extension CollectionViewMessageListV3.Coordinator {
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
             withTransaction(noAnim) {
-                guard change.request.run() else { return }
+                _ = change.request.run()
+                // The write is one-shot, but EVERY mounted list must size the
+                // final state, including lists with a separately loaded block.
+                if let readState = change.state {
+                    let after = readState()
+                    if block.genuiStateJSON != after { block.genuiStateJSON = after }
+                }
                 if let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
                    let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes {
                     // A fresh root observes the just-committed values immediately.
@@ -77,7 +83,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
             }
         }
-        CrashBreadcrumbs.record("genui.commit", detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(measured ?? oldHeight)) animated=0")
+        CrashBreadcrumbs.record("genui.commit", detail: String(format: "idx=%d h=%.0f->%.0f animated=0", i, oldHeight, measured ?? oldHeight))
         // One bounded validation after the hosting graph has consumed @Published.
         // No captured offset/anchor is replayed: rapid taps, scrolling, navigation
         // or a new snapshot make this check stale and it must do nothing.
@@ -132,7 +138,7 @@ extension CollectionViewMessageListV3.Coordinator {
             layout.invalidateLayout()
             cv.layoutIfNeeded()
             restoreGenUIOffset(offset, in: cv)
-            CrashBreadcrumbs.record("genui.verify", detail: "idx=\(i) h=\(Int(attrs.size.height))->\(Int(fitted)) animated=0")
+            CrashBreadcrumbs.record("genui.verify", detail: String(format: "idx=%d h=%.0f->%.0f animated=0", i, attrs.size.height, fitted))
         }
     }
 }

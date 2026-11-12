@@ -105,3 +105,24 @@ struct GenUIFillerRow: View {
             .frame(minHeight: 90, alignment: .topLeading)
     }
 }
+
+/// Decodes the fixture's own JSON shape (the format `GenUICardState.json`
+/// writes). In an extension so the memberwise initializer survives.
+extension GenUICardState {
+    init?(json: String) {
+        func str(_ key: String) -> String {
+            guard let r = json.range(of: "\"\(key)\":\"") else { return "" }
+            return String(json[r.upperBound...].prefix { $0 != "\"" })
+        }
+        func num(_ key: String) -> Double {
+            guard let r = json.range(of: "\"\(key)\":") else { return 0 }
+            return Double(json[r.upperBound...].prefix { $0.isNumber || $0 == "." || $0 == "-" }) ?? 0
+        }
+        guard json.contains("\"choice\"") else { return nil }
+        self.choice = str("choice")
+        self.feedback = str("feedback")
+        self.segmented = str("segmented")
+        self.slider = num("slider")
+        self.long = false
+    }
+}

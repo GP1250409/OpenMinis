@@ -227,20 +227,31 @@ def source_checks(store_slice='', genui_block=''):
          and 'let sessionId: String?' in store_slice
          and 'let request: ToggleRequest' in store_slice,
          'MinisUIStateUpdate carries blockId / sessionId / ToggleRequest')
-    need('static func update(blockId: UUID, sessionId: String?, _ apply: @escaping () -> Void)' in store_slice,
-         'MinisUIStore.update(blockId:sessionId:_:) signature')
+    need(re.search(r'static func update\(blockId: UUID, sessionId: String\?,'
+                   r'( state: \(\(\) -> String\?\)\? = nil,)? _ apply: @escaping \(\) -> Void\)', store_slice) is not None,
+         'MinisUIStore.update(blockId:sessionId:[state:]_:_) signature')
+    need('static func enqueue(_ work: @escaping () -> Void)' in store_slice
+         and 'DispatchQueue.main.async(execute: work)' in store_slice,
+         'MinisUIStore.enqueue puts the whole mutation on the next main-queue turn')
+    need('precondition(Thread.isMainThread)' in card
+         and 'assert(Thread.isMainThread)' not in card,
+         'the main-thread contract is a precondition (not a debug-only assert)')
     need('NotificationCenter.default.post(name: stateChanged, object: change)' in store_slice,
          'the update is posted synchronously (plain post, no scheduler hop)')
-    need('receive(on:' not in store_slice and 'DispatchQueue.main.async' not in store_slice,
-         'no receive(on:)/async hop inside MinisUIStore.update (would draw new content in the old frame)')
+    update_fn = brace_block(store_slice, 'static func update(blockId: UUID', 'MinisUIStore.update')
+    need('receive(on:' not in update_fn and 'DispatchQueue.main.async' not in update_fn,
+         'no receive(on:)/async hop inside MinisUIStore.update (the post stays synchronous)')
     need('if !change.request.hasRun {' in store_slice and 'withTransaction' in store_slice
          and 'disablesAnimations = true' in store_slice,
          'no-handler fallback runs the request once inside a no-animation transaction')
 
     # ---- card: persist through the list, slider live stays direct ----
+    need('let state: (() -> String?)?' in store_slice
+         and 'state: (() -> String?)? = nil' in store_slice,
+         'MinisUIStateUpdate carries the origin final state reader (optional, nil default)')
     persist = brace_block(card, 'private func persist(_ st: [String: MUValue], force: Bool = false) {',
                           'persist')
-    need('MinisUIStore.update(blockId: block.id, sessionId: vm.sessionId)' in persist,
+    need('MinisUIStore.update(blockId: block.id, sessionId: vm.sessionId, state:' in persist,
          'persist delegates the state write to MinisUIStore.update')
     need('block.genuiStateJSON = after' in persist,
          'the write itself is still performed (inside the list transaction)')
@@ -248,13 +259,31 @@ def source_checks(store_slice='', genui_block=''):
          'the old post-then-resize path (didResize) is gone')
     need('GenUIStatePersistence.save(' in persist,
          'persistence still happens after the commit')
+    need('state: { block.genuiStateJSON }' in persist,
+         'persist hands the origin final state to the list (separate block instances)')
+    # Three queue call sites: slider release / segmented-choice / button action.
+    enq = brace_block(card, 'private func enqueueStateChange(_ work: @escaping () -> Void) {',
+                      'enqueueStateChange')
+    need('MinisUIStore.enqueue' in enq, 'enqueueStateChange routes through MinisUIStore.enqueue')
+    need('guard vm.sessionId == sessionId else { return }' in enq,
+         'a queued change re-checks the session (no leak after navigation)')
+    need('commit: { enqueueStateChange {' in card,
+         'slider release commits through the queue')
+    set_state = brace_block(card, 'private func setState(_ name: String, _ value: MUValue, live: Bool,',
+                            'setState')
+    need('} else {\n            enqueueStateChange {' in set_state
+         and 'var latest = currentState(defaults)' in set_state,
+         'non-live input changes queue, then re-read state and touch only their own key')
+    run_action = brace_block(card, 'private func runAction(_ act: MUAction', 'runAction')
+    need('enqueueStateChange { applyAction(' in run_action,
+         'a button action (and its @ToAssistant turn) runs after the queue, not inside the touch callback')
     need('didResize' not in snap, 'the notification sink no longer handles didResize')
     set_state = brace_block(card, 'private func setState(_ name: String, _ value: MUValue, live: Bool,',
                             'setState')
     live_region = set_state.split('} else {')[0]
     need('MinisUIStore.update' not in live_region and 'block.genuiStateJSON = MinisUITool.encodeState(st)' in live_region,
          'slider live drag writes directly (no save, no re-measure)')
-    need('persist(st)' in set_state, 'a slider release force-commits through persist')
+    need('persist(latest)' in set_state, 'a slider release force-commits the re-read state through persist')
 
     # ---- coordinator wiring ----
     need('var genuiStateSub: AnyCancellable?' in core_path.read_text(),
@@ -307,7 +336,11 @@ def source_checks(store_slice='', genui_block=''):
                   or ('MinisUITool.renders(block)' in body
                       and 'case .success = block.toolStatus' in card_src))
     pending(renders_ok, 'only a successfully rendered card is committed (.success / MinisUITool.renders)')
-    pending('request.run()' in body, 'the request is applied inside the commit')
+    pending('_ = change.request.run()' in body, 'the one-shot request is applied inside the commit')
+    pending('!change.request.hasRun' not in body,
+            'EVERY mounted list measures (the !hasRun guard is gone)')
+    pending('if let readState = change.state' in body and 'block.genuiStateJSON != after' in body,
+            'the origin final state is written to this list\'s own block when it differs')
     pending('withTransaction' in body and 'disablesAnimations = true' in body,
             'the commit runs inside one no-animation transaction')
     pending('configureCell(' in body, 'the cell is reconfigured (fresh content, not a bare height write)')
@@ -383,6 +416,8 @@ REQUIRED_CASES = [
     ('oldRealHeightNeverEstimate', '旧 real 高度不掉回粗估'),
     ('noThinkingToggleEmitted', '不发出 thinkingBlockToggled'),
     ('widthChangeRemeasure', '变宽/变窄后重新测高的基础 case'),
+    ('enqueueDefersStateAndHeight', 'enqueue 前 state/height 都不变，下一 turn 同时正确，两个排队变更不丢 key'),
+    ('twoListsSharedBlockChange', '同 session 两列表同 block UUID 不同实例：一次 apply，两边都测高'),
 ]
 
 

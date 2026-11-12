@@ -8,13 +8,14 @@ import SwiftUI
 /// `commitGenUIStateChange` (+ its async verify) from
 /// `MessageListV3Coordinator+GenUI.swift`, wrapped in the fixture coordinator.
 final class GenUIHeightTests {
-    func makeHarness(long: Bool = false, sessionId: String? = "session-A") -> GenUIListHarness {
+    func makeHarness(long: Bool = false, sessionId: String? = "session-A",
+                     cardBlockId: UUID? = nil) -> GenUIListHarness {
         var card = GenUICardState()
         card.long = long
         let rows = [
             GenUIRowModel(kind: .header, text: "Assistant header row"),
             GenUIRowModel(kind: .text, text: "第一段回答，用来在卡片上方制造真实内容，让卡片下方仍然可以滚动。"),
-            GenUIRowModel(kind: .card, card: card),
+            GenUIRowModel(kind: .card, card: card, blockId: cardBlockId),
             GenUIRowModel(kind: .text, text: "卡片之后的解释文字，保证下方有内容、offset 有上下限。"),
             GenUIRowModel(kind: .footer, text: "footer"),
         ]
@@ -293,6 +294,77 @@ final class GenUIHeightTests {
         CheckLog.check("widthChange/offset", abs(h.offset - offset) <= 0.5, "\(offset) -> \(h.offset)")
     }
 
+    // MARK: - 13. enqueue defers BOTH state and height, queued keys survive
+
+    func enqueueDefersStateAndHeight() {
+        let h = makeHarness()
+        let beforeState = h.rows[h.targetIndex].card
+        let beforeHeight = h.rowHeight(h.targetIndex)
+        h.queuedCardChange { s in var s = s; s.segmented = "年"; return s }
+        h.queuedCardChange { s in var s = s; s.choice = "红色"; s.feedback = "两个排队变更都要保留。"; return s }
+        // Before the main-queue turn runs: no state, no height.
+        CheckLog.check("enqueue/deferred-state", h.rows[h.targetIndex].card == beforeState,
+                       "segmented=\(h.rows[h.targetIndex].card.segmented) choice=\(h.rows[h.targetIndex].card.choice)")
+        CheckLog.check("enqueue/deferred-height", abs(h.rowHeight(h.targetIndex) - beforeHeight) <= 0.5,
+                       "\(beforeHeight) -> \(h.rowHeight(h.targetIndex))")
+        h.pump(0.35); h.layoutNow(); h.pump(0.1); h.layoutNow()
+        let after = h.rows[h.targetIndex].card
+        CheckLog.check("enqueue/both-keys-kept",
+                       after.segmented == "年" && after.choice == "红色" && after.feedback == "两个排队变更都要保留。",
+                       "segmented=\(after.segmented) choice=\(after.choice) feedback=\(after.feedback)")
+        CheckLog.check("enqueue/height-grew", h.rowHeight(h.targetIndex) > beforeHeight + 10,
+                       "\(beforeHeight) -> \(h.rowHeight(h.targetIndex))")
+        CheckLog.check("enqueue/height-real",
+                       abs(h.rowHeight(h.targetIndex) - h.measuredCardHeight()) <= 1,
+                       "row=\(h.rowHeight(h.targetIndex)) fitted=\(h.measuredCardHeight())")
+    }
+
+    // MARK: - 14. Two lists, one block UUID, two block instances
+
+    func twoListsSharedBlockChange() {
+        let shared = UUID()
+        let a = makeHarness(sessionId: "session-A", cardBlockId: shared)
+        let b = makeHarness(sessionId: "session-A", cardBlockId: shared)
+        guard let origin = a.cardBlocks[a.rows[a.targetIndex].id],
+              let blockB = b.cardBlocks[b.rows[b.targetIndex].id] else {
+            CheckLog.fail("twoLists/setup (blocks)")
+            return
+        }
+        CheckLog.check("twoLists/distinct-instances", origin !== blockB)
+        let beforeA = a.rowHeight(a.targetIndex)
+        let beforeB = b.rowHeight(b.targetIndex)
+        let offsetA = a.offset
+        let offsetB = b.offset
+        let target = GenUICardState(choice: "绿色", feedback: "同一个 block UUID，两个列表实例。",
+                                    segmented: "月", slider: 30, long: false)
+        var runs = 0
+        // Built directly: the origin list's block, consumed by BOTH lists.
+        let change = MinisUIStateUpdate(blockId: shared, sessionId: "session-A",
+                                        state: { origin.genuiStateJSON }) {
+            runs += 1
+            origin.genuiStateJSON = target.json
+        }
+        a.coordinator.commitGenUIStateChange(change)
+        b.coordinator.commitGenUIStateChange(change)
+        a.layoutNow(); b.layoutNow()
+        a.pump(0.25); b.pump(0.25)
+        a.layoutNow(); b.layoutNow()
+        CheckLog.check("twoLists/apply-once", runs == 1 && change.request.hasRun, "runs=\(runs)")
+        CheckLog.check("twoLists/state-synced",
+                       origin.genuiStateJSON == target.json && blockB.genuiStateJSON == target.json,
+                       "b=\(blockB.genuiStateJSON ?? "nil")")
+        CheckLog.check("twoLists/a-measured",
+                       a.rowHeight(a.targetIndex) > beforeA + 10
+                       && abs(a.rowHeight(a.targetIndex) - a.measuredCardHeight()) <= 1,
+                       "\(beforeA) -> \(a.rowHeight(a.targetIndex)) fitted=\(a.measuredCardHeight())")
+        CheckLog.check("twoLists/b-measured",
+                       b.rowHeight(b.targetIndex) > beforeB + 10
+                       && abs(b.rowHeight(b.targetIndex) - b.measuredCardHeight()) <= 1,
+                       "\(beforeB) -> \(b.rowHeight(b.targetIndex)) fitted=\(b.measuredCardHeight())")
+        CheckLog.check("twoLists/offsets", abs(a.offset - offsetA) <= 0.5 && abs(b.offset - offsetB) <= 0.5,
+                       "a \(offsetA)->\(a.offset) b \(offsetB)->\(b.offset)")
+    }
+
     // MARK: - suite
 
     func run() {
@@ -308,6 +380,8 @@ final class GenUIHeightTests {
         oldRealHeightNeverEstimate()
         noThinkingToggleEmitted()
         widthChangeRemeasure()
+        enqueueDefersStateAndHeight()
+        twoListsSharedBlockChange()
     }
 }
 
