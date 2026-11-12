@@ -393,8 +393,10 @@ final class GenUIHeightTests {
     // MARK: - suite
 
     private func runCase(_ name: String, _ body: () -> Void) {
+        GenUIPhaseTrace.mark("case-begin " + name)
         print("GENUI_CASE_BEGIN \(name)"); fflush(stdout)
         body()
+        GenUIPhaseTrace.mark("case-end " + name)
         print("GENUI_CASE_END \(name)"); fflush(stdout)
     }
 
@@ -427,15 +429,19 @@ final class GenUIHeightApp: UIResponder, UIApplicationDelegate {
         w.rootViewController = UIViewController()
         w.makeKeyAndVisible()
         let start = Timer(timeInterval: 0.4, repeats: false) { _ in
+            GenUIPhaseTrace.reset()
+            GenUIPhaseTrace.mark("suite-begin")
             GenUIHeightTests().run()
             print("GENUI_HEIGHT_UIKIT_CHECKS \(CheckLog.passed)")
             if CheckLog.failed > 0 {
                 print("GENUI_HEIGHT_UIKIT_FAIL \(CheckLog.failed)")
                 fflush(stdout)
+                GenUIPhaseTrace.mark("before-exit 2 failed=\(CheckLog.failed)")
                 exit(2)
             }
             print("GENUI_HEIGHT_UIKIT_PASS checks=\(CheckLog.passed)")
             fflush(stdout)
+            GenUIPhaseTrace.mark("before-exit 0 checks=\(CheckLog.passed)")
             exit(0)
         }
         RunLoop.main.add(start, forMode: .common)

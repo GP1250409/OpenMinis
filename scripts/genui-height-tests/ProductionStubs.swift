@@ -64,11 +64,13 @@ final class CheckLog {
     static var failed = 0
     static func pass(_ name: String) {
         passed += 1
+        GenUIPhaseTrace.mark("PASS " + name)
         print("PASS: \(name)")
         fflush(stdout)
     }
     static func fail(_ name: String) {
         failed += 1
+        GenUIPhaseTrace.mark("FAIL " + name)
         print("FAIL: \(name)")
         fflush(stdout)
     }
@@ -96,4 +98,22 @@ final class NoAnimationCollectionView: UICollectionView {
     var animatesNextLayoutPass = false
     var isApplyingSnapshot = false
     var streamingGrowAnimationEnabled = false
+}
+
+/// Diagnostic only: stdout can be truncated when simctl detaches or the app
+/// dies. This append+fsync journal records which assertions REALLY executed.
+/// A journal completion is NOT used to bypass the runner's stdout PASS gate.
+enum GenUIPhaseTrace {
+    private static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("genui-phase.log")
+    static func reset() { try? Data().write(to: url, options: .atomic) }
+    static func mark(_ phase: String) {
+        let line = "\(CACurrentMediaTime()) main=\(Thread.isMainThread) \(phase)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        guard let f = try? FileHandle(forWritingTo: url) else { return }
+        _ = try? f.seekToEnd()
+        try? f.write(contentsOf: data)
+        try? f.synchronize()
+        try? f.close()
+    }
 }

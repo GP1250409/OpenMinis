@@ -554,6 +554,15 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
     print(run.stdout, flush=True)
     (out / 'results.log').write_text(run.stdout)
     note('LAUNCH_RETURN_CODE ' + str(run.returncode))
+    container = subprocess.run(['xcrun', 'simctl', 'get_app_container', uid, info['CFBundleIdentifier'], 'data'],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    if container.returncode == 0:
+        phase = pathlib.Path(container.stdout.strip()) / 'Documents/genui-phase.log'
+        if phase.exists():
+            journal = phase.read_text()
+            (out / 'phase-journal.log').write_text(journal)
+            note('GENUI_PHASE_JOURNAL_TAIL\n' + '\n'.join(journal.splitlines()[-16:]))
+    # A complete phase journal alone NEVER substitutes for the stdout PASS.
 
     for key, pattern in (('CHECK_COUNT', r'GENUI_HEIGHT_UIKIT_CHECKS (\d+)'),
                          ('CHOICE_DRIFT', r'GENUI_CHOICE_DRIFT (-?[\d.]+)'),
