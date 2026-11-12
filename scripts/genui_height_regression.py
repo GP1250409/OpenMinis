@@ -538,8 +538,19 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
     (app / 'Info.plist').write_bytes(plistlib.dumps(info))
     subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
     subprocess.run(['xcrun', 'simctl', 'install', uid, str(app)], check=True)
-    run = subprocess.run(['xcrun', 'simctl', 'launch', '--console', uid, info['CFBundleIdentifier']],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=420)
+    try:
+        run = subprocess.run(['xcrun', 'simctl', 'launch', '--console', uid, info['CFBundleIdentifier']],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+    except subprocess.TimeoutExpired as e:
+        partial = e.stdout or ''
+        if isinstance(partial, bytes):
+            partial = partial.decode(errors='replace')
+        (out / 'results-timeout.log').write_text(partial)
+        note(partial[-20000:])
+        note('GENUI_HEIGHT_LAUNCH_TIMEOUT 180s; partial console saved')
+        subprocess.run(['xcrun', 'simctl', 'terminate', uid, info['CFBundleIdentifier']],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        raise SystemExit('GenUI fixture did not finish; partial console retained')
     print(run.stdout, flush=True)
     (out / 'results.log').write_text(run.stdout)
     note('LAUNCH_RETURN_CODE ' + str(run.returncode))

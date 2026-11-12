@@ -130,6 +130,12 @@ final class GenUIListHarness {
         cardBlocks = blocks
         coordinator.snapshotMessages = messages
         coordinator.vm?.messages = coordinator.snapshotMessages
+        // The production snapshot path suppresses offset compensation while
+        // constructing the initial list, then restores its captured viewport.
+        // Our fixture must establish the same LEGAL resting baseline before
+        // asserting that a later card interaction never moves that viewport.
+        coordinator.isFlushing = true
+        layout.suppressContentOffsetAdjustment = true
         layout.trackCount = rows.count
         var snap = NSDiffableDataSourceSnapshot<CollectionViewMessageListV3.Section, MessageListItem>()
         snap.appendSections([0])
@@ -146,6 +152,9 @@ final class GenUIListHarness {
         testWindow.layoutIfNeeded()
         collection.layoutIfNeeded()
         warmUp()
+        scrollToTop()
+        layout.suppressContentOffsetAdjustment = false
+        coordinator.isFlushing = false
     }
 
     deinit { testWindow.isHidden = true }

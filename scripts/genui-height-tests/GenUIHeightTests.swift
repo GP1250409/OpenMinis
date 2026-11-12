@@ -32,6 +32,8 @@ final class GenUIHeightTests {
         let offset = h.offset
         CheckLog.check("choiceFeedbackGrows/baseline-real", before > 40 && abs(before - GenUIListHarness.coarseEstimate) > 1,
                        "h=\(before)")
+        CheckLog.check("choiceFeedbackGrows/baseline-offset-legal", h.isLegalOffset(offset),
+                       "offset=\(offset) min=\(-h.collection.contentInset.top) max=\(h.maxOffset)")
         let consumedBefore = h.productionConfigureCount
         h.cardUpdate { s in
             var s = s
@@ -378,21 +380,27 @@ final class GenUIHeightTests {
 
     // MARK: - suite
 
+    private func runCase(_ name: String, _ body: () -> Void) {
+        print("GENUI_CASE_BEGIN \(name)"); fflush(stdout)
+        body()
+        print("GENUI_CASE_END \(name)"); fflush(stdout)
+    }
+
     func run() {
-        choiceFeedbackGrows()
-        longCardOffscreenKeepsOffset()
-        resetShrinksBack()
-        segmentedPureValueNoGeometry()
-        rapidRepeatedState()
-        sliderLiveThenCommit()
-        noListFallbackKeepsState()
-        sessionMismatchNotConsumed()
-        noLayerAnimations()
-        oldRealHeightNeverEstimate()
-        noThinkingToggleEmitted()
-        widthChangeRemeasure()
-        enqueueDefersStateAndHeight()
-        twoListsSharedBlockChange()
+        runCase("choiceFeedbackGrows", choiceFeedbackGrows)
+        runCase("longCardOffscreenKeepsOffset", longCardOffscreenKeepsOffset)
+        runCase("resetShrinksBack", resetShrinksBack)
+        runCase("segmentedPureValueNoGeometry", segmentedPureValueNoGeometry)
+        runCase("rapidRepeatedState", rapidRepeatedState)
+        runCase("sliderLiveThenCommit", sliderLiveThenCommit)
+        runCase("noListFallbackKeepsState", noListFallbackKeepsState)
+        runCase("sessionMismatchNotConsumed", sessionMismatchNotConsumed)
+        runCase("noLayerAnimations", noLayerAnimations)
+        runCase("oldRealHeightNeverEstimate", oldRealHeightNeverEstimate)
+        runCase("noThinkingToggleEmitted", noThinkingToggleEmitted)
+        runCase("widthChangeRemeasure", widthChangeRemeasure)
+        runCase("enqueueDefersStateAndHeight", enqueueDefersStateAndHeight)
+        runCase("twoListsSharedBlockChange", twoListsSharedBlockChange)
     }
 }
 
