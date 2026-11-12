@@ -93,6 +93,7 @@ enum MinisUIPrompt {
             ("Table", "Table. rows = array of arrays of text. Keep to ≤4 columns."),
             ("BarChart", "Bar chart, one series. highlight = label texts of the bars to emphasise (the others turn grey in the Economist chart style); use it to point at the one thing the reader should notice, e.g. the latest or the largest."),
             ("LineChart", "Line chart, one series. highlight = label texts of the points to mark with a dot; leave out for a plain line."),
+            ("MultiChart", "Chart with 2–6 series, a legend, subtitle and source line. kind \"line\" (trends over time), \"bar\" (side-by-side bars) or \"stacked\" (parts of a whole). series = one name per row of values; values = number[][] with one row per series, each row as long as labels. Use title for a short headline that states the point, subtitle for what is measured with units, source for the data source. highlight = label or series texts to emphasise (others turn grey). Prefer this over BarChart/LineChart when comparing several series. Do not use more than 4 series if you can avoid it."),
             ("Button", "Runs an action when tapped."),
         ]
         let comps = docs.map { "- \(sig($0.0)) — \($0.1)" }.joined(separator: "\n")

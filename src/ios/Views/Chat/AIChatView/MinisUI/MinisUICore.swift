@@ -41,6 +41,12 @@ final class MUComp {
         if case .arr(let xs)? = props[k] { return xs.compactMap { if case .num(let d) = $0 { return d }; return nil } }
         return []
     }
+    func matrix(_ k: String) -> [[Double]] {
+        if case .arr(let xs)? = props[k] {
+            return xs.map { r in if case .arr(let ys) = r { return ys.compactMap { if case .num(let d) = $0 { return d }; return nil } }; return [] }
+        }
+        return []
+    }
     func rows(_ k: String) -> [[String]] {
         if case .arr(let xs)? = props[k] {
             return xs.map { r in if case .arr(let cs) = r { return cs.compactMap { if case .str(let s) = $0 { return s }; return nil } }; return [] }
@@ -166,7 +172,7 @@ struct MURuntimeError: Error {
 // MARK: - Component library
 
 enum MUType {
-    case string, number, bool, text, strings, numbers, rows, component, components, binding, action
+    case string, number, bool, text, strings, numbers, matrix, rows, component, components, binding, action
     case oneOf([String])
 
     var label: String {
@@ -177,6 +183,7 @@ enum MUType {
         case .text: return "text"
         case .strings: return "string[]"
         case .numbers: return "number[]"
+        case .matrix: return "number[][]"
         case .rows: return "rows"
         case .component: return "component"
         case .components: return "component[]"
@@ -221,6 +228,13 @@ enum MinisUILibrary {
                       MUArg("highlight", .strings, false)],
         "LineChart": [MUArg("labels", .strings, true), MUArg("values", .numbers, true), MUArg("unit", .string, false),
                       MUArg("highlight", .strings, false)],
+        // 2017 Economist-style multi-series chart (new; BarChart/LineChart unchanged).
+        // kind: line | bar | stacked. series[i] names the row values[i].
+        "MultiChart": [MUArg("kind", .oneOf(["line", "bar", "stacked"]), true),
+                       MUArg("labels", .strings, true), MUArg("series", .strings, true),
+                       MUArg("values", .matrix, true), MUArg("title", .string, false),
+                       MUArg("subtitle", .string, false), MUArg("source", .string, false),
+                       MUArg("unit", .string, false), MUArg("highlight", .strings, false)],
         "Button": [MUArg("label", .string, true), MUArg("action", .action, true),
                    MUArg("style", .oneOf(["primary", "secondary"]), false)],
     ]
@@ -234,6 +248,7 @@ enum MinisUILibrary {
     static let maxNodes = 150
     static let maxTableRows = 60
     static let maxRowChildren = 3
+    static let maxChartPoints = 60
 }
 
 // MARK: - Lexer
@@ -984,6 +999,13 @@ enum MUTypes {
             guard case .arr(let xs) = v else { return nil }
             for x in xs { if case .num = x { continue }; return nil }
             return v
+        case .matrix:
+            guard case .arr(let rs) = v else { return nil }
+            for r in rs {
+                guard case .arr(let xs) = r else { return nil }
+                for x in xs { if case .num = x { continue }; return nil }
+            }
+            return v
         case .rows:
             guard case .arr(let rs) = v else { return nil }
             var out: [MUValue] = []
@@ -1122,6 +1144,26 @@ enum MinisUIEngine {
                 if !missing.isEmpty {
                     errs.append(MUError(code: "chart-highlight", line: c.line,
                                         msg: "\(c.name): highlight must repeat label texts exactly; not in labels: \(missing.joined(separator: ", "))"))
+                }
+            case "MultiChart":
+                let labels = c.strings("labels"), names = c.strings("series"), m = c.matrix("values")
+                if names.isEmpty || names.count > 6 {
+                    errs.append(MUError(code: "chart-series", line: c.line, msg: "MultiChart: use 1–6 series (got \(names.count)); split the data into two charts if you need more"))
+                }
+                if m.count != names.count {
+                    errs.append(MUError(code: "chart-mismatch", line: c.line, msg: "MultiChart: \(names.count) series names vs \(m.count) value rows"))
+                }
+                if let bad = m.firstIndex(where: { $0.count != labels.count }) {
+                    errs.append(MUError(code: "chart-mismatch", line: c.line, msg: "MultiChart: row \(bad) has \(m[bad].count) values but there are \(labels.count) labels"))
+                }
+                if labels.count > MinisUILibrary.maxChartPoints {
+                    errs.append(MUError(code: "too-large", line: c.line, msg: "MultiChart: too many points (max \(MinisUILibrary.maxChartPoints))"))
+                }
+                let known = Set(labels).union(names)
+                let missing = c.strings("highlight").filter { !known.contains($0) }
+                if !missing.isEmpty {
+                    errs.append(MUError(code: "chart-highlight", line: c.line,
+                                        msg: "MultiChart: highlight must repeat label or series texts exactly; not found: \(missing.joined(separator: ", "))"))
                 }
             case "Table":
                 let w = c.strings("headers").count
@@ -1349,6 +1391,14 @@ enum MinisUIEngine {
                 for (a, b) in zip(c.strings("labels"), c.numbers("values")) {
                     out.append("\(a): \((try? MUFormat.num(b)) ?? "?")\(unit)")
                 }
+            case "MultiChart":
+                if let t = c.str("title") { out.append(t) }
+                let unit = c.str("unit") ?? ""
+                let labels = c.strings("labels"), names = c.strings("series"), m = c.matrix("values")
+                for (i, n) in names.enumerated() where i < m.count {
+                    let cells = zip(labels, m[i]).map { "\($0): \((try? MUFormat.num($1)) ?? "?")\(unit)" }
+                    out.append("\(n) — " + cells.joined(separator: "; "))
+                }
             default: break
             }
         }
@@ -1397,6 +1447,13 @@ enum MinisUIEngine {
                 return opts.map { 20 * textLines($0, w - 52, 13) + 22 }.reduce(0, +) + CGFloat(max(0, opts.count - 1)) * 8
             case "Table": return CGFloat(c.rows("rows").count + 1) * 30
             case "BarChart", "LineChart": return 190
+            case "MultiChart":
+                var t: CGFloat = 4 + 180 + 6
+                if c.str("title") != nil { t += 22 }
+                if c.str("subtitle") != nil { t += 4 + 20 * textLines(c.str("subtitle") ?? "", w, 12) }
+                if c.strings("series").count > 1 { t += 8 + 20 * textLines(c.strings("series").joined(separator: "   "), w, 12) }
+                if c.str("source") != nil { t += 4 + 16 * textLines(c.str("source") ?? "", w, 10) }
+                return t
             case "Button": return 40
             default: return 20
             }

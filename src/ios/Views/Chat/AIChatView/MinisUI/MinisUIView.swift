@@ -401,6 +401,7 @@ struct MUNodeView: View {
         case "Choice": MUChoice(comp: comp, ctx: ctx)
         case "Table": MUTable(comp: comp)
         case "BarChart", "LineChart": MUChart(comp: comp)
+        case "MultiChart": MUMultiChart(comp: comp)
         case "Button": MUButton(comp: comp, ctx: ctx)
         default: EmptyView()
         }
@@ -649,6 +650,41 @@ private struct MUTable: View {
 enum MUChartStyle {
     static let key = "genuiChartPalette"
     static let economist = "economist"
+    /// The Economist visual styleguide v1.2 (4 May 2017): blue/cyan/gold series
+    /// on a light blue-grey panel, red tag in the top-left corner.
+    static let economist2017 = "economist2017"
+
+    private static func hex(_ rgb: UInt32, dark: UInt32? = nil) -> Color {
+        func ui(_ v: UInt32) -> UIColor {
+            UIColor(red: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
+                    blue: CGFloat(v & 0xFF) / 255, alpha: 1)
+        }
+        return Color(uiColor: UIColor { t in t.userInterfaceStyle == .dark ? ui(dark ?? rgb) : ui(rgb) })
+    }
+
+    /// Series order for lines, taken from the guide's web palette (p.12) and the
+    /// "Lines" colour order (p.15): blue, cyan, gold, dark red, green, purple.
+    /// Dark red is not in the web palette; #A81829 (red scale, darkest) stands in.
+    static let series2017: [Color] = [
+        hex(0x006BA2, dark: 0x4D9FD1),  // blue
+        hex(0x3EBCD2, dark: 0x6FD3E4),  // cyan
+        hex(0xEBB434, dark: 0xF2C85E),  // gold / yellow
+        hex(0xA81829, dark: 0xE0525E),  // dark red (stand-in, see above)
+        hex(0x379A8B, dark: 0x5CBBAD),  // green
+        hex(0x9A607F, dark: 0xBE86A2),  // purple
+    ]
+    /// Stacked bars use blue, cyan, gold, green, light green, dark blue (p.14).
+    static let stacked2017: [Color] = [
+        hex(0x006BA2, dark: 0x4D9FD1), hex(0x3EBCD2, dark: 0x6FD3E4), hex(0xEBB434, dark: 0xF2C85E),
+        hex(0x379A8B, dark: 0x5CBBAD), hex(0x69C9B9, dark: 0x86E5D4), hex(0x00588D, dark: 0x3D89C3),
+    ]
+    /// Chart panel (web "boxes": #E9EDF0), grid, text, red tag.
+    static let panel2017 = hex(0xE9EDF0, dark: 0x1F262B)
+    static let grid2017 = hex(0xB7C6CF, dark: 0x3A474F)
+    static let text2017 = hex(0x3F5661, dark: 0xB7C6CF)
+    static let tag2017 = hex(0xE3120B, dark: 0xE3120B)
+    /// Grey for "other" / context (web palette grey).
+    static let other2017 = hex(0x758D99, dark: 0x8FA3AD)
 
     /// Main series red (light / dark).
     static let red = Color(uiColor: UIColor { t in
@@ -674,7 +710,13 @@ private struct MUChart: View {
         let values = comp.numbers("values")
         let unit = comp.str("unit") ?? ""
         let points = Array(zip(labels, values).enumerated())
-        if palette == MUChartStyle.economist {
+        if palette == MUChartStyle.economist2017 {
+            // One-series charts become a one-row MultiChart in the 2017 style.
+            MUMultiChartBody(kind: comp.name == "LineChart" ? "line" : "bar",
+                             labels: labels, series: [], matrix: [values],
+                             title: nil, subtitle: nil, source: nil, unit: unit,
+                             highlight: comp.strings("highlight"), framed: false)
+        } else if palette == MUChartStyle.economist {
             economistChart(labels: labels, values: values, unit: unit)
         } else {
             Chart(points, id: \.offset) { _, p in
@@ -750,6 +792,143 @@ private struct MUChart: View {
         }
         .frame(height: 180)
         .padding(.top, 4)
+    }
+}
+
+/// `MultiChart`: several series, a legend, subtitle and source note. Always
+/// drawn in the 2017 Economist look (it has no "system" look); the settings
+/// switch only decides how the single-series BarChart/LineChart draw.
+private struct MUMultiChart: View {
+    let comp: MUComp
+    var body: some View {
+        MUMultiChartBody(kind: comp.str("kind") ?? "line",
+                         labels: comp.strings("labels"), series: comp.strings("series"),
+                         matrix: comp.matrix("values"), title: comp.str("title"),
+                         subtitle: comp.str("subtitle"), source: comp.str("source"),
+                         unit: comp.str("unit") ?? "", highlight: comp.strings("highlight"),
+                         framed: true)
+    }
+}
+
+/// Economist 2017 chart body. `framed` = light panel + red tag + title block
+/// (used by MultiChart); BarChart/LineChart in this style draw unframed so they
+/// sit inside the card like before.
+///
+/// Height contract: the chart area is a fixed 180pt like the other charts; the
+/// title/subtitle/legend/source rows are text and wrap, so the sizing estimate
+/// in MinisUIEngine.estimate() mirrors them.
+private struct MUMultiChartBody: View {
+    let kind: String
+    let labels: [String]
+    let series: [String]
+    let matrix: [[Double]]
+    let title: String?
+    let subtitle: String?
+    let source: String?
+    let unit: String
+    let highlight: [String]
+    let framed: Bool
+
+    private var palette: [Color] { kind == "stacked" ? MUChartStyle.stacked2017 : MUChartStyle.series2017 }
+
+    private var rows: Int { matrix.count }
+    private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
+    private var hl: Set<String> { Set(highlight) }
+
+    /// Colour of series `s`. A highlight naming series turns the others grey.
+    private func color(_ s: Int) -> Color {
+        let names = hl.intersection(Set(series))
+        if !names.isEmpty, s < series.count, !names.contains(series[s]) { return MUChartStyle.other2017 }
+        return palette[s % palette.count]
+    }
+
+    /// Colour of one bar. A highlight naming labels keeps those at the series
+    /// colour (cyan for the emphasised bar in the guide's "1 trace with highlight").
+    private func barColor(series s: Int, index i: Int) -> Color {
+        let marked = hl.intersection(Set(labels))
+        if rows == 1, !marked.isEmpty {
+            return marked.contains(labels[i]) ? MUChartStyle.series2017[1] : MUChartStyle.series2017[0]
+        }
+        return color(s)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if framed {
+                Rectangle().fill(MUChartStyle.tag2017).frame(width: 28, height: 4)
+                    .padding(.bottom, 2)
+                if let t = title {
+                    Text(t).font(.system(size: 14, weight: .bold)).foregroundStyle(Color.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let st = subtitle {
+                    Text(st).font(.system(size: 12)).foregroundStyle(MUChartStyle.text2017)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if series.count > 1 { legend }
+            chart.frame(height: 180).padding(.top, 4)
+            if framed, let src = source {
+                Text(src).font(.system(size: 10)).foregroundStyle(MUChartStyle.text2017.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(framed ? 10 : 0)
+        .background(framed ? AnyView(RoundedRectangle(cornerRadius: 2).fill(MUChartStyle.panel2017)) : AnyView(Color.clear))
+    }
+
+    private var legend: some View {
+        HStack(spacing: 10) {
+            ForEach(0..<series.count, id: \.self) { s in
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 1).fill(color(s)).frame(width: 10, height: 3)
+                    Text(series[s]).font(.system(size: 11)).foregroundStyle(MUChartStyle.text2017)
+                }
+            }
+        }
+    }
+
+    /// Per-mark colours are set explicitly (no foregroundStyle(by:) scale), so a
+    /// highlight can recolour single bars and the legend uses the same function.
+    private var chart: some View {
+        Chart {
+            ForEach(0..<rows, id: \.self) { s in
+                ForEach(0..<cols, id: \.self) { i in
+                    let name = s < series.count ? series[s] : "v"
+                    switch kind {
+                    case "line":
+                        LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
+                            .foregroundStyle(color(s))
+                            .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                    case "stacked":
+                        BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
+                            .foregroundStyle(color(s))
+                    default:
+                        BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
+                            .foregroundStyle(barColor(series: s, index: i))
+                            .position(by: .value("s", name))
+                    }
+                }
+            }
+            if kind != "line" {
+                RuleMark(y: .value("zero", 0.0)).foregroundStyle(Color.primary).lineStyle(StrokeStyle(lineWidth: 1.2))
+            }
+        }
+        .chartXScale(domain: labels)
+        .chartLegend(.hidden)
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6)).foregroundStyle(MUChartStyle.grid2017)
+                AxisValueLabel().foregroundStyle(MUChartStyle.text2017)
+            }
+        }
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisTick(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(MUChartStyle.text2017)
+                AxisValueLabel().foregroundStyle(MUChartStyle.text2017)
+            }
+        }
     }
 }
 

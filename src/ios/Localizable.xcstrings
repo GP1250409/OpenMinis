@@ -141,37 +141,72 @@
         }
       }
     },
-    "Colour style for bar and line charts in interactive cards (show_ui). The Economist style uses red series, a black baseline and light grid lines." : {
+    "Colour style for bar and line charts in interactive cards (show_ui). The Economist: red on grey with a black baseline, as in recent charts. The Economist (2017 guide): the official blue, cyan and gold series on a light blue-grey panel." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Colour style for bar and line charts in interactive cards (show_ui). The Economist style uses red series, a black baseline and light grid lines."
+            "value" : "Colour style for bar and line charts in interactive cards (show_ui). The Economist: red on grey with a black baseline, as in recent charts. The Economist (2017 guide): the official blue, cyan and gold series on a light blue-grey panel."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "インタラクティブカード（show_ui）内の棒グラフと折れ線グラフの配色です。The Economist スタイルは、赤い系列、黒いベースライン、薄いグリッド線を使います。"
+            "value" : "インタラクティブカード（show_ui）内の棒グラフと折れ線グラフの配色です。The Economist：最近のグラフのような、グレーに赤と黒いベースライン。The Economist（2017 ガイド）：公式の青・シアン・ゴールドの系列と薄い青灰色のパネル。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "인터랙티브 카드(show_ui)의 막대·선 차트 색상 스타일입니다. The Economist 스타일은 빨간 계열, 검은 기준선, 옅은 격자선을 사용합니다."
+            "value" : "인터랙티브 카드(show_ui)의 막대·선 차트 색상 스타일입니다. The Economist: 최근 차트처럼 회색 바탕에 빨강과 검은 기준선. The Economist(2017 가이드): 공식 파랑·청록·금색 계열과 옅은 청회색 패널."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "交互卡片（show_ui）中柱状图和折线图的配色。经济学人风格使用红色系列、黑色基线和浅色网格线。"
+            "value" : "交互卡片（show_ui）中柱状图和折线图的配色。经济学人：近年图表风格，灰底红色重点加黑色基线。经济学人（2017 规范）：官方蓝、青、金色系列，配浅蓝灰面板。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "互動卡片（show_ui）中長條圖和折線圖的配色。經濟學人風格使用紅色系列、黑色基線和淺色網格線。"
+            "value" : "互動卡片（show_ui）中長條圖和折線圖的配色。經濟學人：近年圖表風格，灰底紅色重點加黑色基線。經濟學人（2017 規範）：官方藍、青、金色系列，配淺藍灰面板。"
+          }
+        }
+      }
+    },
+    "The Economist (2017 guide)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Economist (2017 guide)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Economist（2017 ガイド）"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Economist(2017 가이드)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "经济学人（2017 规范）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "經濟學人（2017 規範）"
           }
         }
       }

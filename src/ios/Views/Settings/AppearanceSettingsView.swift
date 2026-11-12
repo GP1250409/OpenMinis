@@ -287,11 +287,12 @@ struct AppearanceSettingsView: View {
                 Picker("Chart Colours", selection: $genuiChartPalette) {
                     Text("System").tag("")
                     Text("The Economist").tag(MUChartStyle.economist)
+                    Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
                 }
             } header: {
                 Text("Interactive Cards")
             } footer: {
-                Text("Colour style for bar and line charts in interactive cards (show_ui). The Economist style uses red series, a black baseline and light grid lines.")
+                Text("Colour style for bar and line charts in interactive cards (show_ui). The Economist: red on grey with a black baseline, as in recent charts. The Economist (2017 guide): the official blue, cyan and gold series on a light blue-grey panel.")
             }
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
