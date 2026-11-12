@@ -656,6 +656,13 @@ enum MUChartStyle {
             ? UIColor(red: 0.94, green: 0.27, blue: 0.25, alpha: 1)
             : UIColor(red: 0.902, green: 0.161, blue: 0.137, alpha: 1)
     })
+
+    /// Context grey (warm, like the printed charts): #b6b6a9 light, #8c8c83 dark.
+    static let grey = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 0.549, green: 0.549, blue: 0.514, alpha: 1)
+            : UIColor(red: 0.714, green: 0.714, blue: 0.663, alpha: 1)
+    })
 }
 
 private struct MUChart: View {
@@ -690,21 +697,39 @@ private struct MUChart: View {
 
     /// Same data and the same fixed 180pt height as the system chart, so
     /// switching style never changes the card's measured height.
+    ///
+    /// Economist rule: grey for context, red for the point. With `highlight`
+    /// labels, bars outside the list turn grey; a line stays grey with red
+    /// dots on the highlighted points (and the red line when none is given).
     @ViewBuilder
     private func economistChart(labels: [String], values: [Double], unit: String) -> some View {
         let isLine = comp.name == "LineChart"
         let n = min(labels.count, values.count)
+        let hl = Set(comp.strings("highlight"))
+        let hasHL = !hl.isEmpty
         Chart {
             ForEach(0..<n, id: \.self) { i in
                 if isLine {
                     LineMark(x: .value("x", labels[i]), y: .value("y", values[i]))
-                        .foregroundStyle(MUChartStyle.red)
+                        .foregroundStyle(hasHL ? MUChartStyle.grey : MUChartStyle.red)
                         .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    if hl.contains(labels[i]) {
+                        PointMark(x: .value("x", labels[i]), y: .value("y", values[i]))
+                            .foregroundStyle(MUChartStyle.red)
+                            .symbolSize(70)
+                            .annotation(position: .top) {
+                                Text(MUStyle.numText(values[i]) + unit)
+                                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(MUChartStyle.red)
+                            }
+                    }
                 } else {
+                    let on = !hasHL || hl.contains(labels[i])
                     BarMark(x: .value("x", labels[i]), y: .value("y", values[i]))
-                        .foregroundStyle(MUChartStyle.red)
+                        .foregroundStyle(on ? MUChartStyle.red : MUChartStyle.grey)
                         .annotation(position: .top) {
-                            Text(MUStyle.numText(values[i]) + unit).font(.system(size: 9)).foregroundStyle(.secondary)
+                            Text(MUStyle.numText(values[i]) + unit)
+                                .font(.system(size: 9, weight: on && hasHL ? .semibold : .regular))
+                                .foregroundStyle(on && hasHL ? MUChartStyle.red : Color.secondary)
                         }
                 }
             }

@@ -217,8 +217,10 @@ enum MinisUILibrary {
         "Toggle": [MUArg("label", .string, true), MUArg("value", .binding, true)],
         "Choice": [MUArg("value", .binding, true), MUArg("options", .strings, true)],
         "Table": [MUArg("headers", .strings, true), MUArg("rows", .rows, true)],
-        "BarChart": [MUArg("labels", .strings, true), MUArg("values", .numbers, true), MUArg("unit", .string, false)],
-        "LineChart": [MUArg("labels", .strings, true), MUArg("values", .numbers, true), MUArg("unit", .string, false)],
+        "BarChart": [MUArg("labels", .strings, true), MUArg("values", .numbers, true), MUArg("unit", .string, false),
+                      MUArg("highlight", .strings, false)],
+        "LineChart": [MUArg("labels", .strings, true), MUArg("values", .numbers, true), MUArg("unit", .string, false),
+                      MUArg("highlight", .strings, false)],
         "Button": [MUArg("label", .string, true), MUArg("action", .action, true),
                    MUArg("style", .oneOf(["primary", "secondary"]), false)],
     ]
@@ -1115,6 +1117,12 @@ enum MinisUIEngine {
             case "BarChart", "LineChart":
                 let l = c.strings("labels").count, v = c.numbers("values").count
                 if l != v { errs.append(MUError(code: "chart-mismatch", line: c.line, msg: "\(c.name): \(l) labels vs \(v) values")) }
+                let labelSet = Set(c.strings("labels"))
+                let missing = c.strings("highlight").filter { !labelSet.contains($0) }
+                if !missing.isEmpty {
+                    errs.append(MUError(code: "chart-highlight", line: c.line,
+                                        msg: "\(c.name): highlight must repeat label texts exactly; not in labels: \(missing.joined(separator: ", "))"))
+                }
             case "Table":
                 let w = c.strings("headers").count
                 let rows = c.rows("rows")

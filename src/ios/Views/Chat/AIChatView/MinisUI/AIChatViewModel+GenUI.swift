@@ -91,8 +91,8 @@ enum MinisUIPrompt {
             ("Toggle", "On/off switch bound to a boolean $var. Also use for checklists."),
             ("Choice", "Vertical list of tappable options (quiz answers); $var holds the chosen option text, \"\" = none yet."),
             ("Table", "Table. rows = array of arrays of text. Keep to ≤4 columns."),
-            ("BarChart", "Bar chart, one series."),
-            ("LineChart", "Line chart, one series."),
+            ("BarChart", "Bar chart, one series. highlight = label texts of the bars to emphasise (the others turn grey in the Economist chart style); use it to point at the one thing the reader should notice, e.g. the latest or the largest."),
+            ("LineChart", "Line chart, one series. highlight = label texts of the points to mark with a dot; leave out for a plain line."),
             ("Button", "Runs an action when tapped."),
         ]
         let comps = docs.map { "- \(sig($0.0)) — \($0.1)" }.joined(separator: "\n")
