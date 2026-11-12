@@ -538,8 +538,12 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
     (app / 'Info.plist').write_bytes(plistlib.dumps(info))
     subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
     subprocess.run(['xcrun', 'simctl', 'install', uid, str(app)], check=True)
+    # --console's pipe transport has returned before draining the app's last
+    # writes on this simulator. The fsynced journal proved all 63 checks and
+    # before-exit 0 ran despite missing console tail. Use simctl's PTY transport;
+    # still require the ACTUAL complete console PASS, never synthesize it.
     try:
-        run = subprocess.run(['xcrun', 'simctl', 'launch', '--console', uid, info['CFBundleIdentifier']],
+        run = subprocess.run(['xcrun', 'simctl', 'launch', '--console-pty', uid, info['CFBundleIdentifier']],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
     except subprocess.TimeoutExpired as e:
         partial = e.stdout or ''
