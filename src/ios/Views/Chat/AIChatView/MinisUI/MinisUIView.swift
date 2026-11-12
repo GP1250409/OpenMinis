@@ -699,6 +699,28 @@ enum MUChartStyle {
     /// Grey for "other" / context (web palette grey).
     static let other2017 = hex(0x758D99, dark: 0x8FA3AD)
 
+    /// Accent ramp for *highlighted* series, assigned in data order
+    /// (`MUChartEmphasis`). 2017: blue → dark cyan → gold, i.e. the guide's own
+    /// first/second/third colour, so an emphasised line can never be confused
+    /// with the grey context lines. Deliberately not the dark-red stand-in
+    /// #A81829, whose value is still awaiting the user's decision.
+    static let accent2017: [Color] = [
+        hex(0x006BA2, dark: 0x4D9FD1),
+        hex(0x005F73, dark: 0x4EC8DE),
+        hex(0xEBB434, dark: 0xF2C85E),
+    ]
+
+    /// Recent look: main red → dark red → the one blue sampled from 2024-26
+    /// charts (a sample, not an official palette).
+    static let accentRecent: [Color] = [
+        red,
+        hex(0xBE191F, dark: 0xE0525E),
+        hex(0x3651A3, dark: 0x7C92D6),
+    ]
+
+    /// System look: semantic colours that adapt to light/dark on their own.
+    static let accentSystem: [Color] = [.blue, .teal, .indigo]
+
     /// Main series red (light / dark).
     static let red = Color(uiColor: UIColor { t in
         t.userInterfaceStyle == .dark
@@ -882,17 +904,33 @@ private struct MUMultiChartBody: View {
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
     private var hl: Set<String> { Set(highlight) }
 
-    /// Colour of series `s`. A highlight naming series turns the others grey.
-    private func color(_ s: Int) -> Color {
-        let names = hl.intersection(Set(series))
-        if !names.isEmpty, s < series.count, !names.contains(series[s]) { return greyOut }
-        return palette[s % palette.count]
+    /// Role of every series, resolved once, in DATA order. The view must not
+    /// decide on its own which series is "the one to look at": a highlighted
+    /// series gets an accent whatever row it sits on (the old bug: China, third
+    /// row, came out salmon/gold because it took the third palette colour).
+    private var roles: [MUChartRole] { MUChartEmphasis.roles(series: series, highlight: highlight) }
+    private var hasSeriesHighlight: Bool { MUChartEmphasis.hasEmphasis(roles) }
+    private func isGreyed(_ s: Int) -> Bool { MUChartEmphasis.isContext(roles, at: s) }
+    private func isEmphasised(_ s: Int) -> Bool { MUChartEmphasis.slot(roles, at: s) != nil }
+
+    /// Accent colour of an emphasis slot (0 = first highlighted series in data order).
+    private func emphasisColor(_ slot: Int) -> Color {
+        let ramp: [Color]
+        switch look {
+        case .system: ramp = MUChartStyle.accentSystem
+        case .recent: ramp = MUChartStyle.accentRecent
+        case .guide2017: ramp = MUChartStyle.accent2017
+        }
+        return ramp[min(max(0, slot), ramp.count - 1)]
     }
 
-    private var hasSeriesHighlight: Bool { !hl.intersection(Set(series)).isEmpty }
-    private func isGreyed(_ s: Int) -> Bool {
-        let names = hl.intersection(Set(series))
-        return !names.isEmpty && s < series.count && !names.contains(series[s])
+    /// Colour of series `s`. Legend, line, bar and end label all come from here,
+    /// so the four can never disagree.
+    private func color(_ s: Int) -> Color {
+        guard s >= 0, s < series.count else { return palette[0] }
+        if let slot = MUChartEmphasis.slot(roles, at: s) { return emphasisColor(slot) }
+        if MUChartEmphasis.isContext(roles, at: s) { return greyOut }
+        return palette[s % palette.count]
     }
 
     /// Colour of one bar. A highlight naming labels keeps those at the series
@@ -923,7 +961,12 @@ private struct MUMultiChartBody: View {
                 }
             }
             if series.count > 1 { legend }
-            chart.frame(height: 180).padding(.top, 4)
+            GeometryReader { geo in
+                chart(width: max(120, geo.size.width))
+                    .frame(width: geo.size.width, height: chartHeight)
+            }
+            .frame(height: chartHeight)
+            .padding(.top, 4)
             if framed, let src = source {
                 Text(src).font(.system(size: 10)).foregroundStyle(textColor.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
@@ -945,10 +988,42 @@ private struct MUMultiChartBody: View {
         }
     }
 
+    /// Fixed plot height: the card's measured height must not depend on the
+    /// colour style, the number of series or the label layout.
+    private var chartHeight: CGFloat { 180 }
+
+    /// End value of every series (last column), used for the end labels.
+    private var lastValues: [Double] { matrix.map { $0.last ?? 0 } }
+
+    /// Explicit y domain: a value's pixel position is then exact (the label
+    /// layout works in points), and switching the colour style cannot rescale
+    /// the chart. Stacked bars scale to the column totals.
+    private var domain: MUChartDomain {
+        kind == "stacked" ? MUChartAxis.stackedDomain(matrix: matrix)
+                          : MUChartAxis.domain(values: matrix, includeZero: kind != "line")
+    }
+
     /// Per-mark colours are set explicitly (no foregroundStyle(by:) scale), so a
     /// highlight can recolour single bars and the legend uses the same function.
-    private var chart: some View {
-        Chart {
+    ///
+    /// `width` is the card's real width (GeometryReader); it decides the trailing
+    /// gutter so the end labels can never reach the right-hand axis numbers.
+    private func chart(width: CGFloat) -> some View {
+        let roles = self.roles
+        let showEndLabels = kind == "line" && series.count > 1 && MUChartEmphasis.hasEmphasis(roles)
+        let gutter = showEndLabels
+            ? MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width)
+            : MUChartLabelMetrics.Gutter(width: 0, fontSize: 10, labels: series, truncated: false)
+        // Collision-free vertical placement, in points; the order of the labels
+        // always follows the order of the values.
+        let placements = showEndLabels
+            ? MUChartEndLabels.layout(values: lastValues, domain: domain, plotHeight: chartHeight,
+                                      minGap: gutter.fontSize + 3, edgeInset: gutter.fontSize * 0.75)
+            : []
+        func endLabelDy(_ s: Int) -> CGFloat {
+            placements.first(where: { $0.index == s })?.dy ?? 0
+        }
+        return Chart {
             ForEach(0..<rows, id: \.self) { s in
                 ForEach(0..<cols, id: \.self) { i in
                     let name = s < series.count ? series[s] : "v"
@@ -956,15 +1031,20 @@ private struct MUMultiChartBody: View {
                     case "line":
                         LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
                             .foregroundStyle(color(s))
-                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2.0 : 2.6, lineCap: .round, lineJoin: .round))
-                        // Direct label at the last point, in the line's own colour. Needed
-                        // when several lines are grey and the legend cannot tell them apart.
-                        if i == cols - 1, series.count > 1, s < series.count, hasSeriesHighlight {
+                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2.0 : (isEmphasised(s) ? 2.8 : 2.4),
+                                                   lineCap: .round, lineJoin: .round))
+                        // Direct label at the last point, in the line's own colour: several
+                        // grey lines cannot be told apart by the legend alone. The label is
+                        // pushed by the collision-free layout above.
+                        if i == cols - 1, showEndLabels, s < gutter.labels.count {
                             PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
                                 .symbolSize(CGFloat(0))
                                 .annotation(position: .trailing, alignment: .center, spacing: 3) {
-                                    Text(series[s]).font(.system(size: 10, weight: isGreyed(s) ? .regular : .bold))
-                                        .foregroundStyle(color(s)).fixedSize()
+                                    Text(gutter.labels[s])
+                                        .font(.system(size: gutter.fontSize, weight: isGreyed(s) ? .regular : .bold))
+                                        .foregroundStyle(color(s))
+                                        .fixedSize()
+                                        .offset(y: endLabelDy(s))
                                 }
                         }
                     case "stacked":
@@ -982,10 +1062,12 @@ private struct MUMultiChartBody: View {
             }
         }
         .chartXScale(domain: labels)
+        .chartYScale(domain: domain.lower...domain.upper)
         .chartLegend(.hidden)
         .chartPlotStyle { plot in
-            // Room on the right for the direct labels (kept off the y-axis numbers).
-            plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)
+            // The label gutter is reserved INSIDE the plot area; the y-axis numbers
+            // live outside it, so the two can never touch whatever the name length.
+            plot.padding(.trailing, gutter.width)
         }
         .chartYAxis {
             AxisMarks(position: .trailing) { _ in

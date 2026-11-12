@@ -91,9 +91,9 @@ enum MinisUIPrompt {
             ("Toggle", "On/off switch bound to a boolean $var. Also use for checklists."),
             ("Choice", "Vertical list of tappable options (quiz answers); $var holds the chosen option text, \"\" = none yet."),
             ("Table", "Table. rows = array of arrays of text. Keep to ≤4 columns."),
-            ("BarChart", "Bar chart, one series. highlight = label texts of the bars to emphasise (the others turn grey in the Economist chart style); use it to point at the one thing the reader should notice, e.g. the latest or the largest."),
-            ("LineChart", "Line chart, one series. highlight = label texts of the points to mark with a dot; leave out for a plain line."),
-            ("MultiChart", "Chart with 2–6 series, a legend, subtitle and source line. kind \"line\" (trends over time), \"bar\" (side-by-side bars) or \"stacked\" (parts of a whole). series = one name per row of values; values = number[][] with one row per series, each row as long as labels. Use title for a short headline that states the point, subtitle for what is measured with units, source for the data source. highlight = label or series texts to emphasise (others turn grey). Prefer this over BarChart/LineChart when comparing several series. Do not use more than 4 series if you can avoid it."),
+            ("BarChart", "Bar chart, one series. highlight = label texts of the bars to bring out; how they look depends on the user's chart-colour setting (system: orange bars on blue, Economist recent: red on grey, Economist 2017: cyan on blue), so do not promise a colour in your text. Use it for the one thing the reader should notice, e.g. the latest or the largest value."),
+            ("LineChart", "Line chart, one series. highlight = label texts of the points to bring out: the line turns context grey and the marked points and their values are drawn in the accent colour. Leave it out for a plain line."),
+            ("MultiChart", "Chart with 1–6 series, a legend, subtitle and source line. kind \"line\" (trends), \"bar\" (side-by-side bars) or \"stacked\" (parts of a whole). series = one name per row of values; values = number[][] with one row per series, each row as long as labels. title = short headline that states the point, subtitle = what is measured incl. unit and period, source = where the numbers really come from. highlight = series names and/or label texts: a highlighted series gets a fixed accent colour in data order (2017 style blue → dark cyan → gold, recent style red → dark red → blue, system blue → teal → indigo) and the other series turn grey, so highlight at most 1–2 series; a highlighted label recolours that bar (one-series) or marks that point. In a line chart every series is also named at its last point, and those names are pushed apart so they never overlap. No second y-axis, no dashed/forecast styling, no pie/donut, no custom colours, no image export. Prefer this over BarChart/LineChart when comparing series, and stay at 4 series or fewer if you can."),
             ("Button", "Runs an action when tapped."),
         ]
         let comps = docs.map { "- \(sig($0.0)) — \($0.1)" }.joined(separator: "\n")
@@ -109,6 +109,27 @@ enum MinisUIPrompt {
         Write a short normal-text answer as well; the card complements it.
         A button's @ToAssistant message arrives as the user's next message, followed by
         a hidden note with the card's values.
+
+        Charts
+        - Prefer show_ui for an ordinary data chart whenever BarChart / LineChart /
+          MultiChart can draw it — also when you first had to look the numbers up:
+          look them up, then draw them and put the real source in `source`. Only go
+          another way (e.g. an HTML page rendered to PNG) when the user explicitly
+          asked for an exported image, a poster or an infographic, or when the chart
+          needs something these components cannot draw; then say that the result is
+          a static picture and does not follow the app's chart-colour setting.
+        - Do not invent data or sources. `source` only for a source you actually
+          have. Numbers you made up or estimated must be labelled as such in
+          `subtitle` or `source` ("估算", "示意数据") — never present them as official
+          figures and never attach a real organisation's name to them.
+        - Time series in time order, oldest first. State the unit and period in
+          `subtitle` (e.g. "同比增速，%"). One unit per chart.
+        - Keep charts quiet and readable: one message per chart, a headline that
+          states the point, at most 4 series where possible, context greyed via
+          `highlight` instead of extra colours. Phone screens are narrow.
+        - Forecast/estimate points: there is no dashed-line or shaded-forecast
+          style, so put it in the series name ("中国（预测）") or in `subtitle`;
+          do not claim styling the chart cannot draw.
 
         The `program` argument uses Minis UI Lang (a subset of OpenUI Lang):
 

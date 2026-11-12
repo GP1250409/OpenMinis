@@ -1461,3 +1461,281 @@ enum MinisUIEngine {
         return ceil(h(c, max(120, width), false))
     }
 }
+// MARK: - Chart layout & emphasis (pure Foundation; no SwiftUI)
+//
+// Everything in this section is deliberately free of SwiftUI/UIKit so the CI
+// harness (`scripts/chart_layout_regression.py`) can compile it on a real
+// toolchain and assert the behaviour that a screenshot can only hint at:
+//
+//  * which series is emphasised (data order, never the order of `highlight`),
+//  * a stable y domain, so a label pixel position is a pure function of a value,
+//  * end-of-line label placement that cannot overlap and never re-orders lines,
+//  * the trailing gutter that keeps those labels away from the right axis.
+//
+// The view (`MinisUIView.MUMultiChartBody`) only maps these results to colours
+// and `.offset`s; it must not re-implement any of the rules.
+
+/// Colour role of one series in a multi-series chart.
+///
+/// `normal` — no emphasis in this chart: the series keeps its palette colour.
+/// `emphasis(slot)` — highlighted; slot is 0-based, assigned in DATA order.
+/// `context` — greyed out because other series are emphasised.
+enum MUChartRole: Equatable {
+    case normal
+    case emphasis(Int)
+    case context
+}
+
+enum MUChartEmphasis {
+    /// Distinct accent colours available for simultaneous highlights. The guide
+    /// only ever highlights one or two points; three is the point where another
+    /// accent stops being clearly different from a normal series colour.
+    static let slots = 3
+
+    /// Highlight resolution. Deterministic and independent of the order of the
+    /// `highlight` array: rank follows the order of `series`. A highlighted
+    /// series past the last accent slot keeps its palette colour (`normal`)
+    /// rather than turning grey — a highlight must never hide data.
+    static func roles(series: [String], highlight: [String]) -> [MUChartRole] {
+        guard !series.isEmpty else { return [] }
+        let picked = Set(highlight)
+        let hits = series.enumerated().filter { picked.contains($0.element) }.map { $0.offset }
+        guard !hits.isEmpty else { return Array(repeating: MUChartRole.normal, count: series.count) }
+        var out = Array(repeating: MUChartRole.context, count: series.count)
+        for (rank, index) in hits.enumerated() {
+            out[index] = rank < slots ? .emphasis(rank) : .normal
+        }
+        return out
+    }
+
+    static func hasEmphasis(_ roles: [MUChartRole]) -> Bool {
+        roles.contains { role in
+            if case .emphasis = role { return true }
+            return false
+        }
+    }
+
+    static func slot(_ roles: [MUChartRole], at index: Int) -> Int? {
+        guard index >= 0, index < roles.count, case .emphasis(let s) = roles[index] else { return nil }
+        return s
+    }
+
+    static func isContext(_ roles: [MUChartRole], at index: Int) -> Bool {
+        guard index >= 0, index < roles.count else { return false }
+        return roles[index] == .context
+    }
+
+    /// Number of accents in use, for warnings and tests.
+    static func usedSlots(_ roles: [MUChartRole]) -> Int {
+        roles.reduce(0) { acc, role in
+            if case .emphasis(let s) = role { return max(acc, s + 1) }
+            return acc
+        }
+    }
+}
+
+/// One-series charts (`BarChart`/`LineChart`): the guide's "1 trace with
+/// highlight" rule — base colour with the emphasised items in the second colour.
+enum MUChartBarMarks {
+    static func marked(labels: [String], highlight: [String]) -> [Bool] {
+        let hl = Set(highlight)
+        return labels.map { hl.contains($0) }
+    }
+}
+
+struct MUChartDomain: Equatable {
+    var lower: Double
+    var upper: Double
+    var span: Double { upper - lower }
+}
+
+enum MUChartAxis {
+    /// 1 / 2 / 2.5 / 5 / 10 × 10^n — the usual "nice" axis step.
+    static func niceStep(_ raw: Double) -> Double {
+        guard raw.isFinite, raw > 0 else { return 1 }
+        let magnitude = pow(10, floor(log10(raw)))
+        let norm = raw / magnitude
+        let nice: Double
+        if norm <= 1 { nice = 1 } else if norm <= 2 { nice = 2 }
+        else if norm <= 2.5 { nice = 2.5 } else if norm <= 5 { nice = 5 } else { nice = 10 }
+        return nice * magnitude
+    }
+
+    /// Explicit y domain: values, optional zero, ~6% headroom, rounded outward
+    /// to a nice step. An explicit domain is what makes `pixelY` exact, and it
+    /// keeps the frame identical when the colour style changes.
+    static func domain(values: [[Double]], includeZero: Bool,
+                       targetTicks: Int = 4, padding: Double = 0.06) -> MUChartDomain {
+        var lo = Double.greatestFiniteMagnitude
+        var hi = -Double.greatestFiniteMagnitude
+        for row in values {
+            for v in row where v.isFinite {
+                lo = min(lo, v); hi = max(hi, v)
+            }
+        }
+        if lo > hi { lo = 0; hi = 1 }
+        if includeZero { lo = min(lo, 0); hi = max(hi, 0) }
+        if hi - lo < 1e-9 {
+            let pad = max(0.5, abs(hi) * 0.1)
+            lo -= pad; hi += pad
+        } else {
+            let pad = (hi - lo) * padding
+            lo -= pad; hi += pad
+        }
+        let step = niceStep((hi - lo) / Double(max(1, targetTicks)))
+        lo = (lo / step).rounded(.down) * step
+        hi = (hi / step).rounded(.up) * step
+        if hi - lo < 1e-9 { hi = lo + step }
+        return MUChartDomain(lower: lo, upper: hi)
+    }
+
+    /// Stacked bars scale to the per-column totals, not to a single segment.
+    static func stackedDomain(matrix: [[Double]], targetTicks: Int = 4,
+                              padding: Double = 0.06) -> MUChartDomain {
+        guard let cols = matrix.map({ $0.count }).max(), cols > 0 else {
+            return MUChartDomain(lower: 0, upper: 1)
+        }
+        var lo = 0.0, hi = 0.0
+        for i in 0..<cols {
+            var positive = 0.0, negative = 0.0
+            for row in matrix where i < row.count {
+                let v = row[i]
+                if !v.isFinite { continue }
+                if v >= 0 { positive += v } else { negative += v }
+            }
+            hi = max(hi, positive)
+            lo = min(lo, negative)
+        }
+        return domain(values: [[lo, hi]], includeZero: true, targetTicks: targetTicks, padding: padding)
+    }
+
+    /// 0 at the top of the plot, `height` at the bottom.
+    static func pixelY(_ value: Double, domain: MUChartDomain, height: CGFloat) -> CGFloat {
+        guard domain.span > 0, height > 0 else { return height }
+        let t = (value - domain.lower) / domain.span
+        return height * CGFloat(1 - max(0, min(1, t)))
+    }
+}
+
+/// End-of-line labels: one per series, placed in the plot's trailing gutter.
+/// The placement is computed in points (not values) so a fixed minimum gap can
+/// be guaranteed; series order is never inverted, so a pushed label still sits
+/// on the same side of its neighbours as its value does.
+enum MUChartEndLabels {
+    struct Placement: Equatable {
+        let index: Int
+        let centerY: CGFloat
+        /// `.offset(y:)` to add to the annotation (positive = down).
+        let dy: CGFloat
+    }
+
+    static func layout(values: [Double], domain: MUChartDomain, plotHeight: CGFloat,
+                       minGap: CGFloat = 12, edgeInset: CGFloat = 7) -> [Placement] {
+        guard !values.isEmpty, plotHeight > 0 else { return [] }
+        let inset = min(max(0, edgeInset), plotHeight / 2)
+        var gap = max(0, minGap)
+        let room = plotHeight - 2 * inset
+        if values.count > 1, room > 0 {
+            let needed = gap * CGFloat(values.count - 1)
+            if needed > room { gap = room / CGFloat(values.count - 1) }
+        }
+        let order = values.enumerated().sorted { a, b in
+            if abs(a.element - b.element) > 1e-9 { return a.element > b.element }
+            return a.offset < b.offset
+        }.map { $0.offset }
+        var natural = [CGFloat](repeating: 0, count: values.count)
+        for i in values.indices {
+            natural[i] = MUChartAxis.pixelY(values[i], domain: domain, height: plotHeight)
+        }
+        var y = order.map { natural[$0] }
+        let bottom = plotHeight - inset
+        if y.count > 1 {
+            for i in 1..<y.count where y[i] < y[i - 1] + gap { y[i] = y[i - 1] + gap }
+            if y[y.count - 1] > bottom {
+                y[y.count - 1] = bottom
+                for i in stride(from: y.count - 2, through: 0, by: -1) where y[i] > y[i + 1] - gap {
+                    y[i] = y[i + 1] - gap
+                }
+            }
+            if y[0] < inset {
+                let shift = inset - y[0]
+                for i in y.indices { y[i] = min(y[i] + shift, bottom) }
+                for i in stride(from: y.count - 2, through: 0, by: -1) where y[i] > y[i + 1] - gap {
+                    y[i] = y[i + 1] - gap
+                }
+            }
+        } else {
+            y[0] = max(inset, min(bottom, y[0]))
+        }
+        var out: [Placement] = []
+        for (position, index) in order.enumerated() {
+            out.append(Placement(index: index, centerY: y[position], dy: y[position] - natural[index]))
+        }
+        return out.sorted { $0.index < $1.index }
+    }
+}
+
+/// Text metrics for the right-hand gutter. The system font's real advances are
+/// not available here, so widths are estimated per Unicode class and padded by
+/// 1pt; the gutter carries an extra 6pt so a small error cannot reach the axis.
+enum MUChartLabelMetrics {
+    struct Gutter: Equatable {
+        let width: CGFloat
+        let fontSize: CGFloat
+        let labels: [String]
+        let truncated: Bool
+    }
+
+    static func width(_ text: String, fontSize: CGFloat) -> CGFloat {
+        var units: CGFloat = 0
+        for scalar in text.unicodeScalars {
+            let v = scalar.value
+            if v == 32 { units += 0.28 }
+            else if (48...57).contains(v) { units += 0.55 }
+            else if (97...122).contains(v) { units += 0.56 }
+            else if (65...90).contains(v) { units += 0.64 }
+            else if v < 128 { units += 0.45 }
+            else if (0x2E80...0x9FFF).contains(v) || (0xAC00...0xD7AF).contains(v)
+                        || (0xF900...0xFAFF).contains(v) || (0xFF00...0xFFEF).contains(v)
+                        || (0x3040...0x30FF).contains(v) { units += 1.0 }
+            else { units += 0.62 }
+        }
+        return units * fontSize + 1
+    }
+
+    /// Gutter for the end labels: the widest label plus the annotation spacing
+    /// and a safety gap, shrunk (font 10 → 9 → 8, then truncated) when the phone
+    /// is narrow or the names are long. `width` never exceeds the cap, so the
+    /// plot keeps most of the card.
+    static func gutter(labels: [String], fontSize: CGFloat, available: CGFloat,
+                       spacing: CGFloat = 3, gap: CGFloat = 6,
+                       maxFraction: CGFloat = 0.42) -> Gutter {
+        guard !labels.isEmpty else { return Gutter(width: 0, fontSize: fontSize, labels: labels, truncated: false) }
+        let cap = max(56, max(120, available) * maxFraction)
+        var size = max(8, fontSize)
+        for candidate in [max(8, fontSize), max(8, fontSize - 1), max(8, fontSize - 2)] {
+            size = candidate
+            let widest = labels.map { width($0, fontSize: candidate) }.max() ?? 0
+            if widest + spacing + gap <= cap {
+                return Gutter(width: widest + spacing + gap, fontSize: candidate, labels: labels, truncated: false)
+            }
+        }
+        let room = max(8, cap - spacing - gap)
+        let fitted = labels.map { fit($0, room: room, fontSize: size) }
+        let widest = fitted.map { width($0, fontSize: size) }.max() ?? 0
+        return Gutter(width: min(cap, widest + spacing + gap), fontSize: size,
+                      labels: fitted, truncated: fitted != labels)
+    }
+
+    static func fit(_ text: String, room: CGFloat, fontSize: CGFloat) -> String {
+        guard width(text, fontSize: fontSize) > room else { return text }
+        var out = ""
+        for character in text {
+            let candidate = out + String(character)
+            if width(candidate + "…", fontSize: fontSize) > room { break }
+            out = candidate
+        }
+        if out.isEmpty { out = String(text.first ?? " ") }
+        return out + "…"
+    }
+}
