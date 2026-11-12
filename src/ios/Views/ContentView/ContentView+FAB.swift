@@ -202,6 +202,12 @@ extension ContentView {
                 .fill(fallbackFill)
                 .overlay { icon() }
                 .shadow(color: .black.opacity(fallbackShadowOpacity), radius: 8, x: 0, y: 4)
+                // The legacy surface also needs an explicit preview outline.
+                // Its circular fill does not stop the lifted context-menu
+                // platter from using rectangular bounds on iOS 16–25.
+                // Keep this after the shadow so the preview follows the disc,
+                // not the shadow's bounds; ordinary taps/dragging are unchanged.
+                .contentShape(.contextMenuPreview, Circle())
         }
     }
 
