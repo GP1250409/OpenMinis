@@ -511,7 +511,10 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
         raise SystemExit('production Objective-C exception guard failed to compile')
     note('PRODUCTION_EXCEPTION_BRIDGE_OK')
 
-    sources = [instrumented, item_src, cell_src, store_src, genui_src,
+    # MessageListLayout.prepare() uses the production MessageRowGap rule.
+    # Compile its real pure-support file too; a synthetic stub would hide drift.
+    spacing = root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift'
+    sources = [instrumented, spacing, item_src, cell_src, store_src, genui_src,
                tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',
                tests / 'GenUICardFixture.swift', tests / 'GenUIListHarness.swift',
                tests / 'GenUIHeightTests.swift']
@@ -596,7 +599,8 @@ def main():
         raise SystemExit('the GenUI commit production slice is missing — implement '
                          'MinisUIStateUpdate/update + MessageListV3Coordinator+GenUI.swift first')
     instrumented = out / 'InstrumentedProductionLayout.swift'
-    gate = [instrumented, tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',
+    gate = [instrumented, root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
+            tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',
             tests / 'GenUICardFixture.swift', tests / 'GenUIListHarness.swift',
             tests / 'GenUIHeightTests.swift', genui_src, store_src]
     if syntax_gate(gate):

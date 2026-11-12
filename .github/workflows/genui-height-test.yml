@@ -1,0 +1,20 @@
+name: GenUI height UIKit regression
+on:
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: GenUI height regression
+        run: |
+          set -o pipefail
+          python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genui-height-regression-logs
+          path: |
+            genui-height-regression.log
+            build/genui-height/
