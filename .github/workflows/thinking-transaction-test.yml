@@ -3,6 +3,12 @@ on:
   push:
     branches: [mod-thinking-transaction]
   workflow_dispatch:
+    inputs:
+      suite:
+        description: UIKit regression suite
+        type: choice
+        options: [thinking, genui]
+        default: thinking
 jobs:
   test:
     runs-on: macos-26
@@ -10,10 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile production MessageListLayout + SelfSizingCell and run the 20-round tap regression
+        if: ${{ inputs.suite != 'genui' }}
         run: |
           set -o pipefail
           python3 scripts/thinking_transaction_regression.py 2>&1 | tee thinking-transaction.log
           grep -E 'THINKING_TRANSACTION_UIKIT_PASS|REPORT_' thinking-transaction.log
+      - name: GenUI height regression
+        if: ${{ inputs.suite == 'genui' }}
+        run: |
+          set -o pipefail
+          python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -22,3 +34,5 @@ jobs:
             thinking-transaction.log
             build/thinking-transaction/*.log
             build/thinking-transaction/*.ips
+            genui-height-regression.log
+            build/genui-height/
