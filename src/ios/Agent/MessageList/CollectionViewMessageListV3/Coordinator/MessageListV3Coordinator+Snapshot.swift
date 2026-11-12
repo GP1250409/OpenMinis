@@ -223,6 +223,16 @@ extension CollectionViewMessageListV3.Coordinator {
                     }
             }
 
+            // [MOD genui-height-txn] Deliberately synchronous: the state write
+            // belongs inside the list's real-height pass, not a runloop before it.
+            if genuiStateSub == nil {
+                genuiStateSub = NotificationCenter.default.publisher(for: MinisUIStore.stateChanged)
+                    .sink { [weak self] notification in
+                        guard let change = notification.object as? MinisUIStateUpdate else { return }
+                        self?.commitGenUIStateChange(change)
+                    }
+            }
+
             if thinkingToggleSub == nil {
                 thinkingToggleSub = NotificationCenter.default.publisher(for: .thinkingBlockToggled)
                     .receive(on: DispatchQueue.main)

@@ -7,9 +7,9 @@
 //  session by GenUIStatePersistence), never in view @State, so a recycled
 //  cell or a reopened chat shows what the user set.
 //
-//  Layout rule: interacting never changes the card's height except where the
-//  program itself shows/hides parts (a quiz verdict appearing). Those changes
-//  go through the list's keep-the-top re-measure (MinisUIStore.didResize).
+//  Layout rule: values and actual height commit together without animation.
+//  Only a real size change updates list geometry; no automatic bottom reveal,
+//  no coarse-height reset, and no borrowed thinking/user-ask toggle callbacks.
 //
 
 import Charts
@@ -19,13 +19,35 @@ import UIKit
 
 // MARK: - Model shared by the card, the agent and the list
 
-/// Re-measure requests from the card.
+/// One synchronous state commit. A detached/preview card runs the same request
+/// itself; a mounted list consumes it while content and real height are atomic.
+final class MinisUIStateUpdate {
+    let blockId: UUID
+    let sessionId: String?
+    let request: ToggleRequest
+
+    init(blockId: UUID, sessionId: String?, apply: @escaping () -> Void) {
+        self.blockId = blockId
+        self.sessionId = sessionId
+        self.request = ToggleRequest(apply)
+    }
+}
+
 enum MinisUIStore {
-    /// Ask the list to re-measure this card keeping its top in place. The
-    /// list's subscriber receives on the main queue, so any caller is fine.
-    static func didResize(blockId: UUID) {
-        NotificationCenter.default.post(name: .thinkingBlockToggled, object: blockId,
-                                        userInfo: [ToggleAnchorMath.anchorTopKey: true])
+    static let stateChanged = Notification.Name("MinisUIStateChanged")
+
+    /// Do NOT publish state first and then hop to the main queue to resize:
+    /// that drew new content in the old cell, followed by an animated rebuild.
+    /// NotificationCenter delivery is synchronous on the UI thread on purpose.
+    static func update(blockId: UUID, sessionId: String?, _ apply: @escaping () -> Void) {
+        assert(Thread.isMainThread)
+        let change = MinisUIStateUpdate(blockId: blockId, sessionId: sessionId, apply: apply)
+        NotificationCenter.default.post(name: stateChanged, object: change)
+        if !change.request.hasRun {
+            var noAnim = Transaction(animation: nil)
+            noAnim.disablesAnimations = true
+            withTransaction(noAnim) { change.request.run() }
+        }
     }
 }
 
@@ -158,7 +180,11 @@ struct MinisUICardView: View {
         guard st[name] != nil else { return }
         st[name] = value
         if live {
-            block.genuiStateJSON = MinisUITool.encodeState(st)
+            var noAnim = Transaction(animation: nil)
+            noAnim.disablesAnimations = true
+            withTransaction(noAnim) {
+                block.genuiStateJSON = MinisUITool.encodeState(st)
+            }
         } else {
             persist(st)
         }
@@ -167,10 +193,12 @@ struct MinisUICardView: View {
     private func persist(_ st: [String: MUValue], force: Bool = false) {
         let after = MinisUITool.encodeState(st)
         guard force || block.genuiStateJSON != after else { return }
-        block.genuiStateJSON = after
+        // The list owns the state write AND any size change in one no-animation
+        // pass. Even a slider's force-commit must measure its final live state.
+        MinisUIStore.update(blockId: block.id, sessionId: vm.sessionId) {
+            block.genuiStateJSON = after
+        }
         GenUIStatePersistence.save(blockToolUseId: block.toolUseId, sessionId: vm.sessionId, json: after)
-        // Content (and maybe height) changed: the list re-measures, top kept.
-        MinisUIStore.didResize(blockId: block.id)
     }
 
     private func runAction(_ act: MUAction, program: MUProgram, defaults: [String: MUValue]) {

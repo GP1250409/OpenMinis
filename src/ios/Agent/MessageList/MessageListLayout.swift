@@ -960,6 +960,19 @@ final class MessageListLayout: UICollectionViewLayout {
         heightCache[index] = height
     }
 
+    /// [MOD genui-height-txn] A visible interactive card was just measured in
+    /// its NEW state. Keep the old real height until this replacement exists;
+    /// never pass through the coarse estimate. Discard a browse-time deferred
+    /// measure / precalc for the previous state so a later settle cannot replay
+    /// it over this explicit commit. Other sizing / thinking paths are unchanged.
+    func setInteractiveMeasuredHeight(_ height: CGFloat, at index: Int) {
+        guard height.isFinite, height > 1 else { return }
+        heightCache[index] = height
+        deferredHeights.removeValue(forKey: index)
+        precalcHeights.removeValue(forKey: index)
+        geometryReaderConfirmed.remove(index)
+    }
+
     /// Directly set the cached height for a specific item index.
     /// Used when the SwiftUI GeometryReader reports a height that differs
     /// from what `preferredLayoutAttributesFitting` returned, bypassing

@@ -19,6 +19,7 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
+          python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
       - name: AOJIT images
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,6 +96,8 @@ jobs:
           name: mod-validation-logs
           path: |
             mod-regression.log
+            genui-height-regression.log
+            build/genui-height/
             build.log
             build/mod-regression/*.swift
 

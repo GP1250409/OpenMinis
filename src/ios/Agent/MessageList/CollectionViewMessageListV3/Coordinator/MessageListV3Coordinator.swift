@@ -195,6 +195,9 @@ extension CollectionViewMessageListV3 {
         /// which messages are live, so `liveIdsMemo` recomputes.
         var streamGeneration: Int = 0
 
+        // === GenUI state commits (synchronous, separate from thinking) ===
+        var genuiStateSub: AnyCancellable?
+
         // === Thinking Block Toggle ===
         var thinkingToggleSub: AnyCancellable?
         /// [T-thinking-toggle-txn] The manual open/close of a thinking row in

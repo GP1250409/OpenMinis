@@ -669,6 +669,15 @@ class SelfSizingCell: UICollectionViewCell {
         lastMeasureMediaTime = nil
     }
 
+    /// [MOD genui-height-txn] An explicit interactive value commit must not
+    /// reuse configureCell's memo seed for the state we are validating. Keep
+    /// the generic cache-clear contract unchanged for every other caller.
+    func clearInteractiveHeightCache() {
+        clearCachedHeight()
+        seededHeight = nil
+        seededWidth = nil
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         rendersNonEmptyText = false
