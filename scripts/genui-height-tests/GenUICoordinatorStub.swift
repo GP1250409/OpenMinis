@@ -92,7 +92,12 @@ enum CollectionViewMessageListV3 {
 
         weak var viewController: GenUIListViewController?
         var dataSource: UICollectionViewDiffableDataSource<Section, MessageListItem>!
-        var scrollMode: ScrollMode = .autoScrolling
+        var scrollMode: ScrollMode = .autoScrolling {
+            didSet {
+                // Same layout flag mirror as the real Coordinator.scrollMode.
+                viewController?.messageListLayout?.isAutoScrollPinning = (scrollMode == .autoScrolling)
+            }
+        }
         var vm: GenUIViewModel?
         /// Snapshot messages the commit walks to match the row back to its
         /// model block (production: the same snapshot it renders from).

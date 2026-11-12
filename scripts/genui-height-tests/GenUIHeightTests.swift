@@ -32,12 +32,15 @@ final class GenUIHeightTests {
         let offset = h.offset
         CheckLog.check("choiceFeedbackGrows/baseline-real", before > 40 && abs(before - GenUIListHarness.coarseEstimate) > 1,
                        "h=\(before)")
+        let consumedBefore = h.productionConfigureCount
         h.cardUpdate { s in
             var s = s
             s.choice = "绿色"
             s.feedback = "答对了：绿色可见光的波长最短，红色最长。"
             return s
         }
+        CheckLog.check("choiceFeedbackGrows/consumed-by-list", h.productionConfigureCount > consumedBefore,
+                       "production configureCell runs=\(h.productionConfigureCount - consumedBefore) (0 = store fallback, no re-measure)")
         h.layoutNow(); h.pump(0.25); h.layoutNow()
         let after = h.rowHeight(h.targetIndex)
         let drift = h.topOf(1) - topUser
@@ -252,6 +255,8 @@ final class GenUIHeightTests {
         let sawEstimate = samples.contains { abs($0 - GenUIListHarness.coarseEstimate) <= 0.5
             || abs($0 - GenUIListHarness.precalcEstimate) <= 0.5 }
         print("GENUI_ESTIMATE_FALLBACK \(sawEstimate ? 1 : 0)")
+        CheckLog.check("oldRealHeight/samples-nonempty", !samples.isEmpty,
+                       "published heights after baseline=\(samples.count) (empty = the layout never re-published, assertion would be vacuous)")
         CheckLog.check("oldRealHeight/not-estimate", !sawEstimate,
                        "samples=\(Set(samples.map { Int($0.rounded()) }).sorted())")
         CheckLog.check("oldRealHeight/cache-real",
@@ -291,7 +296,11 @@ final class GenUIHeightTests {
         let fitted = h.measuredCardHeight()
         print("GENUI_WIDTH_HEIGHT \(wide) -> \(narrow)")
         CheckLog.check("widthChange/real-measured", abs(narrow - fitted) <= 1, "row=\(narrow) fitted=\(fitted)")
-        CheckLog.check("widthChange/offset", abs(h.offset - offset) <= 0.5, "\(offset) -> \(h.offset)")
+        // Resize may itself leave the offset outside the (new) scrollable range;
+        // the commit is then allowed to clamp INTO it, never to move content.
+        CheckLog.check("widthChange/offset",
+                       abs(h.offset - offset) <= 0.5 && h.isLegalOffset(h.offset),
+                       "\(offset) -> \(h.offset) max=\(h.maxOffset)")
     }
 
     // MARK: - 13. enqueue defers BOTH state and height, queued keys survive
@@ -312,6 +321,8 @@ final class GenUIHeightTests {
         CheckLog.check("enqueue/both-keys-kept",
                        after.segmented == "年" && after.choice == "红色" && after.feedback == "两个排队变更都要保留。",
                        "segmented=\(after.segmented) choice=\(after.choice) feedback=\(after.feedback)")
+        CheckLog.check("enqueue/consumed-by-list", h.productionConfigureCount > 0,
+                       "production configureCell runs=\(h.productionConfigureCount)")
         CheckLog.check("enqueue/height-grew", h.rowHeight(h.targetIndex) > beforeHeight + 10,
                        "\(beforeHeight) -> \(h.rowHeight(h.targetIndex))")
         CheckLog.check("enqueue/height-real",

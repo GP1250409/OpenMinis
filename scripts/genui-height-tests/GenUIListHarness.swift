@@ -1,3 +1,4 @@
+import Combine
 import UIKit
 import SwiftUI
 
@@ -80,6 +81,18 @@ final class GenUIListHarness {
     /// objects production's `assistantBlock(id:)` returns (the card writes
     /// `genuiStateJSON` on this block, not on a copy).
     private(set) var cardBlocks: [UUID: CollectionViewMessageListV3.AssistantBlock] = [:]
+    /// Incremented ONLY through `applyConfiguration`, i.e. only when the
+    /// production `configureCell` runs inside `commitGenUIStateChange`. The
+    /// data source dequeues directly, so this counts real transaction
+    /// consumptions — a store fallback leaves it untouched.
+    private(set) var productionConfigureCount = 0
+    /// Production installs this subscription inside its snapshot-apply path
+    /// (MessageListV3Coordinator+Snapshot.swift, `if genuiStateSub == nil {…}`),
+    /// which drags in the whole chat screen and is not compiled here. The
+    /// fixture wires the SAME one-line sink (same publisher, same cast, same
+    /// call, synchronous, no scheduler hop) so `MinisUIStore.update` reaches
+    /// `commitGenUIStateChange`. Nothing else of the commit is re-implemented.
+    private var genuiStateSub: AnyCancellable?
 
     init(rows: [GenUIRowModel], targetIndex: Int, sessionId: String? = "session-A") {
         self.rows = rows
@@ -95,7 +108,9 @@ final class GenUIListHarness {
         coordinator.viewController = controller
         coordinator.nearBottom = true
         coordinator.applyConfiguration = { [weak self] cell, item, ip in
-            self?.configure(cell, at: ip.item)
+            guard let self else { return }
+            self.productionConfigureCount += 1
+            self.configure(cell, at: ip.item)
         }
         let ds = UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>(
             collectionView: collection) { [weak self] cv, ip, item in
@@ -120,6 +135,11 @@ final class GenUIListHarness {
         snap.appendSections([0])
         snap.appendItems(rows.map { $0.item }, toSection: 0)
         ds.apply(snap, animatingDifferences: false)
+        genuiStateSub = NotificationCenter.default.publisher(for: MinisUIStore.stateChanged)
+            .sink { [weak self] notification in
+                guard let change = notification.object as? MinisUIStateUpdate else { return }
+                self?.coordinator.commitGenUIStateChange(change)
+            }
         controller.view.frame = collection.frame
         testWindow.rootViewController = controller
         testWindow.makeKeyAndVisible()
@@ -161,7 +181,9 @@ final class GenUIListHarness {
         case .card:
             // The card renders the BLOCK's state, exactly like SwiftUI observing
             // the model block (two lists = two block instances, one UUID).
-            let state = (cardBlocks[row.id]?.genuiStateJSON).flatMap(GenUICardState.init(json:)) ?? row.card
+            var state = (cardBlocks[row.id]?.genuiStateJSON).flatMap(GenUICardState.init(json:)) ?? row.card
+            // `long` is fixture-only (never part of the card's JSON state).
+            state.long = row.card.long
             let options = row.options
             cell.applyContentConfiguration(UIHostingConfiguration {
                 GenUICardFixture(state: state, options: options)
@@ -305,7 +327,8 @@ final class GenUIListHarness {
 
     /// Move the viewport so the card's top is above the visible area.
     func scrollPastCardTop(by delta: CGFloat = 140) {
-        let target = min(max(-collection.contentInset.top, offset + delta), maxOffset)
+        let cardMinY = layout.layoutAttributesForItem(at: targetIndexPath)?.frame.minY ?? offset
+        let target = min(max(-collection.contentInset.top, cardMinY + delta), maxOffset)
         collection.setContentOffset(CGPoint(x: 0, y: target), animated: false)
         collection.layoutIfNeeded()
         pump(0.05)
@@ -326,6 +349,16 @@ final class GenUIListHarness {
         collection.layoutIfNeeded()
         pump(0.12)
         collection.layoutIfNeeded()
+        // The frame swap itself can push the offset above the top inset (an
+        // illegal resting position). Normalise it here so the baseline the test
+        // compares against is a real, scrollable one — the commit is never
+        // allowed to hide a resize artefact behind a "legal clamp".
+        if !isLegalOffset(collection.contentOffset.y) {
+            collection.setContentOffset(CGPoint(x: 0, y: -collection.contentInset.top), animated: false)
+            collection.layoutIfNeeded()
+            pump(0.05)
+            collection.layoutIfNeeded()
+        }
     }
 
     /// Clamp legality: an offset may only move INTO the scrollable range.
