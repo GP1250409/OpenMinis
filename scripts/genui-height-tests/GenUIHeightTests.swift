@@ -292,6 +292,13 @@ final class GenUIHeightTests {
         let wide = h.rowHeight(h.targetIndex)
         h.resizeWidth(320)
         let offset = h.offset
+        CheckLog.check("widthChange/purge-reseed-executed", h.widthReseedCount > 0,
+                       "reseed count=\(h.widthReseedCount)")
+        CheckLog.check("widthChange/baseline-legal", h.isLegalOffset(offset), "offset=\(offset)")
+        let baselineRow = h.rowHeight(h.targetIndex)
+        let baselineFit = h.measuredCardHeight()
+        CheckLog.check("widthChange/baseline-real-at-new-width", abs(baselineRow - baselineFit) <= 1,
+                       "row=\(baselineRow) fitted=\(baselineFit)")
         h.cardUpdate { s in var s = s; s.feedback = "换行宽度变化时应重新测量并保持视口。再看一次。"; return s }
         h.layoutNow(); h.pump(0.3); h.layoutNow()
         let narrow = h.rowHeight(h.targetIndex)

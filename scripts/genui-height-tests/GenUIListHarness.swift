@@ -93,6 +93,9 @@ final class GenUIListHarness {
     /// call, synchronous, no scheduler hop) so `MinisUIStore.update` reaches
     /// `commitGenUIStateChange`. Nothing else of the commit is re-implemented.
     private var genuiStateSub: AnyCancellable?
+    private var preparingWidthBaseline = false
+    private var previousWidthHeights: [Int: CGFloat] = [:]
+    private(set) var widthReseedCount = 0
 
     init(rows: [GenUIRowModel], targetIndex: Int, sessionId: String? = "session-A") {
         self.rows = rows
@@ -106,6 +109,7 @@ final class GenUIListHarness {
         controller = CollectionViewMessageListV3.GenUIListViewController(collectionView: collection,
                                                                         messageListLayout: layout)
         coordinator.viewController = controller
+        layout.onWidthCachesPurged = { [weak self] in self?.reseedAfterWidthPurge() }
         coordinator.nearBottom = true
         coordinator.applyConfiguration = { [weak self] cell, item, ip in
             guard let self else { return }
@@ -184,8 +188,10 @@ final class GenUIListHarness {
         cell.rendersNonEmptyText = row.kind != .card
         cell.contentKey = contentKey(for: index)
         layout.setContentKey(cell.contentKey!, at: index)
-        layout.setEstimatedHeight(GenUIListHarness.coarseEstimate, at: index)
-        layout.setPrecalcHeight(GenUIListHarness.precalcEstimate, at: index)
+        if !preparingWidthBaseline {
+            layout.setEstimatedHeight(GenUIListHarness.coarseEstimate, at: index)
+            layout.setPrecalcHeight(GenUIListHarness.precalcEstimate, at: index)
+        }
         switch row.kind {
         case .card:
             // The card renders the BLOCK's state, exactly like SwiftUI observing
@@ -351,23 +357,47 @@ final class GenUIListHarness {
         collection.layoutIfNeeded()
     }
 
-    /// Re-run the visible-cell sizing pass after a width change.
+    /// Minimum equivalent of production's widthPurge-reseed snapshot pass:
+    /// re-register keys and CHEAP ESTIMATES, never pretend an estimate is a real
+    /// measurement or seed SelfSizingCell. The small filler rows use prior real
+    /// heights as estimates; the card uses its normal program-style estimator.
+    private func reseedAfterWidthPurge() {
+        widthReseedCount += 1
+        for i in rows.indices {
+            layout.setContentKey(contentKey(for: i), at: i)
+            let estimate: CGFloat
+            if rows[i].kind == .card, let block = cardBlocks[rows[i].id] {
+                estimate = MinisUITool.estimatedHeight(block, width: collection.bounds.width)
+            } else {
+                estimate = previousWidthHeights[i] ?? layout.estimatedItemHeight
+            }
+            layout.setEstimatedHeight(estimate, at: i)
+        }
+    }
+
+    /// Establish a settled NEW-width baseline, then test an interaction at that
+    /// width. Production also reseeds after its debounced width purge. Without
+    /// that callback the old fixture fell to 200pt for every row and was still
+    /// correcting those unrelated rows during the later card assertion.
     func resizeWidth(_ width: CGFloat) {
+        previousWidthHeights = Dictionary(uniqueKeysWithValues: rows.indices.map { ($0, rowHeight($0)) })
+        let oldSuppress = layout.suppressContentOffsetAdjustment
+        let oldFlushing = coordinator.isFlushing
+        layout.suppressContentOffsetAdjustment = true
+        coordinator.isFlushing = true
+        preparingWidthBaseline = true
+        defer {
+            preparingWidthBaseline = false
+            layout.suppressContentOffsetAdjustment = oldSuppress
+            coordinator.isFlushing = oldFlushing
+        }
         collection.frame = CGRect(x: 0, y: 0, width: width, height: collection.bounds.height)
         controller.view.frame = collection.frame
         collection.layoutIfNeeded()
-        pump(0.12)
-        collection.layoutIfNeeded()
-        // The frame swap itself can push the offset above the top inset (an
-        // illegal resting position). Normalise it here so the baseline the test
-        // compares against is a real, scrollable one — the commit is never
-        // allowed to hide a resize artefact behind a "legal clamp".
-        if !isLegalOffset(collection.contentOffset.y) {
-            collection.setContentOffset(CGPoint(x: 0, y: -collection.contentInset.top), animated: false)
-            collection.layoutIfNeeded()
-            pump(0.05)
-            collection.layoutIfNeeded()
-        }
+        pump(0.12) // Includes the real 33ms width purge + reseed callback.
+        warmUp()
+        scrollToTop()
+        print("GENUI_WIDTH_RESEED count=\(widthReseedCount) offset=\(offset) heights=\(rows.indices.map { rowHeight($0) })")
     }
 
     /// Clamp legality: an offset may only move INTO the scrollable range.
