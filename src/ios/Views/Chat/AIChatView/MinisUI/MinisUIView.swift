@@ -643,26 +643,86 @@ private struct MUTable: View {
     }
 }
 
+/// Chart colour style for `show_ui` charts. Stored in UserDefaults (settings
+/// page: Appearance > Chart Colours). "" = system look (Swift Charts default),
+/// "economist" = The Economist house style: one red series on a quiet grid.
+enum MUChartStyle {
+    static let key = "genuiChartPalette"
+    static let economist = "economist"
+
+    /// Main series red (light / dark).
+    static let red = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 0.94, green: 0.27, blue: 0.25, alpha: 1)
+            : UIColor(red: 0.902, green: 0.161, blue: 0.137, alpha: 1)
+    })
+}
+
 private struct MUChart: View {
     let comp: MUComp
+    @AppStorage(MUChartStyle.key) private var palette: String = ""
+
     var body: some View {
         let labels = comp.strings("labels")
         let values = comp.numbers("values")
         let unit = comp.str("unit") ?? ""
         let points = Array(zip(labels, values).enumerated())
-        Chart(points, id: \.offset) { _, p in
-            if comp.name == "LineChart" {
-                LineMark(x: .value("x", p.0), y: .value("y", p.1))
-                PointMark(x: .value("x", p.0), y: .value("y", p.1))
-            } else {
-                BarMark(x: .value("x", p.0), y: .value("y", p.1))
-                    .cornerRadius(4)
-                    .annotation(position: .top) {
-                        Text(MUStyle.numText(p.1) + unit).font(.system(size: 9)).foregroundStyle(.secondary)
-                    }
+        if palette == MUChartStyle.economist {
+            economistChart(labels: labels, values: values, unit: unit)
+        } else {
+            Chart(points, id: \.offset) { _, p in
+                if comp.name == "LineChart" {
+                    LineMark(x: .value("x", p.0), y: .value("y", p.1))
+                    PointMark(x: .value("x", p.0), y: .value("y", p.1))
+                } else {
+                    BarMark(x: .value("x", p.0), y: .value("y", p.1))
+                        .cornerRadius(4)
+                        .annotation(position: .top) {
+                            Text(MUStyle.numText(p.1) + unit).font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                }
+            }
+            .chartXScale(domain: labels)
+            .frame(height: 180)
+            .padding(.top, 4)
+        }
+    }
+
+    /// Same data and the same fixed 180pt height as the system chart, so
+    /// switching style never changes the card's measured height.
+    @ViewBuilder
+    private func economistChart(labels: [String], values: [Double], unit: String) -> some View {
+        let isLine = comp.name == "LineChart"
+        let n = min(labels.count, values.count)
+        Chart {
+            ForEach(0..<n, id: \.self) { i in
+                if isLine {
+                    LineMark(x: .value("x", labels[i]), y: .value("y", values[i]))
+                        .foregroundStyle(MUChartStyle.red)
+                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                } else {
+                    BarMark(x: .value("x", labels[i]), y: .value("y", values[i]))
+                        .foregroundStyle(MUChartStyle.red)
+                        .annotation(position: .top) {
+                            Text(MUStyle.numText(values[i]) + unit).font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                }
+            }
+            if !isLine {
+                // Black baseline, as in the print charts.
+                RuleMark(y: .value("zero", 0.0))
+                    .foregroundStyle(Color.primary)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
             }
         }
         .chartXScale(domain: labels)
+        .chartYAxis {
+            // Light horizontal grid only, value labels on the right.
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8)).foregroundStyle(Color.primary.opacity(0.14))
+                AxisValueLabel().foregroundStyle(Color.primary)
+            }
+        }
         .frame(height: 180)
         .padding(.top, 4)
     }

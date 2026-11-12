@@ -194,6 +194,8 @@ struct AppearanceSettingsView: View {
     @AppStorage("appIconMode") private var appIconMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("chatThemeId") private var chatThemeId: String = ""
+    /// [MOD genui] show_ui chart colour style ("" = system, "economist").
+    @AppStorage(MUChartStyle.key) private var genuiChartPalette: String = ""
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -280,6 +282,16 @@ struct AppearanceSettingsView: View {
                 Text("Chat Theme")
             } footer: {
                 Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
+            }
+            Section {
+                Picker("Chart Colours", selection: $genuiChartPalette) {
+                    Text("System").tag("")
+                    Text("The Economist").tag(MUChartStyle.economist)
+                }
+            } header: {
+                Text("Interactive Cards")
+            } footer: {
+                Text("Colour style for bar and line charts in interactive cards (show_ui). The Economist style uses red series, a black baseline and light grid lines.")
             }
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
