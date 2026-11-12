@@ -572,9 +572,32 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
             note(f'REPORT_{key} ' + ' '.join(m.groups()))
 
     if 'GENUI_HEIGHT_UIKIT_PASS' not in run.stdout:
+        # simctl's exit code is NOT the app exit status. Preserve crash evidence
+        # whenever the suite marker is absent, including sudden signals/abort.
+        import shutil
+        crash_dir = out / 'crash-reports'
+        crash_dir.mkdir(exist_ok=True)
+        scanner = shutil.which('rg')
+        if scanner is None and shutil.which('brew'):
+            install = subprocess.run(['brew', 'install', 'ripgrep'], stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, timeout=180)
+            (out / 'diagnostic-tools.log').write_text(install.stdout)
+            scanner = shutil.which('rg')
+        copied = 0
+        for directory in [pathlib.Path.home() / 'Library/Logs/DiagnosticReports',
+                          pathlib.Path.home() / ('Library/Developer/CoreSimulator/Devices/' + uid + '/data/Library/Logs/CrashReporter')]:
+            if not scanner or not directory.exists():
+                continue
+            scan = subprocess.run([scanner, '--files', '-uuu', '-g', '*GenUIHeight*', str(directory)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            paths = [pathlib.Path(s) for s in scan.stdout.splitlines() if pathlib.Path(s).suffix in ('.ips', '.crash')]
+            for p in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)[:5]:
+                shutil.copyfile(p, crash_dir / p.name)
+                copied += 1
+        note('GENUI_CRASH_REPORTS_COPIED ' + str(copied) + ' scanner=' + str(scanner is not None))
         try:
             log = subprocess.run(['xcrun', 'simctl', 'spawn', uid, 'log', 'show', '--style', 'compact',
-                                  '--last', '2m', '--predicate', 'process == "GenUIHeight"'],
+                                  '--last', '3m', '--predicate', 'process == "GenUIHeight" OR process == "ReportCrash" OR eventMessage CONTAINS "GenUIHeight"'],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
             (out / 'diagnostic.log').write_text(log.stdout)
         except subprocess.TimeoutExpired:

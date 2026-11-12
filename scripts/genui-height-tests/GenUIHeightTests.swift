@@ -364,10 +364,15 @@ final class GenUIHeightTests {
             runs += 1
             origin.genuiStateJSON = target.json
         }
+        print("GENUI_TWO_LIST_PHASE a-commit-begin main=\(Thread.isMainThread)"); fflush(stdout)
         a.coordinator.commitGenUIStateChange(change)
+        print("GENUI_TWO_LIST_PHASE a-commit-end"); fflush(stdout)
         b.coordinator.commitGenUIStateChange(change)
+        print("GENUI_TWO_LIST_PHASE b-commit-end"); fflush(stdout)
         a.layoutNow(); b.layoutNow()
+        print("GENUI_TWO_LIST_PHASE first-layout-end"); fflush(stdout)
         a.pump(0.25); b.pump(0.25)
+        print("GENUI_TWO_LIST_PHASE pump-end"); fflush(stdout)
         a.layoutNow(); b.layoutNow()
         CheckLog.check("twoLists/apply-once", runs == 1 && change.request.hasRun, "runs=\(runs)")
         CheckLog.check("twoLists/state-synced",
