@@ -678,6 +678,19 @@ enum MUChartStyle {
         hex(0x006BA2, dark: 0x4D9FD1), hex(0x3EBCD2, dark: 0x6FD3E4), hex(0xEBB434, dark: 0xF2C85E),
         hex(0x379A8B, dark: 0x5CBBAD), hex(0x69C9B9, dark: 0x86E5D4), hex(0x00588D, dark: 0x3D89C3),
     ]
+    /// Recent-chart look (sampled from 2024-26 charts, not an official palette):
+    /// red, salmon, dark red, warm greys, the one blue. Used for multi-series.
+    static let seriesRecent: [Color] = [
+        red, grey,
+        hex(0xF8A290, dark: 0xF8A290),  // salmon
+        hex(0x4A4C4E, dark: 0xC9C9BE),  // dark grey
+        hex(0xBE191F, dark: 0xE0525E),  // dark red
+        hex(0x3651A3, dark: 0x7C92D6),  // the one blue
+    ]
+    static let panelRecent = hex(0xF1EFEA, dark: 0x262624)
+    static let gridRecent = hex(0xD1D0C6, dark: 0x45443F)
+    static let textRecent = hex(0x4A4C4E, dark: 0xB6B6A9)
+
     /// Chart panel (web "boxes": #E9EDF0), grid, text, red tag.
     static let panel2017 = hex(0xE9EDF0, dark: 0x1F262B)
     static let grid2017 = hex(0xB7C6CF, dark: 0x3A474F)
@@ -712,7 +725,7 @@ private struct MUChart: View {
         let points = Array(zip(labels, values).enumerated())
         if palette == MUChartStyle.economist2017 {
             // One-series charts become a one-row MultiChart in the 2017 style.
-            MUMultiChartBody(kind: comp.name == "LineChart" ? "line" : "bar",
+            MUMultiChartBody(look: .guide2017, kind: comp.name == "LineChart" ? "line" : "bar",
                              labels: labels, series: [], matrix: [values],
                              title: nil, subtitle: nil, source: nil, unit: unit,
                              highlight: comp.strings("highlight"), framed: false)
@@ -800,8 +813,11 @@ private struct MUChart: View {
 /// switch only decides how the single-series BarChart/LineChart draw.
 private struct MUMultiChart: View {
     let comp: MUComp
+    @AppStorage(MUChartStyle.key) private var palette: String = ""
     var body: some View {
-        MUMultiChartBody(kind: comp.str("kind") ?? "line",
+        MUMultiChartBody(look: palette == MUChartStyle.economist2017 ? .guide2017
+                                : (palette == MUChartStyle.economist ? .recent : .system),
+                         kind: comp.str("kind") ?? "line",
                          labels: comp.strings("labels"), series: comp.strings("series"),
                          matrix: comp.matrix("values"), title: comp.str("title"),
                          subtitle: comp.str("subtitle"), source: comp.str("source"),
@@ -818,6 +834,8 @@ private struct MUMultiChart: View {
 /// title/subtitle/legend/source rows are text and wrap, so the sizing estimate
 /// in MinisUIEngine.estimate() mirrors them.
 private struct MUMultiChartBody: View {
+    enum Look { case system, recent, guide2017 }
+    let look: Look
     let kind: String
     let labels: [String]
     let series: [String]
@@ -829,7 +847,36 @@ private struct MUMultiChartBody: View {
     let highlight: [String]
     let framed: Bool
 
-    private var palette: [Color] { kind == "stacked" ? MUChartStyle.stacked2017 : MUChartStyle.series2017 }
+    private var palette: [Color] {
+        switch look {
+        case .system: return [.blue, .orange, .green, .red, .purple, .teal]
+        case .recent: return MUChartStyle.seriesRecent
+        case .guide2017: return kind == "stacked" ? MUChartStyle.stacked2017 : MUChartStyle.series2017
+        }
+    }
+    private var greyOut: Color { look == .guide2017 ? MUChartStyle.other2017 : MUChartStyle.grey }
+    private var panelFill: Color {
+        switch look {
+        case .system: return Color.primary.opacity(0.04)
+        case .recent: return MUChartStyle.panelRecent
+        case .guide2017: return MUChartStyle.panel2017
+        }
+    }
+    private var gridColor: Color {
+        switch look {
+        case .system: return Color.primary.opacity(0.12)
+        case .recent: return MUChartStyle.gridRecent
+        case .guide2017: return MUChartStyle.grid2017
+        }
+    }
+    private var textColor: Color {
+        switch look {
+        case .system: return Color.secondary
+        case .recent: return MUChartStyle.textRecent
+        case .guide2017: return MUChartStyle.text2017
+        }
+    }
+    private var tagColor: Color { look == .system ? .clear : (look == .recent ? MUChartStyle.red : MUChartStyle.tag2017) }
 
     private var rows: Int { matrix.count }
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
@@ -838,7 +885,7 @@ private struct MUMultiChartBody: View {
     /// Colour of series `s`. A highlight naming series turns the others grey.
     private func color(_ s: Int) -> Color {
         let names = hl.intersection(Set(series))
-        if !names.isEmpty, s < series.count, !names.contains(series[s]) { return MUChartStyle.other2017 }
+        if !names.isEmpty, s < series.count, !names.contains(series[s]) { return greyOut }
         return palette[s % palette.count]
     }
 
@@ -847,6 +894,8 @@ private struct MUMultiChartBody: View {
     private func barColor(series s: Int, index i: Int) -> Color {
         let marked = hl.intersection(Set(labels))
         if rows == 1, !marked.isEmpty {
+            if look == .recent { return marked.contains(labels[i]) ? MUChartStyle.red : MUChartStyle.grey }
+            if look == .system { return marked.contains(labels[i]) ? .orange : .blue }
             return marked.contains(labels[i]) ? MUChartStyle.series2017[1] : MUChartStyle.series2017[0]
         }
         return color(s)
@@ -855,27 +904,28 @@ private struct MUMultiChartBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if framed {
-                Rectangle().fill(MUChartStyle.tag2017).frame(width: 28, height: 4)
-                    .padding(.bottom, 2)
+                if look != .system {
+                    Rectangle().fill(tagColor).frame(width: 28, height: 4).padding(.bottom, 2)
+                }
                 if let t = title {
                     Text(t).font(.system(size: 14, weight: .bold)).foregroundStyle(Color.primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let st = subtitle {
-                    Text(st).font(.system(size: 12)).foregroundStyle(MUChartStyle.text2017)
+                    Text(st).font(.system(size: 12)).foregroundStyle(textColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if series.count > 1 { legend }
             chart.frame(height: 180).padding(.top, 4)
             if framed, let src = source {
-                Text(src).font(.system(size: 10)).foregroundStyle(MUChartStyle.text2017.opacity(0.85))
+                Text(src).font(.system(size: 10)).foregroundStyle(textColor.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(framed ? 10 : 0)
-        .background(framed ? AnyView(RoundedRectangle(cornerRadius: 2).fill(MUChartStyle.panel2017)) : AnyView(Color.clear))
+        .background(framed ? AnyView(RoundedRectangle(cornerRadius: look == .system ? 8 : 2).fill(panelFill)) : AnyView(Color.clear))
     }
 
     private var legend: some View {
@@ -883,7 +933,7 @@ private struct MUMultiChartBody: View {
             ForEach(0..<series.count, id: \.self) { s in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 1).fill(color(s)).frame(width: 10, height: 3)
-                    Text(series[s]).font(.system(size: 11)).foregroundStyle(MUChartStyle.text2017)
+                    Text(series[s]).font(.system(size: 11)).foregroundStyle(textColor)
                 }
             }
         }
@@ -919,14 +969,14 @@ private struct MUMultiChartBody: View {
         .chartLegend(.hidden)
         .chartYAxis {
             AxisMarks(position: .trailing) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6)).foregroundStyle(MUChartStyle.grid2017)
-                AxisValueLabel().foregroundStyle(MUChartStyle.text2017)
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6)).foregroundStyle(gridColor)
+                AxisValueLabel().foregroundStyle(textColor)
             }
         }
         .chartXAxis {
             AxisMarks { _ in
-                AxisTick(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(MUChartStyle.text2017)
-                AxisValueLabel().foregroundStyle(MUChartStyle.text2017)
+                AxisTick(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(textColor)
+                AxisValueLabel().foregroundStyle(textColor)
             }
         }
     }
