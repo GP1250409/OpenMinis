@@ -889,6 +889,12 @@ private struct MUMultiChartBody: View {
         return palette[s % palette.count]
     }
 
+    private var hasSeriesHighlight: Bool { !hl.intersection(Set(series)).isEmpty }
+    private func isGreyed(_ s: Int) -> Bool {
+        let names = hl.intersection(Set(series))
+        return !names.isEmpty && s < series.count && !names.contains(series[s])
+    }
+
     /// Colour of one bar. A highlight naming labels keeps those at the series
     /// colour (cyan for the emphasised bar in the guide's "1 trace with highlight").
     private func barColor(series s: Int, index i: Int) -> Color {
@@ -950,7 +956,17 @@ private struct MUMultiChartBody: View {
                     case "line":
                         LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
                             .foregroundStyle(color(s))
-                            .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2.0 : 2.6, lineCap: .round, lineJoin: .round))
+                        // Direct label at the last point, in the line's own colour. Needed
+                        // when several lines are grey and the legend cannot tell them apart.
+                        if i == cols - 1, series.count > 1, s < series.count, hasSeriesHighlight {
+                            PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
+                                .symbolSize(CGFloat(0))
+                                .annotation(position: .trailing, alignment: .center, spacing: 3) {
+                                    Text(series[s]).font(.system(size: 10, weight: isGreyed(s) ? .regular : .bold))
+                                        .foregroundStyle(color(s)).fixedSize()
+                                }
+                        }
                     case "stacked":
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
                             .foregroundStyle(color(s))
@@ -967,6 +983,10 @@ private struct MUMultiChartBody: View {
         }
         .chartXScale(domain: labels)
         .chartLegend(.hidden)
+        .chartPlotStyle { plot in
+            // Room on the right for the direct labels (kept off the y-axis numbers).
+            plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)
+        }
         .chartYAxis {
             AxisMarks(position: .trailing) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6)).foregroundStyle(gridColor)
@@ -974,9 +994,11 @@ private struct MUMultiChartBody: View {
             }
         }
         .chartXAxis {
-            AxisMarks { _ in
-                AxisTick(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(textColor)
-                AxisValueLabel().foregroundStyle(textColor)
+            AxisMarks(preset: .aligned) { _ in
+                // Short 0.5pt tick marks only: no vertical grid line, and an explicit
+                // length so the tick never runs the height of the plot.
+                AxisTick(centered: false, length: 4, stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(textColor)
+                AxisValueLabel(anchor: .top).foregroundStyle(textColor)
             }
         }
     }
