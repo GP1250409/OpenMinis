@@ -860,6 +860,8 @@ struct MUChartRenderGeometry: Equatable {
     let labelColumn: CGRect
     let axisColumn: CGRect
     let labelBoxes: [CGRect]
+    let axisBoxes: [CGRect]
+    let gridYs: [CGFloat]
 }
 struct MUChartRenderGeometryKey: PreferenceKey {
     static var defaultValue: MUChartRenderGeometry? = nil
@@ -1041,21 +1043,31 @@ private struct MUMultiChartBody: View {
             // The snapshot uses ACTUAL plot bounds and the exact boxes rendered
             // below. The host adds the Chart's explicit offset to panel space.
             let origin = geo.frame(in: .named("MUChartPanel")).origin
+            let gridYs = ticks.map { value in
+                frame.minY + (proxy.position(forY: value)
+                    ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height))
+            }
+            // SwiftUI position is the frame CENTER, not its top edge. No
+            // optical offset: keep the 14pt digit box centered on its grid.
+            let axisBoxes = gridYs.map { y in
+                CGRect(x: axisX, y: y - 7, width: columns.axisWidth, height: 14)
+            }
             let snapshot = MUChartRenderGeometry(panelWidth: columns.width,
                 plot: frame.offsetBy(dx: origin.x, dy: origin.y),
                 labelColumn: CGRect(x: columns.labelMinX, y: origin.y + frame.minY, width: columns.labelWidth, height: frame.height),
                 axisColumn: CGRect(x: columns.axisMinX, y: origin.y + frame.minY, width: columns.axisWidth, height: frame.height),
                 labelBoxes: placements.map { p in CGRect(x: columns.labelMinX,
-                    y: origin.y + frame.minY + p.centerY - size * 0.65, width: columns.labelWidth, height: size * 1.3) })
+                    y: origin.y + frame.minY + p.centerY - size * 0.65, width: columns.labelWidth, height: size * 1.3) },
+                axisBoxes: axisBoxes.map { $0.offsetBy(dx: origin.x, dy: origin.y) },
+                gridYs: gridYs.map { $0 + origin.y })
             ZStack(alignment: .topLeading) {
-                ForEach(ticks, id: \.self) { value in
-                    let y = frame.minY + (proxy.position(forY: value)
-                        ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height))
+                ForEach(Array(ticks.enumerated()), id: \.offset) { index, value in
+                    let box = axisBoxes[index]
                     Text(axisText(value))
                         .font(.system(size: theme.fonts.tick, weight: value == 0 && crossesZero ? .bold : .regular))
                         .monospacedDigit().foregroundStyle(theme.axis)
-                        .frame(width: columns.axisWidth, height: 14, alignment: .trailing)
-                        .position(x: axisX + columns.axisWidth / 2, y: y - 1.5 - 7)
+                        .frame(width: box.width, height: box.height, alignment: .trailing)
+                        .position(x: box.midX, y: box.midY)
                 }
                 ForEach(placements, id: \.index) { p in
                     if p.index < gutter.labels.count {

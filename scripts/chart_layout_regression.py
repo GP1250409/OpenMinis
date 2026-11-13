@@ -100,6 +100,10 @@ need('let fonts: MUChartFontScale = .phone' in view_text and 'theme.fonts.subtit
      'each complete theme exposes the shared phone typography scale')
 need('if !framed, !unit.isEmpty' in view_text,
      'single-series units remain visible inside the existing axis headroom')
+need('.position(x: box.midX, y: box.midY)' in view_text and 'y: y - 7, width: columns.axisWidth, height: 14' in view_text,
+     'axis digit box center equals the corresponding real grid coordinate')
+need('y: y - 1.5 - 7' not in view_text and 'axisBoxes: axisBoxes.map' in view_text,
+     'the old optical/top-edge shift is removed and the rendered box is observable')
 need('MUChartRenderGeometryKey' in view_text,
      'actual ChartProxy geometry is exposed to the real rendering fixture')
 need('.chartOverlay { proxy in' in view_text and 'proxy.plotAreaFrame' in view_text,
@@ -177,7 +181,7 @@ if run.returncode != 0 or not match:
     print('CHART_LAYOUT_RUN_FAILED')
     sys.exit(1)
 checks = int(match.group(1))
-if checks < 275:
+if checks < 287:
     print('CHART_LAYOUT_TOO_FEW_CHECKS %d' % checks)
     sys.exit(1)
 print('CHART_LAYOUT_SOURCE_PASS checks=%d' % static_passed)

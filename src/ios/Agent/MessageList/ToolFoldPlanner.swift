@@ -497,11 +497,17 @@ extension ToolFoldPlanner {
             return isBlankThinking(block) ? .text(isEmpty: true) : .thinking
         case .info, .delegateTool:  // [T-user-ask] never folded
             return .barrier
-        case .userAskTool, .genuiTool:
-            // [T-fold-card-boundary] A card the user sees and answers closes
-            // the process before it; a show_ui still being written is a call
-            // in progress and stays a plain barrier until it renders.
+        case .userAskTool:
             return isCard(block) ? .card : .barrier
+        case .genuiTool:
+            // A rendered UI is a handover. Failed/cancelled calls are settled
+            // process, not unfinished barriers that discard the preceding run.
+            switch block.toolStatus {
+            case .success: return .card
+            case .failed: return .tool(.failed)
+            case .cancelled: return .tool(.cancelled)
+            case .streaming, .running, .none: return .barrier
+            }
         case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool,
              .browserTool, .readImageTool, .memoryTool:
             switch block.toolStatus {

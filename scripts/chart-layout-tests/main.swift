@@ -310,6 +310,17 @@ check(MUChartTypography.estimatedHeight(title: nil, subtitle: nil, source: nil, 
       "single-series estimate includes owned x axis and tick headroom")
 check(MUChartAxis.ticks(domain: MUChartDomain(lower: -10, upper: 10)).contains(0), "cross-zero explicit ticks contain a zero baseline")
 
+// Axis number boxes extend 7pt above/below the extreme grid lines. Keep
+// existing plotTop/xAxisHeight reservations (no clamping or domain changes).
+for domain in [MUChartDomain(lower: 0, upper: 10), MUChartDomain(lower: -10, upper: 0), MUChartDomain(lower: -10, upper: 10)] {
+    for value in [domain.lower, domain.upper] {
+        let gridY = MUChartAxis.pixelY(value, domain: domain, height: 180)
+        let box = CGRect(x: 0, y: MUChartTypography.plotTop + gridY - 7, width: 35, height: 14)
+        check(box.minY >= 0, "top tick box fits existing headroom \(domain) \(value)")
+        check(box.maxY <= MUChartTypography.plotTop + 180 + MUChartTypography.xAxisHeight,
+              "bottom tick box fits existing footroom \(domain) \(value)")
+    }
+}
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")

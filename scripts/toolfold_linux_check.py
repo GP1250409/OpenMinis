@@ -65,5 +65,32 @@ for name, value in asserted:
 for v in missing:
     print(f'MISSING: {v}')
 print(f'CHECKED {len(checks)} check() descriptions, {len(asserted)} asserted values, {len(missing)} missing')
+# Also compile ALL production adapters, not just the abstract planner enum.
+# The fixture supplies model storage only; classification/history/share logic
+# remains verbatim shipped Swift. This stage is required before the OK marker.
+adapter = root / 'scripts/toolfold-adapter-tests.swift'
+(out / 'main.swift').write_text(adapter.read_text())
+adapt_build = subprocess.run([swiftc, '-swift-version', '5', str(planner_path),
+                              str(out / 'main.swift'), '-o', str(out / 'adapter')],
+                             capture_output=True, text=True)
+if adapt_build.returncode:
+    print('ADAPTER_COMPILE_FAILED', adapt_build.stderr[-6000:])
+    sys.exit(1)
+adapt_run = subprocess.run([str(out / 'adapter')], capture_output=True, text=True)
+print(adapt_run.stdout)
+if adapt_run.returncode or 'TOOLFOLD_ADAPTER_PASS' not in adapt_run.stdout:
+    print('ADAPTER_RUN_FAILED', adapt_run.stderr[-4000:])
+    sys.exit(1)
+# Run the standalone source/wiring audit too, with the same real compiler.
+wiring_build = subprocess.run([swiftc, str(test_path), '-o', str(out / 'wiring')],
+                              capture_output=True, text=True)
+if wiring_build.returncode:
+    print('WIRING_COMPILE_FAILED', wiring_build.stderr[-6000:]); sys.exit(1)
+wiring_run = subprocess.run([str(out / 'wiring')], cwd=test_path.parent,
+                            capture_output=True, text=True)
+print(wiring_run.stdout)
+if wiring_run.returncode:
+    print('WIRING_RUN_FAILED', wiring_run.stderr[-4000:]); sys.exit(1)
+print('TOOLFOLD_WIRING_OK')
 print('TOOLFOLD_LINUX_OK' if not missing else 'TOOLFOLD_LINUX_FAIL')
 sys.exit(0 if not missing else 1)

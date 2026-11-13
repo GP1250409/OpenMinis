@@ -34,7 +34,14 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                     for scenario in scenarios {
                         let count = scenario.count, kind = scenario.kind
                         let names = (0..<count).map { $0 == 0 ? "中国" : "很长的中文系列名称第\($0)组" }
-                        let matrix = (0..<count).map { i in [Double(i) - 4, 5, -2, 5] }
+                        let matrix = (0..<count).map { i -> [Double] in
+                            let values = [Double(i) - 4, 5, -2, 5]
+                            // All chart kinds, themes and appearances cover
+                            // positive-only, negative-only and crossing zero.
+                            if width == 280 { return values.map { abs($0) + 1 } }
+                            if width == 330 { return values.map { -abs($0) - 1 } }
+                            return values
+                        }
                         let theme = MUChartTheme.current(for: palette)
                         let probe = ChartProbe()
                         let title = "中国保持增长"
@@ -73,6 +80,19 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                                 check(g.axisColumn.minX - g.labelColumn.maxX >= 5.99, id + " actual label-axis gap")
                                 check(g.labelBoxes.allSatisfy { $0.maxX <= g.axisColumn.minX - 6 }, id + " actual label boxes excluded from axis")
                             }
+                            check(g.axisBoxes.count == g.gridYs.count && !g.axisBoxes.isEmpty, id + " observed axis boxes")
+                            for (box, gridY) in zip(g.axisBoxes, g.gridYs) {
+                                check(abs(box.midY - gridY) <= 0.01, id + " axis box center on horizontal grid")
+                                check(box.minY >= 0 && box.maxY <= size.height, id + " extreme tick not clipped by card")
+                                let ink = axisInkBounds(image, box: box)
+                                check(ink != nil, id + " actual digit ink visible including extreme ticks")
+                                if let ink {
+                                    // Glyph optical bounds may differ slightly from the
+                                    // font line box, but never by the old 8.5pt shift.
+                                    check(abs(ink.midY - gridY) <= 2, id + " bitmap digit centered on grid \(ink.midY - gridY)")
+                                    check(ink.minY > box.minY && ink.maxY < box.maxY, id + " bitmap digit not vertically clipped")
+                                }
+                            }
                             let pixels = measure(image, geometry: g)
                             check(pixels.left != nil && pixels.right != nil, id + " real bitmap ink detected")
                             if let left = pixels.left, let right = pixels.right {
@@ -106,6 +126,30 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         fflush(stdout)
         exit(failed == 0 ? 0 : 1)
     }
+    /// Detect the actual glyph bounds within its production 14pt number box.
+    func axisInkBounds(_ image: UIImage, box: CGRect) -> CGRect? {
+        let scale = image.scale
+        let rect = CGRect(x: floor(box.minX * scale), y: floor(box.minY * scale),
+                          width: ceil(box.width * scale), height: ceil(box.height * scale))
+        guard let cg = image.cgImage?.cropping(to: rect) else { return nil }
+        let w = cg.width, h = cg.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let context = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var low = h, high = -1
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                if (0..<3).map({ abs(Int(bytes[i + $0]) - Int(bytes[$0])) }).max()! > 24 {
+                    low = min(low, y); high = max(high, y)
+                }
+            }
+        }
+        guard high >= low else { return nil }
+        return CGRect(x: box.minX, y: (rect.minY + CGFloat(low)) / scale,
+                      width: box.width, height: CGFloat(high - low + 1) / scale)
+    }
     /// Inspect the actual rendered bitmap, not expected frames. Find painted
     /// glyphs in each column against the panel sample. Units returned in pt.
     func measure(_ image: UIImage, geometry g: MUChartRenderGeometry) -> (left: CGFloat?, right: CGFloat?, gap: CGFloat?) {
@@ -136,8 +180,8 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         // 0.5pt grid strokes are antialiased over 1–2 pixels; their visible
         // contrast can be <24 even though dark text easily exceeds that.
         let plot = extent(g.plot.insetBy(dx: -1, dy: 1), threshold: 8)
-        let axisRect = CGRect(x: g.axisColumn.minX - 0.5, y: g.plot.minY - 16,
-                              width: g.axisColumn.width + 1, height: g.plot.height + 15)
+        let axisRect = CGRect(x: g.axisColumn.minX - 0.5, y: g.plot.minY - 7,
+                              width: g.axisColumn.width + 1, height: g.plot.height + 14)
         let axis = extent(axisRect)
         let label = extent(g.labelColumn)
         let left = plot.0.map { CGFloat($0) / scale }

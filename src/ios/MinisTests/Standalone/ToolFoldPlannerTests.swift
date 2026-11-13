@@ -345,7 +345,7 @@ func run(_ exe: String, _ args: [String]) -> (Int32, String) {
     return (p.terminationStatus, String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
 }
 let bin = tmp.appendingPathComponent("t").path
-let (cs, cout) = run("/usr/bin/xcrun", ["swiftc", "-o", bin, main.path])
+let (cs, cout) = run("/usr/bin/env", ["swiftc", "-o", bin, main.path])
 check("ToolFoldPlanner compiles standalone", cs == 0)
 if cs != 0 { print(cout); exit(1) }
 let (_, o) = run(bin, [])
@@ -619,7 +619,8 @@ check("only the loop's running message is planned up to its fold horizon; every 
       && plan.contains("let horizon = ToolFoldPlanner.foldHorizon(for: message, runningMessageId: runningId,")
       && plan.contains("separators: vm.toolFoldSeparators)")
       && plannerSrc.contains("guard message.id == runningMessageId else { return message.blocks.count }")
-      && plannerSrc.contains("return foldHorizon(blockIds: message.blocks.map(\\.id), separators: separators[message.id] ?? [])")
+      && ordered(plannerSrc, ["return foldHorizon(blockIds: message.blocks.map(\\.id),",
+                              "separators: separators[message.id] ?? [],", "isCard: { cards.contains($0) })"])
       // [T-fold-stopped-tools] The horizon is where planning STOPS, not where
       // the task does: `ended` comes from the running message alone.
       && plan.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
@@ -627,7 +628,8 @@ check("only the loop's running message is planned up to its fold horizon; every 
 check("the planner takes the task's end as its own input, defaulting to \"not ended\" [T-fold-stopped-tools]",
       plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {")
       && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {")
-      && plannerSrc.contains("if ended, let s = start, qualifies(tools, thinks) {")
+      && plannerSrc.contains("if ended, let s = start, foldsAtClose() {")
+      && plannerSrc.contains("qualifies(tools, thinks) && !(tools == 0 && !leadGaps.isEmpty)")
       && plannerSrc.contains("[T-fold-stopped-tools]"))
 check("the share export passes the same two inputs (horizon + task end)",
       read("Views/Chat/ChatExportRenderer.swift")
@@ -637,13 +639,15 @@ check("the list re-plans on the vm's turn-ended signal, not only on the isProces
 
 print("▶️  cards and blank thinking [T-fold-card-boundary] [T-fold-blank-thinking]")
 check("user_ask and a rendered show_ui are cards; info rows and delegations stay barriers",
-      plannerSrc.contains("case .userAskTool, .genuiTool:")
+      plannerSrc.contains("case .userAskTool:")
+      && plannerSrc.contains("case .genuiTool:")
       && plannerSrc.contains("return isCard(block) ? .card : .barrier")
       && plannerSrc.contains("case .info, .delegateTool:  // [T-user-ask] never folded"))
 check("a card closes the run like a reply and is never a member",
       plannerSrc.contains("case .card, .text(isEmpty: false):")
       && ordered(plannerSrc, ["case .card, .text(isEmpty: false):",
-                              "if let s = start, qualifies(tools, thinks) {", "reset()"]))
+                              "if let s = start, foldsAtClose() {", "reset()"]))
+let vmSrc = chatViewModelSource()
 check("a request ending on a card registers a fold separator, so the run before it closes while the answer waits",
       ordered(vmSrc, ["if ToolFoldPlanner.isCard(lastBlock) {",
                       "toolFoldSeparators[messageId, default: []].insert(lastBlock.id)",
@@ -668,7 +672,6 @@ check("the blank rule is whitespace plus a narrow zero-width set, never every fo
       && plannerSrc.contains("\"\\u{200B}\"") && plannerSrc.contains("\"\\u{FEFF}\"")
       && !plannerSrc.contains("Unicode.Scalar.Properties.isWhiteSpace")
       && plannerSrc.contains("U+00AD soft hyphen, the"))
-let vmSrc = chatViewModelSource()
 check("the vm marks a request end once per request, after its stream result is final",
       ordered(vmSrc, ["let foldRequestStartBlockIds = Set(messages[msgIdx].blocks.map(\\.id))",
                       "let stopReason = streamResult.stopReason",
@@ -737,7 +740,10 @@ check("accessibility says what the row holds, and keeps working for thinking",
       && row.contains(".accessibilityLabel(accessibilityText)")
       && row.contains(".accessibilityAddTraits(.isButton)"))
 check("expanding still inserts the ORIGINAL blocks, so each thinking block keeps its own chevron",
-      v3.contains("newItems.append(contentsOf: run.memberIds.map { .assistantBlock(message.id, $0) })"))
+      ordered(v3, ["newItems.append(contentsOf: blocks[run.group.range]",
+                   ".filter { !gapBlockIds.contains($0.id) }",
+                   ".filter { !($0.kind == .thinking && ToolFoldPlanner.isBlankThinking($0)) }",
+                   ".map { .assistantBlock(message.id, $0.id) })"]))
 check("the memory tool is a foldable call, not a barrier (the memory_write screenshot)",
       plannerSrc.contains(".browserTool, .readImageTool, .memoryTool:")
       && plannerSrc.contains("case .success: return .tool(.succeeded)"))
