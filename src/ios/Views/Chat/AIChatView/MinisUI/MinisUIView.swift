@@ -1126,8 +1126,11 @@ private struct MUMultiChartBody: View {
     @ViewBuilder
     private func endLabels(in proxy: ChartProxy, gutter: MUChartLabelMetrics.Gutter,
                            width: CGFloat) -> some View {
-        GeometryReader { _ in
-            if let frame = proxy.plotAreaFrame {
+        GeometryReader { geo in
+            // `plotAreaFrame` is an Anchor<CGRect>: resolve it in THIS
+            // geometry (the overlay fills the chart), so the rect is real.
+            if let anchor = proxy.plotAreaFrame {
+                let frame = geo[anchor]
                 let size = gutter.fontSize
                 let box = gutter.labelWidth
                 // Real y of every series' last value, in plot points.
@@ -1135,9 +1138,10 @@ private struct MUMultiChartBody: View {
                     proxy.position(forY: lastValues[s])
                         ?? MUChartAxis.pixelY(lastValues[s], domain: domain, height: frame.height)
                 }
-                let placements = MUChartEndLabels.layout(
-                    values: lastValues, domain: domain, plotHeight: frame.height,
-                    minGap: size + 3, edgeInset: size * 0.75, baseY: baseY)
+                let placements = MUChartEndLabels.layout(values: lastValues, domain: domain,
+                                                         plotHeight: frame.height,
+                                                         minGap: size + 3, edgeInset: size * 0.75,
+                                                         baseY: baseY)
                 let lastX = cols > 0 ? (proxy.position(forX: labels[cols - 1]) ?? frame.maxX) : frame.maxX
                 // The label column: right edge pinned inside the plot, never
                 // before the last mark (which the gutter already made room for).
