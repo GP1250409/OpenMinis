@@ -73,8 +73,8 @@ need('MUChartEmphasis.roles(series: series, highlight: highlight)' in view_text,
      'the view asks the shared resolver for the roles')
 need('MUChartEndLabels.layout(values: lastValues, domain: domain' in view_text,
      'the view uses the computed label placement')
-need('MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width,' in view_text,
-     'the view sizes the gutter from the real card width')
+need('MUChartColumns.layout(width: width, labelWidth: gutter.labelWidth,' in view_text,
+     'the view uses the owned columns instead of Charts axis layout')
 # [T-chart-label-physical] Build 8ec8992 still put "中国" on the axis "5": the
 # gutter was an estimate and the labels were mark annotations, which Charts may
 # place outside the plot area. Both halves of the fix are pinned here.
@@ -82,8 +82,22 @@ need('widths: labelWidths' in view_text and 'MUStyle.textWidth(' in view_text,
      'the gutter is sized from the MEASURED width of the labels, not from an estimate')
 need('.annotation(position: .trailing' not in view_text,
      'end labels are no longer mark annotations (they could overflow into the axis)')
-need('plot.padding(.trailing, gutter.width)' in view_text,
-     'the plot still reserves the trailing gutter for the labels')
+need('plot.padding(.trailing' not in view_text and '.chartYAxis(.hidden)' in view_text,
+     'native y labels and the misplaced trailing padding are both removed')
+need('max(lastX + 3' not in view_text and 'columns.axisMinX - columns.plotMinX' in view_text,
+     'label and axis x positions are exclusively owned by the pure columns')
+need('static let innerInset: CGFloat = 10' in core_text and 'static let axisGap: CGFloat = 6' in core_text,
+     'one shared 10pt inset and at least 6pt between the text columns')
+need('struct MUChartTheme' in view_text and 'static func current(for value: String)' in view_text,
+     'all chart types resolve one complete theme preset')
+need('series.count > 1 && !showEndLabels' in view_text,
+     'end labels automatically hide the duplicate legend')
+need('MUChartTypography.estimatedHeight' in core_text,
+     'height estimates share the typography and row contract')
+need('0xFFFFFF, dark: 0x161B1F' in view_text and 'theme.topRule' in view_text,
+     '2017 web theme uses white ground plus top rule, with adapted dark ground')
+need('MUChartRenderGeometryKey' in view_text,
+     'actual ChartProxy geometry is exposed to the real rendering fixture')
 need('.chartOverlay { proxy in' in view_text and 'proxy.plotAreaFrame' in view_text,
      'the labels are drawn inside the real plot frame (ChartProxy.plotAreaFrame)')
 need('proxy.position(forY:' in view_text and 'baseY: baseY' in view_text,
@@ -97,7 +111,7 @@ need('flat ? Color.clear' in view_text,
      'a chart-only card draws no fill (the chart keeps its own panel)')
 need('fill(topLevel ? ChatColors.secondaryBg' not in view_text,
      'the unconditional card fill is gone (a chart card cannot fall back to it)')
-need('.chartYScale(domain: domain.lower...domain.upper)' in view_text,
+need('.chartYScale(domain: domain.lower...domain.upper, range: .plotDimension(startPadding: 0, endPadding: 0))' in view_text,
      'the y domain is explicit, so a value\'s pixel position is exact')
 need('plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)' not in view_text,
      'the old hard-coded 22pt trailing padding is gone')
@@ -105,7 +119,7 @@ need('private var chartHeight: CGFloat { 180 }' in view_text,
      'the plot keeps a fixed 180pt height (height transaction unchanged)')
 need(view_text.count('palette[s % palette.count]') == 1,
      'the palette is indexed in exactly one place (behind the role switch)')
-need('GeometryReader' in view_text and '.frame(height: chartHeight)' in view_text,
+need('GeometryReader' in view_text and '.frame(height: chartHeight + MUChartTypography.xAxisHeight + MUChartTypography.plotTop)' in view_text,
      'the width comes from a fixed-height GeometryReader, not from a guessed constant')
 for symbol in ['MUChartStyle.accent2017', 'MUChartStyle.accentRecent', 'MUChartStyle.accentSystem']:
     need(symbol in view_text, symbol + ' is defined for the accent ramp')
@@ -159,7 +173,7 @@ if run.returncode != 0 or not match:
     print('CHART_LAYOUT_RUN_FAILED')
     sys.exit(1)
 checks = int(match.group(1))
-if checks < 50:
+if checks < 275:
     print('CHART_LAYOUT_TOO_FEW_CHECKS %d' % checks)
     sys.exit(1)
 print('CHART_LAYOUT_SOURCE_PASS checks=%d' % static_passed)

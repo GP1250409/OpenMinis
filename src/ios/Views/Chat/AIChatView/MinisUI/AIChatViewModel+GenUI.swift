@@ -123,7 +123,10 @@ enum MinisUIPrompt {
           `subtitle` or `source` ("估算", "示意数据") — never present them as official
           figures and never attach a real organisation's name to them.
         - Time series in time order, oldest first. State the unit and period in
-          `subtitle` (e.g. "同比增速，%"). One unit per chart.
+          `subtitle` (e.g. "同比增速，%"), including the statistical scope. One unit per chart.
+          Never put units in `title`: make the title a short conclusion, not a variable name.
+          Shorten year labels to two digits (e.g. "19", "20", "24") when the period in
+          `subtitle` makes the century clear; otherwise use four digits to avoid ambiguity.
         - Keep charts quiet and readable: one message per chart, a headline that
           states the point, at most 4 series where possible, context greyed via
           `highlight` instead of extra colours. Phone screens are narrow.

@@ -274,6 +274,42 @@ check(!MUCardPlane.isChartOnly(chart), "only a Card subtree is classified, never
 check(!MUCardPlane.isChartOnly(node("Card", [chart, node("Button", [], ["label": .str("好"), "action": .str("@x")])])),
       "a chart card with a button keeps its panel")
 
+// MARK: - Phase 1 owned columns: widths, series counts, signs and collisions
+for width: CGFloat in [280, 330, 400] {
+    for count in 1...6 {
+        for negative in [false, true] {
+            let names = (0..<count).map { "非常长的中文系列名称第\($0)组" }
+            let gutter = MUChartLabelMetrics.gutter(labels: names, fontSize: 12, available: width,
+                spacing: 4, gap: 6, maxFraction: 0.36)
+            let axis: CGFloat = negative ? 35 : 24
+            let c = MUChartColumns.layout(width: width, labelWidth: gutter.labelWidth, axisWidth: axis)
+            check(abs(c.plotMinX - c.rightInset) < 0.001, "owned equal insets w=\(width) n=\(count) neg=\(negative)")
+            check(c.labelMinX - c.plotMaxX >= 4, "curve-label gap at least 4pt w=\(width) n=\(count) neg=\(negative)")
+            check(c.axisMinX - c.labelMaxX >= 6, "label-axis gap at least 6pt w=\(width) n=\(count) neg=\(negative)")
+            check(c.plotWidth >= 100 && c.axisMaxX <= width - 10, "long names leave usable plot w=\(width) n=\(count) neg=\(negative)")
+            let values = [Double](repeating: negative ? -5 : 5, count: count)
+            let d = MUChartAxis.domain(values: [values], includeZero: true)
+            let p = MUChartEndLabels.layout(values: values, domain: d, plotHeight: 180, minGap: 15, edgeInset: 9)
+            let sorted = p.map(\.centerY).sorted()
+            check(zip(sorted, sorted.dropFirst()).allSatisfy { $1 - $0 >= 15 - 0.001 },
+                "equal end values remain disjoint w=\(width) n=\(count) neg=\(negative)")
+        }
+    }
+    let bar = MUChartColumns.layout(width: width, labelWidth: 0, axisWidth: 35)
+    check(abs(bar.plotMinX - bar.rightInset) < 0.001 && bar.axisMinX - bar.plotMaxX >= 6,
+          "bar and single series keep symmetric insets w=\(width)")
+}
+let phaseTitle = "中国保持增长"
+let lineHeight = MUChartTypography.estimatedHeight(title: phaseTitle, subtitle: "同比增速，%", source: "来源：官方统计",
+    seriesCount: 3, kind: "line", width: 330, framed: true)
+let barHeight = MUChartTypography.estimatedHeight(title: phaseTitle, subtitle: "同比增速，%", source: "来源：官方统计",
+    seriesCount: 3, kind: "bar", width: 330, framed: true)
+check(barHeight - lineHeight == 40, "hidden line legend is removed from first-frame estimate")
+check(MUChartTypography.plotHeight == 180, "plot height stays 180pt across all themes")
+check(MUChartTypography.estimatedHeight(title: nil, subtitle: nil, source: nil, seriesCount: 0, kind: "line", width: 330, framed: false) == 222,
+      "single-series estimate includes owned x axis and tick headroom")
+check(MUChartAxis.ticks(domain: MUChartDomain(lower: -10, upper: 10)).contains(0), "cross-zero explicit ticks contain a zero baseline")
+
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")

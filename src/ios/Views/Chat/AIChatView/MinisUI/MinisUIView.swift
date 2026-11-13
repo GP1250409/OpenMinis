@@ -671,10 +671,10 @@ enum MUChartStyle {
     static let key = "genuiChartPalette"
     static let economist = "economist"
     /// The Economist visual styleguide v1.2 (4 May 2017): blue/cyan/gold series
-    /// on a light blue-grey panel, red tag in the top-left corner.
+    /// on a white web panel, red tag and a thin red top rule.
     static let economist2017 = "economist2017"
 
-    private static func hex(_ rgb: UInt32, dark: UInt32? = nil) -> Color {
+    static func hex(_ rgb: UInt32, dark: UInt32? = nil) -> Color {
         func ui(_ v: UInt32) -> UIColor {
             UIColor(red: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
                     blue: CGFloat(v & 0xFF) / 255, alpha: 1)
@@ -711,8 +711,8 @@ enum MUChartStyle {
     static let gridRecent = hex(0xD1D0C6, dark: 0x45443F)
     static let textRecent = hex(0x4A4C4E, dark: 0xB6B6A9)
 
-    /// Chart panel (web "boxes": #E9EDF0), grid, text, red tag.
-    static let panel2017 = hex(0xE9EDF0, dark: 0x1F262B)
+    /// White web panel (2017 p3), grid, text, red tag; dark mode adapted.
+    static let panel2017 = hex(0xFFFFFF, dark: 0x161B1F)
     static let grid2017 = hex(0xB7C6CF, dark: 0x3A474F)
     static let text2017 = hex(0x3F5661, dark: 0xB7C6CF)
     static let tag2017 = hex(0xE3120B, dark: 0xE3120B)
@@ -723,7 +723,7 @@ enum MUChartStyle {
     /// (`MUChartEmphasis`). 2017: blue → dark cyan → gold, i.e. the guide's own
     /// first/second/third colour, so an emphasised line can never be confused
     /// with the grey context lines. Deliberately not the dark-red stand-in
-    /// #A81829, whose value is still awaiting the user's decision.
+    /// #A81829, whose value is intentionally unchanged.
     static let accent2017: [Color] = [
         hex(0x006BA2, dark: 0x4D9FD1),
         hex(0x005F73, dark: 0x4EC8DE),
@@ -756,127 +756,118 @@ enum MUChartStyle {
     })
 }
 
+/// Three complete theme presets share one geometry/rendering skeleton.
+/// Official web colours: 2017 v1.2 p12; dark mode and SF fonts are adaptations.
+enum MUChartLook { case system, recent, guide2017 }
+struct MUChartTheme {
+    let look: MUChartLook
+    let panel: Color
+    let grid: Color
+    let gridWidth: CGFloat
+    let zero: Color
+    let zeroWidth: CGFloat
+    let tag: Color
+    let topRule: Color
+    let title: Color
+    let subtitle: Color
+    let source: Color
+    let axis: Color
+    let series: [Color]
+    let accents: [Color]
+    let context: Color
+    let scales: [[Color]]
+    enum LegendStyle { case shortLine, square }
+    func legendStyle(for kind: String) -> LegendStyle { kind == "line" ? .shortLine : .square }
+
+    static func current(for value: String) -> Self {
+        let source = MUChartStyle.hex(0x404040, dark: 0xBFBFBF) // 75% black / inverted
+        switch value {
+        case MUChartStyle.economist2017:
+            return Self(look: .guide2017, panel: MUChartStyle.panel2017,
+                        grid: MUChartStyle.grid2017, gridWidth: 0.5,
+                        zero: MUChartStyle.tag2017, zeroWidth: 1,
+                        tag: MUChartStyle.tag2017, topRule: MUChartStyle.tag2017,
+                        title: MUChartStyle.hex(0x0C0C0C, dark: 0xF3F3F3),
+                        subtitle: MUChartStyle.text2017, source: source, axis: MUChartStyle.text2017,
+                        series: MUChartStyle.series2017, accents: MUChartStyle.accent2017,
+                        context: MUChartStyle.other2017, scales: guideScales)
+        case MUChartStyle.economist:
+            return Self(look: .recent, panel: MUChartStyle.panelRecent,
+                        grid: MUChartStyle.gridRecent, gridWidth: 0.5,
+                        zero: .primary, zeroWidth: 1.5, tag: MUChartStyle.red, topRule: .clear,
+                        title: .primary, subtitle: MUChartStyle.textRecent, source: source,
+                        axis: MUChartStyle.textRecent, series: MUChartStyle.seriesRecent,
+                        accents: MUChartStyle.accentRecent, context: MUChartStyle.grey,
+                        scales: [[0xBE191F, 0xD32924, 0xE62923, 0xEE6552, 0xF8A290, 0xFAD0C6].map { MUChartStyle.hex($0) }])
+        default:
+            return Self(look: .system, panel: Color.primary.opacity(0.04),
+                        grid: Color.primary.opacity(0.12), gridWidth: 0.5,
+                        zero: Color.secondary.opacity(0.6), zeroWidth: 0.5,
+                        tag: .clear, topRule: .clear, title: .primary, subtitle: .secondary,
+                        source: source, axis: .secondary,
+                        series: [.blue, .orange, .green, .red, .purple, .teal],
+                        accents: MUChartStyle.accentSystem, context: .gray,
+                        scales: [[.blue.opacity(1), .blue.opacity(0.85), .blue.opacity(0.7),
+                                  .blue.opacity(0.55), .blue.opacity(0.4), .blue.opacity(0.25)]])
+        }
+    }
+    /// All nine official web equal-lightness ramps, six levels, deep → light.
+    /// The selection of a ramp is not model-exposed in Phase 1.
+    static let guideScales: [[Color]] = [
+        [0xA81829,0xC7303C,0xE64E53,0xFF6B6C,0xFF8785,0xFFA39F],
+        [0x00588D,0x1270A8,0x3D89C3,0x5DA4DF,0x7BBFFC,0x98DAFF],
+        [0x005F73,0x00788D,0x0092A7,0x25ADC2,0x4EC8DE,0x6FE4FB],
+        [0x005F52,0x00786B,0x2E9284,0x4DAD9E,0x69C9B9,0x86E5D4],
+        [0x714C00,0x8D6300,0xAA7C00,0xC89608,0xE7B030,0xFFCB4D],
+        [0x4C5900,0x667100,0x818A00,0x9DA521,0xBAC03F,0xD7DB5A],
+        [0x78405F,0x925977,0xAD7291,0xC98CAC,0xE6A6C7,0xFFC2E3],
+        [0x674E1F,0x826636,0x9D7F4E,0xB99966,0xD5B480,0xF2CF9A],
+        [0x3F5661,0x576E79,0x6F8793,0x89A2AE,0xA4BDC9,0xBFD8E5],
+    ].map { $0.map { MUChartStyle.hex(UInt32($0)) } }
+}
+
 private struct MUChart: View {
     let comp: MUComp
     @AppStorage(MUChartStyle.key) private var palette: String = ""
-
     var body: some View {
-        let labels = comp.strings("labels")
-        let values = comp.numbers("values")
-        let unit = comp.str("unit") ?? ""
-        let points = Array(zip(labels, values).enumerated())
-        if palette == MUChartStyle.economist2017 {
-            // One-series charts become a one-row MultiChart in the 2017 style.
-            MUMultiChartBody(look: .guide2017, kind: comp.name == "LineChart" ? "line" : "bar",
-                             labels: labels, series: [], matrix: [values],
-                             title: nil, subtitle: nil, source: nil, unit: unit,
-                             highlight: comp.strings("highlight"), framed: false)
-        } else if palette == MUChartStyle.economist {
-            economistChart(labels: labels, values: values, unit: unit)
-        } else {
-            Chart(points, id: \.offset) { _, p in
-                if comp.name == "LineChart" {
-                    LineMark(x: .value("x", p.0), y: .value("y", p.1))
-                    PointMark(x: .value("x", p.0), y: .value("y", p.1))
-                } else {
-                    BarMark(x: .value("x", p.0), y: .value("y", p.1))
-                        .cornerRadius(4)
-                        .annotation(position: .top) {
-                            Text(MUStyle.numText(p.1) + unit).font(.system(size: 9)).foregroundStyle(.secondary)
-                        }
-                }
-            }
-            .chartXScale(domain: labels)
-            .frame(height: 180)
-            .padding(.top, 4)
-        }
-    }
-
-    /// Same data and the same fixed 180pt height as the system chart, so
-    /// switching style never changes the card's measured height.
-    ///
-    /// Economist rule: grey for context, red for the point. With `highlight`
-    /// labels, bars outside the list turn grey; a line stays grey with red
-    /// dots on the highlighted points (and the red line when none is given).
-    @ViewBuilder
-    private func economistChart(labels: [String], values: [Double], unit: String) -> some View {
-        let isLine = comp.name == "LineChart"
-        let n = min(labels.count, values.count)
-        let hl = Set(comp.strings("highlight"))
-        let hasHL = !hl.isEmpty
-        Chart {
-            ForEach(0..<n, id: \.self) { i in
-                if isLine {
-                    LineMark(x: .value("x", labels[i]), y: .value("y", values[i]))
-                        .foregroundStyle(hasHL ? MUChartStyle.grey : MUChartStyle.red)
-                        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    if hl.contains(labels[i]) {
-                        PointMark(x: .value("x", labels[i]), y: .value("y", values[i]))
-                            .foregroundStyle(MUChartStyle.red)
-                            .symbolSize(70)
-                            .annotation(position: .top) {
-                                Text(MUStyle.numText(values[i]) + unit)
-                                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(MUChartStyle.red)
-                            }
-                    }
-                } else {
-                    let on = !hasHL || hl.contains(labels[i])
-                    BarMark(x: .value("x", labels[i]), y: .value("y", values[i]))
-                        .foregroundStyle(on ? MUChartStyle.red : MUChartStyle.grey)
-                        .annotation(position: .top) {
-                            Text(MUStyle.numText(values[i]) + unit)
-                                .font(.system(size: 9, weight: on && hasHL ? .semibold : .regular))
-                                .foregroundStyle(on && hasHL ? MUChartStyle.red : Color.secondary)
-                        }
-                }
-            }
-            if !isLine {
-                // Black baseline, as in the print charts.
-                RuleMark(y: .value("zero", 0.0))
-                    .foregroundStyle(Color.primary)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5))
-            }
-        }
-        .chartXScale(domain: labels)
-        .chartYAxis {
-            // Light horizontal grid only, value labels on the right.
-            AxisMarks(position: .trailing) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.8)).foregroundStyle(Color.primary.opacity(0.14))
-                AxisValueLabel().foregroundStyle(Color.primary)
-            }
-        }
-        .frame(height: 180)
-        .padding(.top, 4)
+        MUMultiChartBody(look: MUChartTheme.current(for: palette).look,
+                         kind: comp.name == "LineChart" ? "line" : "bar",
+                         labels: comp.strings("labels"), series: [], matrix: [comp.numbers("values")],
+                         title: nil, subtitle: nil, source: nil, unit: comp.str("unit") ?? "",
+                         highlight: comp.strings("highlight"), framed: false)
     }
 }
 
-/// `MultiChart`: several series, a legend, subtitle and source note. Always
-/// drawn in the 2017 Economist look (it has no "system" look); the settings
-/// switch only decides how the single-series BarChart/LineChart draw.
 private struct MUMultiChart: View {
     let comp: MUComp
     @AppStorage(MUChartStyle.key) private var palette: String = ""
     var body: some View {
-        MUMultiChartBody(look: palette == MUChartStyle.economist2017 ? .guide2017
-                                : (palette == MUChartStyle.economist ? .recent : .system),
-                         kind: comp.str("kind") ?? "line",
-                         labels: comp.strings("labels"), series: comp.strings("series"),
-                         matrix: comp.matrix("values"), title: comp.str("title"),
-                         subtitle: comp.str("subtitle"), source: comp.str("source"),
-                         unit: comp.str("unit") ?? "", highlight: comp.strings("highlight"),
-                         framed: true)
+        MUMultiChartBody(look: MUChartTheme.current(for: palette).look,
+                         kind: comp.str("kind") ?? "line", labels: comp.strings("labels"),
+                         series: comp.strings("series"), matrix: comp.matrix("values"),
+                         title: comp.str("title"), subtitle: comp.str("subtitle"), source: comp.str("source"),
+                         unit: comp.str("unit") ?? "", highlight: comp.strings("highlight"), framed: true)
     }
 }
 
-/// Economist 2017 chart body. `framed` = light panel + red tag + title block
-/// (used by MultiChart); BarChart/LineChart in this style draw unframed so they
-/// sit inside the card like before.
-///
-/// Height contract: the chart area is a fixed 180pt like the other charts; the
-/// title/subtitle/legend/source rows are text and wrap, so the sizing estimate
-/// in MinisUIEngine.estimate() mirrors them.
+/// Rendered geometry is emitted from the actual ChartProxy plot anchor. The
+/// simulator harness consumes this preference; no test-only chart is drawn.
+struct MUChartRenderGeometry: Equatable {
+    let panelWidth: CGFloat
+    let plot: CGRect
+    let labelColumn: CGRect
+    let axisColumn: CGRect
+    let labelBoxes: [CGRect]
+}
+struct MUChartRenderGeometryKey: PreferenceKey {
+    static var defaultValue: MUChartRenderGeometry? = nil
+    static func reduce(value: inout MUChartRenderGeometry?, nextValue: () -> MUChartRenderGeometry?) {
+        value = nextValue() ?? value
+    }
+}
+
 private struct MUMultiChartBody: View {
-    enum Look { case system, recent, guide2017 }
+    typealias Look = MUChartLook
     let look: Look
     let kind: String
     let labels: [String]
@@ -889,169 +880,105 @@ private struct MUMultiChartBody: View {
     let highlight: [String]
     let framed: Bool
 
-    private var palette: [Color] {
-        switch look {
-        case .system: return [.blue, .orange, .green, .red, .purple, .teal]
-        case .recent: return MUChartStyle.seriesRecent
-        case .guide2017: return kind == "stacked" ? MUChartStyle.stacked2017 : MUChartStyle.series2017
-        }
+    private var theme: MUChartTheme {
+        MUChartTheme.current(for: look == .guide2017 ? MUChartStyle.economist2017
+                                  : (look == .recent ? MUChartStyle.economist : ""))
     }
-    private var greyOut: Color { look == .guide2017 ? MUChartStyle.other2017 : MUChartStyle.grey }
-    private var panelFill: Color {
-        switch look {
-        case .system: return Color.primary.opacity(0.04)
-        case .recent: return MUChartStyle.panelRecent
-        case .guide2017: return MUChartStyle.panel2017
-        }
-    }
-    private var gridColor: Color {
-        switch look {
-        case .system: return Color.primary.opacity(0.12)
-        case .recent: return MUChartStyle.gridRecent
-        case .guide2017: return MUChartStyle.grid2017
-        }
-    }
-    private var textColor: Color {
-        switch look {
-        case .system: return Color.secondary
-        case .recent: return MUChartStyle.textRecent
-        case .guide2017: return MUChartStyle.text2017
-        }
-    }
-    private var tagColor: Color { look == .system ? .clear : (look == .recent ? MUChartStyle.red : MUChartStyle.tag2017) }
-
     private var rows: Int { matrix.count }
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
     private var hl: Set<String> { Set(highlight) }
-
-    /// Role of every series, resolved once, in DATA order. The view must not
-    /// decide on its own which series is "the one to look at": a highlighted
-    /// series gets an accent whatever row it sits on (the old bug: China, third
-    /// row, came out salmon/gold because it took the third palette colour).
     private var roles: [MUChartRole] { MUChartEmphasis.roles(series: series, highlight: highlight) }
-    private var hasSeriesHighlight: Bool { MUChartEmphasis.hasEmphasis(roles) }
+    private var showEndLabels: Bool { kind == "line" && series.count > 1 }
     private func isGreyed(_ s: Int) -> Bool { MUChartEmphasis.isContext(roles, at: s) }
-    private func isEmphasised(_ s: Int) -> Bool { MUChartEmphasis.slot(roles, at: s) != nil }
-
-    /// Accent colour of an emphasis slot (0 = first highlighted series in data order).
-    private func emphasisColor(_ slot: Int) -> Color {
-        let ramp: [Color]
-        switch look {
-        case .system: ramp = MUChartStyle.accentSystem
-        case .recent: ramp = MUChartStyle.accentRecent
-        case .guide2017: ramp = MUChartStyle.accent2017
-        }
-        return ramp[min(max(0, slot), ramp.count - 1)]
-    }
-
-    /// Colour of series `s`. Legend, line, bar and end label all come from here,
-    /// so the four can never disagree.
     private func color(_ s: Int) -> Color {
+        let palette = theme.series
         guard s >= 0, s < series.count else { return palette[0] }
-        if let slot = MUChartEmphasis.slot(roles, at: s) { return emphasisColor(slot) }
-        if MUChartEmphasis.isContext(roles, at: s) { return greyOut }
+        if let slot = MUChartEmphasis.slot(roles, at: s) {
+            return theme.accents[min(slot, theme.accents.count - 1)]
+        }
+        if isGreyed(s) || ["其他", "其它", "other", "unknown"].contains(series[s].lowercased()) { return theme.context }
         return palette[s % palette.count]
     }
-
-    /// Colour of one bar. A highlight naming labels keeps those at the series
-    /// colour (cyan for the emphasised bar in the guide's "1 trace with highlight").
     private func barColor(series s: Int, index i: Int) -> Color {
         let marked = hl.intersection(Set(labels))
         if rows == 1, !marked.isEmpty {
-            if look == .recent { return marked.contains(labels[i]) ? MUChartStyle.red : MUChartStyle.grey }
+            if look == .recent { return marked.contains(labels[i]) ? theme.accents[0] : theme.context }
             if look == .system { return marked.contains(labels[i]) ? .orange : .blue }
-            return marked.contains(labels[i]) ? MUChartStyle.series2017[1] : MUChartStyle.series2017[0]
+            return marked.contains(labels[i]) ? theme.series[1] : theme.series[0]
         }
         return color(s)
+    }
+    private var chartHeight: CGFloat { 180 }
+    private var lastValues: [Double] { matrix.map { $0.last ?? 0 } }
+    private var domain: MUChartDomain {
+        kind == "stacked" ? MUChartAxis.stackedDomain(matrix: matrix)
+                          : MUChartAxis.domain(values: matrix, includeZero: kind != "line")
+    }
+    private var ticks: [Double] { MUChartAxis.ticks(domain: domain) }
+    private var crossesZero: Bool { domain.lower < 0 && domain.upper > 0 }
+    private func axisText(_ value: Double) -> String { MUStyle.numText(value) }
+    private func axisWidth(_ value: Double) -> CGFloat {
+        let font = UIFont.monospacedDigitSystemFont(ofSize: MUChartTypography.tick,
+                     weight: value == 0 && crossesZero ? .bold : .regular)
+        return ceil((axisText(value) as NSString).size(withAttributes: [.font: font]).width)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if framed {
-                if look != .system {
-                    Rectangle().fill(tagColor).frame(width: 28, height: 4).padding(.bottom, 2)
+                ZStack(alignment: .topLeading) {
+                    Rectangle().fill(theme.topRule).frame(height: 0.5)
+                    Rectangle().fill(theme.tag).frame(width: 28, height: 4)
+                }.frame(height: 6).padding(.horizontal, MUChartColumns.innerInset)
+                if let title {
+                    Text(title).font(.system(size: MUChartTypography.title, weight: .bold))
+                        .foregroundStyle(theme.title).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, MUChartColumns.innerInset)
                 }
-                if let t = title {
-                    Text(t).font(.system(size: 14, weight: .bold)).foregroundStyle(Color.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let st = subtitle {
-                    Text(st).font(.system(size: 12)).foregroundStyle(textColor)
-                        .fixedSize(horizontal: false, vertical: true)
+                if let subtitle {
+                    Text(subtitle).font(.system(size: MUChartTypography.subtitle))
+                        .foregroundStyle(theme.subtitle).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, MUChartColumns.innerInset)
                 }
             }
-            if series.count > 1 { legend }
+            if series.count > 1 && !showEndLabels { legend }
             GeometryReader { geo in
-                chart(width: max(120, geo.size.width))
-                    .frame(width: geo.size.width, height: chartHeight)
-            }
-            .frame(height: chartHeight)
-            .padding(.top, 4)
-            if framed, let src = source {
-                Text(src).font(.system(size: 10)).foregroundStyle(textColor.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                chart(width: geo.size.width)
+            }.frame(height: chartHeight + MUChartTypography.xAxisHeight + MUChartTypography.plotTop)
+            if framed, let source {
+                Text(source).font(.system(size: MUChartTypography.source)).foregroundStyle(theme.source)
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, MUChartColumns.innerInset)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(framed ? 10 : 0)
-        .background(framed ? AnyView(RoundedRectangle(cornerRadius: look == .system ? 8 : 2).fill(panelFill)) : AnyView(Color.clear))
+        .padding(.vertical, framed ? 10 : 2)
+        .background(framed ? theme.panel : Color.clear)
+        .coordinateSpace(name: "MUChartPanel")
     }
-
     private var legend: some View {
-        HStack(spacing: 10) {
+        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                  alignment: .leading, spacing: 4) {
             ForEach(0..<series.count, id: \.self) { s in
                 HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 1).fill(color(s)).frame(width: 10, height: 3)
-                    Text(series[s]).font(.system(size: 11)).foregroundStyle(textColor)
-                }
+                    Rectangle().fill(color(s))
+                        .frame(width: theme.legendStyle(for: kind) == .shortLine ? 14 : 8,
+                               height: theme.legendStyle(for: kind) == .shortLine ? 2 : 8)
+                    Text(series[s]).font(.system(size: MUChartTypography.legend)).foregroundStyle(theme.subtitle).lineLimit(1)
+                }.frame(height: 16, alignment: .leading)
             }
-        }
+        }.padding(.horizontal, MUChartColumns.innerInset)
     }
 
-    /// Fixed plot height: the card's measured height must not depend on the
-    /// colour style, the number of series or the label layout.
-    private var chartHeight: CGFloat { 180 }
-
-    /// End value of every series (last column), used for the end labels.
-    private var lastValues: [Double] { matrix.map { $0.last ?? 0 } }
-
-    /// Explicit y domain: a value's pixel position is then exact (the label
-    /// layout works in points), and switching the colour style cannot rescale
-    /// the chart. Stacked bars scale to the column totals.
-    private var domain: MUChartDomain {
-        kind == "stacked" ? MUChartAxis.stackedDomain(matrix: matrix)
-                          : MUChartAxis.domain(values: matrix, includeZero: kind != "line")
-    }
-
-    /// Per-mark colours are set explicitly (no foregroundStyle(by:) scale), so a
-    /// highlight can recolour single bars and the legend uses the same function.
-    ///
-    /// `width` is the card's real width (GeometryReader); it decides the trailing
-    /// gutter so the end labels can never reach the right-hand axis numbers.
-    ///
-    /// [T-chart-label-physical] The labels are NOT mark annotations any more.
-    /// An annotation is positioned by Swift Charts and may overflow the plot
-    /// area into the axis strip — which is what build 8ec8992's screenshot
-    /// shows: "中国" (bold, 10pt) ends exactly on the axis "5", although the
-    /// plot had a reserved gutter. The labels are now drawn by
-    /// `endLabels(in:)`, inside the plot area's own frame, in a box whose width
-    /// is the MEASURED width of the widest label: the gap to the axis is the
-    /// layout, not an estimate of the text.
     private func chart(width: CGFloat) -> some View {
-        let roles = self.roles
-        let showEndLabels = kind == "line" && series.count > 1 && MUChartEmphasis.hasEmphasis(roles)
-        // Real glyph widths, per series, in the font the label is drawn in
-        // (bold for the emphasised series, regular for the grey context lines).
-        let labelWidths: [CGFloat] = showEndLabels
-            ? series.enumerated().map { s, name in
-                MUStyle.textWidth(name, size: 10, bold: !isGreyed(s))
-              }
-            : []
-        let gutter = showEndLabels
-            ? MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width,
-                                         widths: labelWidths,
-                                         measure: { MUStyle.textWidth($0, size: $1, bold: true) })
-            : MUChartLabelMetrics.Gutter(width: 0, labelWidth: 0, fontSize: 10, labels: series, truncated: false)
+        let labelWidths = showEndLabels ? series.enumerated().map { s, text in
+            MUStyle.textWidth(text, size: 12, bold: !isGreyed(s))
+        } : []
+        let gutter = MUChartLabelMetrics.gutter(labels: showEndLabels ? series : [], fontSize: 12,
+                    available: width, spacing: MUChartColumns.curveGap, gap: MUChartColumns.axisGap,
+                    maxFraction: 0.36, widths: labelWidths,
+                    measure: { MUStyle.textWidth($0, size: $1, bold: true) })
+        let columns = MUChartColumns.layout(width: width, labelWidth: gutter.labelWidth,
+                                            axisWidth: ticks.map { axisWidth($0) }.max() ?? 0)
         return Chart {
             ForEach(0..<rows, id: \.self) { s in
                 ForEach(0..<cols, id: \.self) { i in
@@ -1060,108 +987,109 @@ private struct MUMultiChartBody: View {
                     case "line":
                         LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
                             .foregroundStyle(color(s))
-                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2.0 : (isEmphasised(s) ? 2.8 : 2.4),
-                                                   lineCap: .round, lineJoin: .round))
+                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2 : 2.5, lineCap: .round, lineJoin: .round))
                     case "stacked":
-                        BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
-                            .foregroundStyle(color(s))
+                        BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i])).foregroundStyle(color(s))
                     default:
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
-                            .foregroundStyle(barColor(series: s, index: i))
-                            .position(by: .value("s", name))
+                            .foregroundStyle(barColor(series: s, index: i)).position(by: .value("s", name))
+                    }
+                    if kind == "line", rows == 1, hl.contains(labels[i]) {
+                        PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
+                            .foregroundStyle(look == .guide2017 ? theme.series[1] : theme.accents[0]).symbolSize(40)
                     }
                 }
             }
-            if kind != "line" {
-                RuleMark(y: .value("zero", 0.0)).foregroundStyle(Color.primary).lineStyle(StrokeStyle(lineWidth: 1.2))
-            }
         }
         .chartXScale(domain: labels)
-        .chartYScale(domain: domain.lower...domain.upper)
-        .chartLegend(.hidden)
-        .chartPlotStyle { plot in
-            // The label gutter is reserved INSIDE the plot area; the y-axis numbers
-            // live outside it, so the two can never touch whatever the name length.
-            plot.padding(.trailing, gutter.width)
-        }
-        .chartYAxis {
-            AxisMarks(position: .trailing) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6)).foregroundStyle(gridColor)
-                AxisValueLabel().foregroundStyle(textColor)
-            }
-        }
-        .chartXAxis {
-            AxisMarks(preset: .aligned) { _ in
-                // Short 0.5pt tick marks only: no vertical grid line, and an explicit
-                // length so the tick never runs the height of the plot.
-                AxisTick(centered: false, length: 4, stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(textColor)
-                AxisValueLabel(anchor: .top).foregroundStyle(textColor)
-            }
-        }
-        // [T-chart-label-physical] Drawn inside the plot area's real frame, so
-        // the labels cannot reach the axis strip whatever Charts does with the
-        // annotations (see `endLabels(in:)`).
+        .chartYScale(domain: domain.lower...domain.upper, range: .plotDimension(startPadding: 0, endPadding: 0))
+        .chartYAxis(.hidden).chartXAxis(.hidden).chartLegend(.hidden)
+        .chartBackground { proxy in grid(in: proxy) }
         .chartOverlay { proxy in
-            if showEndLabels, !labelWidths.isEmpty {
-                endLabels(in: proxy, gutter: gutter, width: width)
-            }
+            ownedAxes(in: proxy, columns: columns, gutter: gutter)
         }
+        .frame(width: columns.plotWidth, height: chartHeight)
+        .offset(x: columns.plotMinX, y: MUChartTypography.plotTop)
     }
 
-    /// The end-of-line labels, drawn by the view instead of by mark
-    /// annotations [T-chart-label-physical].
-    ///
-    /// Three physical facts decide the geometry, none of them estimated:
-    /// - the plot area's own frame (`ChartProxy.plotAreaFrame`) — the y-axis
-    ///   numbers are drawn OUTSIDE it, so anything inside it is clear of them;
-    /// - the y of each series' last value (`proxy.position(forY:)`), so a label
-    ///   sits on its own line even if the axis or the domain changes;
-    /// - the measured width of the widest label (`gutter.labelWidth`), which is
-    ///   the width of every label's box, so the box's trailing edge — not the
-    ///   glyphs — is what the layout places.
-    ///
-    /// The box's trailing edge is pinned to `plotAreaFrame.maxX - gap`; when
-    /// Charts reports an unpadded plot frame the mark-relative position wins,
-    /// which is still inside the gutter reserved by `chartPlotStyle`.
-    @ViewBuilder
-    private func endLabels(in proxy: ChartProxy, gutter: MUChartLabelMetrics.Gutter,
-                           width: CGFloat) -> some View {
+    /// Both text columns are outside Chart. Their x positions depend ONLY on
+    /// MUChartColumns, never on lastX, plot padding, or native axis placement.
+    private func ownedAxes(in proxy: ChartProxy, columns: MUChartColumns,
+                           gutter: MUChartLabelMetrics.Gutter) -> some View {
         GeometryReader { geo in
-            // `plotAreaFrame` is a NON-OPTIONAL `Anchor<CGRect>` in Swift Charts
-            // (`var plotAreaFrame: Anchor<CGRect> { get }`, iOS 16+): there is
-            // nothing to unwrap, only an anchor to resolve in THIS geometry
-            // (the overlay fills the chart), so the rect is real.
             let frame = geo[proxy.plotAreaFrame]
             let size = gutter.fontSize
-            let box = gutter.labelWidth
-            // Real y of every series' last value, in plot points.
-            let baseY: [CGFloat] = (0..<rows).map { s in
-                proxy.position(forY: lastValues[s])
-                    ?? MUChartAxis.pixelY(lastValues[s], domain: domain, height: frame.height)
+            let baseY = lastValues.map { value in
+                proxy.position(forY: value) ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height)
             }
-            let placements = MUChartEndLabels.layout(values: lastValues, domain: domain,
-                                                     plotHeight: frame.height,
-                                                     minGap: size + 3, edgeInset: size * 0.75,
-                                                     baseY: baseY)
-            let lastX = cols > 0 ? (proxy.position(forX: labels[cols - 1]) ?? frame.maxX) : frame.maxX
-            // The label column: right edge pinned inside the plot, never
-            // before the last mark (which the gutter already made room for).
-            let gap: CGFloat = 8
-            let left = max(lastX + 3, frame.maxX - gap - box)
-            ForEach(placements, id: \.index) { p in
-                if p.index < gutter.labels.count {
-                    Text(gutter.labels[p.index])
-                        .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
-                        .foregroundStyle(color(p.index))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(width: box, alignment: .leading)
-                        .position(x: left + box / 2,
-                                  y: min(max(frame.minY + p.centerY, frame.minY + size / 2),
-                                         frame.maxY - size / 2))
+            let placements = showEndLabels ? MUChartEndLabels.layout(values: lastValues, domain: domain,
+                plotHeight: frame.height, minGap: size + 3, edgeInset: size * 0.75, baseY: baseY) : []
+            let labelX = columns.labelMinX - columns.plotMinX
+            let axisX = columns.axisMinX - columns.plotMinX
+            // The snapshot uses ACTUAL plot bounds and the exact boxes rendered
+            // below. The host adds the Chart's explicit offset to panel space.
+            let origin = geo.frame(in: .named("MUChartPanel")).origin
+            let snapshot = MUChartRenderGeometry(panelWidth: columns.width,
+                plot: frame.offsetBy(dx: origin.x, dy: origin.y),
+                labelColumn: CGRect(x: columns.labelMinX, y: origin.y + frame.minY, width: columns.labelWidth, height: frame.height),
+                axisColumn: CGRect(x: columns.axisMinX, y: origin.y + frame.minY, width: columns.axisWidth, height: frame.height),
+                labelBoxes: placements.map { p in CGRect(x: columns.labelMinX,
+                    y: origin.y + frame.minY + p.centerY - size * 0.65, width: columns.labelWidth, height: size * 1.3) })
+            ZStack(alignment: .topLeading) {
+                ForEach(ticks, id: \.self) { value in
+                    let y = frame.minY + (proxy.position(forY: value)
+                        ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height))
+                    Text(axisText(value))
+                        .font(.system(size: MUChartTypography.tick, weight: value == 0 && crossesZero ? .bold : .regular))
+                        .monospacedDigit().foregroundStyle(theme.axis)
+                        .frame(width: columns.axisWidth, height: 14, alignment: .trailing)
+                        .position(x: axisX + columns.axisWidth / 2, y: y - 1.5 - 7)
+                }
+                ForEach(placements, id: \.index) { p in
+                    if p.index < gutter.labels.count {
+                        Text(gutter.labels[p.index])
+                            .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
+                            .foregroundStyle(color(p.index)).lineLimit(1)
+                            .frame(width: columns.labelWidth, height: size * 1.3, alignment: .leading)
+                            .clipped()
+                            .position(x: labelX + columns.labelWidth / 2, y: frame.minY + p.centerY)
+                    }
+                }
+                Path { path in
+                    path.move(to: CGPoint(x: frame.minX, y: frame.maxY))
+                    path.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY))
+                }.stroke(theme.axis, lineWidth: 0.5)
+                ForEach(Array(labels.prefix(cols).enumerated()), id: \.offset) { i, text in
+                    if i % max(1, Int(ceil(Double(cols) / 5))) == 0 || i == cols - 1 {
+                        let x = frame.minX + (proxy.position(forX: text) ?? 0)
+                        Path { path in
+                            path.move(to: CGPoint(x: x, y: frame.maxY))
+                            path.addLine(to: CGPoint(x: x, y: frame.maxY + 5))
+                        }.stroke(theme.axis, lineWidth: 0.5)
+                        Text(text).font(.system(size: MUChartTypography.tick)).monospacedDigit()
+                            .foregroundStyle(theme.axis).lineLimit(1)
+                            .frame(width: min(44, frame.width / 3), height: 14)
+                            .position(x: min(max(x, frame.minX + 22), frame.maxX - 22), y: frame.maxY + 14)
+                    }
                 }
             }
-        }
+            .preference(key: MUChartRenderGeometryKey.self, value: snapshot)
+        }.allowsHitTesting(false)
+    }
+
+    private func grid(in proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
+            let frame = geo[proxy.plotAreaFrame]
+            ForEach(ticks, id: \.self) { value in
+                let y = frame.minY + (proxy.position(forY: value)
+                    ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height))
+                Path { path in
+                    path.move(to: CGPoint(x: frame.minX, y: y))
+                    path.addLine(to: CGPoint(x: frame.maxX, y: y))
+                }.stroke(value == 0 && crossesZero ? theme.zero : theme.grid,
+                         lineWidth: value == 0 && crossesZero ? theme.zeroWidth : theme.gridWidth)
+            }
+        }.allowsHitTesting(false)
     }
 }
 

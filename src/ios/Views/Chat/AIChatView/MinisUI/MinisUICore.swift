@@ -1446,14 +1446,13 @@ enum MinisUIEngine {
                 let opts = c.strings("options")
                 return opts.map { 20 * textLines($0, w - 52, 13) + 22 }.reduce(0, +) + CGFloat(max(0, opts.count - 1)) * 8
             case "Table": return CGFloat(c.rows("rows").count + 1) * 30
-            case "BarChart", "LineChart": return 190
+            case "BarChart", "LineChart":
+                return MUChartTypography.estimatedHeight(title: nil, subtitle: nil, source: nil,
+                    seriesCount: 0, kind: c.name == "LineChart" ? "line" : "bar", width: w, framed: false)
             case "MultiChart":
-                var t: CGFloat = 4 + 180 + 6
-                if c.str("title") != nil { t += 22 }
-                if c.str("subtitle") != nil { t += 4 + 20 * textLines(c.str("subtitle") ?? "", w, 12) }
-                if c.strings("series").count > 1 { t += 8 + 20 * textLines(c.strings("series").joined(separator: "   "), w, 12) }
-                if c.str("source") != nil { t += 4 + 16 * textLines(c.str("source") ?? "", w, 10) }
-                return t
+                return MUChartTypography.estimatedHeight(title: c.str("title"), subtitle: c.str("subtitle"),
+                    source: c.str("source"), seriesCount: c.strings("series").count,
+                    kind: c.str("kind") ?? "line", width: w, framed: true)
             case "Button": return 40
             default: return 20
             }
@@ -1837,5 +1836,90 @@ enum MUChartLabelMetrics {
         }
         if out.isEmpty { out = String(text.first ?? " ") }
         return out + "…"
+    }
+}
+
+// MARK: - Phase 1 owned chart geometry (Foundation only)
+/// Horizontal positions are panel-relative. Charts never owns either text column.
+struct MUChartColumns: Equatable {
+    static let innerInset: CGFloat = 10
+    static let curveGap: CGFloat = 4
+    static let axisGap: CGFloat = 6
+    let width: CGFloat
+    let inset: CGFloat
+    let plotWidth: CGFloat
+    let labelWidth: CGFloat
+    let axisWidth: CGFloat
+    var plotMinX: CGFloat { inset }
+    var plotMaxX: CGFloat { inset + plotWidth }
+    var labelMinX: CGFloat { plotMaxX + (labelWidth > 0 ? Self.curveGap : 0) }
+    var labelMaxX: CGFloat { labelMinX + labelWidth }
+    var axisMinX: CGFloat { labelMaxX + Self.axisGap }
+    var axisMaxX: CGFloat { axisMinX + axisWidth }
+    var rightInset: CGFloat { width - axisMaxX }
+
+    /// Input widths are actual glyph measurements, rounded UP to physical points.
+    /// Long names are fitted before calling this function; no invisible padding
+    /// is delegated to Chart. Even bars without end names keep the 6pt axis gap.
+    static func layout(width: CGFloat, labelWidth: CGFloat, axisWidth: CGFloat) -> Self {
+        let w = max(80, width)
+        let l = max(0, ceil(labelWidth)), a = max(0, ceil(axisWidth))
+        let gaps = axisGap + (l > 0 ? curveGap : 0)
+        return Self(width: w, inset: innerInset,
+                    plotWidth: max(0, w - 2 * innerInset - l - a - gaps),
+                    labelWidth: l, axisWidth: a)
+    }
+}
+
+enum MUChartTypography {
+    static let title: CGFloat = 16
+    static let subtitle: CGFloat = 13
+    static let legend: CGFloat = 12
+    static let tick: CGFloat = 11
+    static let source: CGFloat = 10.5
+    static let plotHeight: CGFloat = 180
+    static let xAxisHeight: CGFloat = 22
+    static let plotTop: CGFloat = 16
+
+    /// Mirrors the explicit row heights and 4pt stack gaps in MUMultiChartBody.
+    /// Theme choice changes no geometry. Text remains native SF, not Econ Sans.
+    static func estimatedHeight(title: String?, subtitle: String?, source: String?,
+                                seriesCount: Int, kind: String, width: CGFloat,
+                                framed: Bool) -> CGFloat {
+        func lines(_ text: String, size: CGFloat) -> CGFloat {
+            let room = max(30, width - 2 * MUChartColumns.innerInset)
+            return text.split(separator: "\n", omittingEmptySubsequences: false).map {
+                max(1, ceil(MUChartLabelMetrics.width(String($0), fontSize: size) / room))
+            }.reduce(0, +)
+        }
+        var heights: [CGFloat] = []
+        if framed {
+            heights.append(6) // red tag + top rule; clear in system mode
+            if let title { heights.append(20 * lines(title, size: self.title)) }
+            if let subtitle { heights.append(16 * lines(subtitle, size: self.subtitle)) }
+        }
+        if seriesCount > 1 && kind != "line" {
+            let rows = ceil(CGFloat(seriesCount) / 2)
+            heights.append(rows * 16 + max(0, rows - 1) * 4)
+        }
+        heights.append(plotHeight + xAxisHeight + plotTop)
+        if framed, let source { heights.append(13 * lines(source, size: self.source)) }
+        return ceil(heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * 4 + (framed ? 20 : 4))
+    }
+}
+
+extension MUChartAxis {
+    static func ticks(domain: MUChartDomain) -> [Double] {
+        let step = niceStep(domain.span / 4)
+        guard step.isFinite, step > 0 else { return [0] }
+        let start = ceil(domain.lower / step) * step
+        var result: [Double] = []
+        for index in 0...8 {
+            let value = start + Double(index) * step
+            if value <= domain.upper + step * 1e-6 {
+                result.append(abs(value) < step * 1e-6 ? 0.0 : value)
+            }
+        }
+        return result
     }
 }
