@@ -150,7 +150,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                   if cardCase == 0 { MUMapView(comp:comp) }
                   else if cardCase == 3 { MUMapView(comp:comp).modifier(MUCardSurface(fill:Color.primary.opacity(0.04))).modifier(MUCardSurface(fill:fill)) }
                   else { MUMapView(comp:comp).modifier(MUCardSurface(fill:fill)) }
-                }.modifier(MURootSurface()).environment(\.colorScheme,scheme).background(ChatColors.background)
+                }.modifier(MURootSurface()).background(ChatColors.background).environment(\.colorScheme,scheme)
                 // Each label's complete native glyph measurement must fit;
                 // no ellipsis, font shrinking or silent range simplification.
                 let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:true)
@@ -169,7 +169,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                     if cardCase == 0 { headings }
                     else if cardCase == 3 { headings.modifier(MUCardSurface(fill:Color.primary.opacity(0.04))).modifier(MUCardSurface(fill:fill)) }
                     else { headings.modifier(MUCardSurface(fill:fill)) }
-                }.modifier(MURootSurface()).environment(\.colorScheme,scheme).background(ChatColors.background)
+                }.modifier(MURootSurface()).background(ChatColors.background).environment(\.colorScheme,scheme)
                 let headingRenderer=ImageRenderer(content:headingContent.frame(width:width,height:60)); headingRenderer.scale=2
                 guard let headingImage=headingRenderer.uiImage,
                     maxPixelContrast(headingImage,box:CGRect(x:0,y:0,width:width,height:30),surface:surface)>=4.5,
@@ -182,6 +182,13 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                 guard abs(measured.height-m.height)<0.6 else { fatalError("dynamic height mismatch") }
                 let renderer=ImageRenderer(content:content.frame(width:width,height:m.height)); renderer.scale=2
                 guard let image=renderer.uiImage else { fatalError("dynamic image missing") }
+                let sample=image.cgImage!.cropping(to:CGRect(x:width,y:2,width:1,height:1))!
+                var sampled=[UInt8](repeating:0,count:4)
+                let sampleContext=CGContext(data:&sampled,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
+                sampleContext.draw(sample,in:CGRect(x:0,y:0,width:1,height:1))
+                let (sr,sg,sb)=surface.rgb
+                guard zip(sampled.prefix(3),[sr,sg,sb]).allSatisfy({ abs(Double($0.0)-$0.1*255)<=3 }) else { fatalError("dynamic rendered surface differs from resolved production surface: \(sampled) \(surface.hex)") }
+                dynamicChecks+=3
                 let subtitleY=16+m.titleHeight+4
                 for box in [CGRect(x:10,y:16,width:width-20,height:m.titleHeight),CGRect(x:10,y:subtitleY,width:width-20,height:m.subtitleHeight),CGRect(x:10,y:m.footerY+42,width:width-20,height:m.sourceHeight)] {
                     guard maxPixelContrast(image,box:box,surface:surface)>=4.5 else { fatalError("dynamic explanation contrast") }
