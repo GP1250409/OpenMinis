@@ -31,6 +31,11 @@ extension CollectionViewMessageListV3.Coordinator {
             /// every load); the block id when there is none.
             let key: String
             let firstBlockId: UUID
+            /// [T-fold-lead-gap] The block this row is DRAWN at: the first
+            /// member after the run's visible gaps.
+            let anchorBlockId: UUID
+            /// [T-fold-lead-gap] Members that keep their own row.
+            let visibleIds: [UUID]
             let memberIds: [UUID]
             let group: ToolFoldPlanner.Group
             /// [T-fold-tool-duration] Summed execution time of the folded
@@ -102,6 +107,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         continue
                     }
                     runs.append(ToolFoldRun(messageId: message.id, key: run.key, firstBlockId: run.firstBlockId,
+                                            anchorBlockId: run.anchorBlockId, visibleIds: run.visibleIds,
                                             memberIds: run.memberIds, group: run.group,
                                             duration: run.duration))
                 }

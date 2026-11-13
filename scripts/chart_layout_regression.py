@@ -73,8 +73,30 @@ need('MUChartEmphasis.roles(series: series, highlight: highlight)' in view_text,
      'the view asks the shared resolver for the roles')
 need('MUChartEndLabels.layout(values: lastValues, domain: domain' in view_text,
      'the view uses the computed label placement')
-need('MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width)' in view_text,
+need('MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width,' in view_text,
      'the view sizes the gutter from the real card width')
+# [T-chart-label-physical] Build 8ec8992 still put "中国" on the axis "5": the
+# gutter was an estimate and the labels were mark annotations, which Charts may
+# place outside the plot area. Both halves of the fix are pinned here.
+need('widths: labelWidths' in view_text and 'MUStyle.textWidth(' in view_text,
+     'the gutter is sized from the MEASURED width of the labels, not from an estimate')
+need('.annotation(position: .trailing' not in view_text,
+     'end labels are no longer mark annotations (they could overflow into the axis)')
+need('plot.padding(.trailing, gutter.width)' in view_text,
+     'the plot still reserves the trailing gutter for the labels')
+need('.chartOverlay { proxy in' in view_text and 'proxy.plotAreaFrame' in view_text,
+     'the labels are drawn inside the real plot frame (ChartProxy.plotAreaFrame)')
+need('proxy.position(forY:' in view_text and 'baseY: baseY' in view_text,
+     'the label y is the REAL mark position, not a recomputed pixel')
+# [T-chart-card-flat] The outer card panel is dropped for chart output only.
+need('enum MUCardPlane' in core_text and 'static func isChartOnly(_ card: MUComp) -> Bool' in core_text,
+     'the chart-only card decision is a pure classifier in the testable core file')
+need('MUCardPlane.isChartOnly(comp)' in view_text,
+     'MUCard asks the classifier whether to draw its own panel')
+need('flat ? Color.clear' in view_text,
+     'a chart-only card draws no fill (the chart keeps its own panel)')
+need('fill(topLevel ? ChatColors.secondaryBg' not in view_text,
+     'the unconditional card fill is gone (a chart card cannot fall back to it)')
 need('.chartYScale(domain: domain.lower...domain.upper)' in view_text,
      'the y domain is explicit, so a value\'s pixel position is exact')
 need('plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)' not in view_text,

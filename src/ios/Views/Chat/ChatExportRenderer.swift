@@ -159,10 +159,15 @@ enum ChatExportContent {
                 let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)),
                                                       ended: m.id != runningMessageId)
                 if !runs.isEmpty {
-                    folds[m.id] = runs.map {
-                        ChatShareFold(memberIds: $0.memberIds, toolCount: $0.group.toolCount,
-                                      failedCount: $0.group.failedCount,
-                                      cancelledCount: $0.group.cancelledCount, duration: $0.duration)
+                    folds[m.id] = runs.map { run in
+                        // [T-fold-lead-gap] A gap keeps its row in the chat, so
+                        // it must keep it in the export too: only the truly
+                        // hidden members are swallowed by the fold row.
+                        ChatShareFold(memberIds: run.memberIds.filter { !run.visibleIds.contains($0) },
+                                      anchorId: run.anchorBlockId,
+                                      toolCount: run.group.toolCount,
+                                      failedCount: run.group.failedCount,
+                                      cancelledCount: run.group.cancelledCount, duration: run.duration)
                     }
                 }
             }

@@ -151,6 +151,11 @@ let cases: [(String, String)] = [
     ("leadThinkSecondRun", "TTtKTTt"),
     ("leadThinkOneTool", "KTt"),
     ("leadThinkNote", "KoTTt"),
+    // [T-fold-lead-gap] The same shape with the remark kept as a visible gap.
+    ("leadGapTwo", "KooTTt"),
+    ("leadGapTwoCalls", "KoTToTt"),
+    ("leadGapCard", "KoQTt"),
+    ("leadGapMultiText", "KtTTt"),
     ("leadThinkBarrier", "KBTTt"),
     ("leadThinkRunning", "KRTTt"),
     // [T-fold-all-process] One row per process, whatever it is made of.
@@ -214,6 +219,19 @@ func kinds(_ s: String) -> String {
         .joined(separator: ",")
 }
 for (name, input) in cases { print("\(name)=\(show(input))") }
+// [T-fold-lead-gap] Where the visible gaps are: "lo-hi:[1,2]" per group.
+func gapList(_ s: String) -> String {
+    let chars = Array(s)
+    let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: true)
+    if g.isEmpty { return "none" }
+    return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):[\($0.visibleGaps.map(String.init).joined(separator: ","))]" }
+        .joined(separator: ",")
+}
+for (name, input) in cases { print("\(name)=\(gapList(input))") }
+print("leadGapLive=\(live("KoR"))")
+print("leadGapLiveOne=\(live("KoT"))")
+print("leadGapRunning=\(live("KoRTTt"))")
 print("kindTool=\(kinds("Tt"))")
 print("kindThink=\(kinds("KKKt"))")
 print("kindMixed=\(kinds("KTKt"))")
@@ -445,7 +463,25 @@ check("a stretch of thinking (and empty text) before it folds whole", has("leadT
 check("text before that thinking stays out", has("leadThinkAfterText=1-3:2/0/0"))
 check("the second run takes its own leading thinking", has("leadThinkSecondRun=0-1:2/0/0,3-5:2/0/0"))
 check("one call still takes its lead thinking along (K T t)", has("leadThinkOneTool=0-1:1/0/0"))
-check("a remark between the thinking and the first tool keeps the thinking out", has("leadThinkNote=2-3:2/0/0"))
+// [T-fold-lead-gap] The boundary the device screenshot showed: the thinking
+// above a one-line introduction folds with the calls BELOW it, the remark keeps
+// its own row, and nothing is hidden or re-ordered.
+check("thinking above a one-line introduction folds with the calls below it",
+      has("leadThinkNote=0-3:2/0/0"))
+check("the introduction keeps its row as a gap at index 1 (not a member)",
+      has("leadThinkNote=0-3:[1]"))
+check("two introductions are both gaps, the run still one row",
+      has("leadGapTwo=0-4:2/0/0") && has("leadGapTwo=0-4:[1,2]"))
+check("a remark after the first call is still folded along (soft end), no gap",
+      has("leadGapTwoCalls=0-5:3/0/0") && has("leadGapTwoCalls=0-5:[1]"))
+check("a card between the remark and the calls: nothing folds above it, the calls after it do",
+      has("leadGapCard=3-3:1/0/0"))
+check("a MULTI-line paragraph is not a remark: it still cuts the run in two",
+      has("leadGapMultiText=0-0:0/0/0,2-3:2/0/0"))
+check("live: a remark then a RUNNING call folds nothing early, the calls after it do",
+      has("leadGapLive=none") && has("leadGapRunning=3-4:2/0/0"))
+check("live: the call finished but the reply has not closed the run yet",
+      has("leadGapLiveOne=none"))
 check("a barrier between them keeps the thinking out", has("leadThinkBarrier=2-3:2/0/0"))
 check("an unfinished tool between them keeps the thinking out", has("leadThinkRunning=2-3:2/0/0"))
 

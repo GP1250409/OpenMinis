@@ -174,6 +174,106 @@ check(g3.fontSize == 10 && !g3.truncated, "short one-character names stay at the
 let g4 = MUChartLabelMetrics.gutter(labels: [], fontSize: 10, available: 320)
 check(g4.width == 0 && !g4.truncated, "no labels means no reserved gutter")
 
+
+// MARK: - 5. [T-chart-label-physical] The gutter is MEASURED, not estimated
+//
+// The device screenshot of build 8ec8992 showed "中国" (bold, 10pt) ending on
+// the axis "5": the per-Unicode-class estimate was narrower than the rendered
+// glyphs, so the nominal 6pt gap was gone. The view now passes real widths in;
+// what is asserted here is the invariant the drawing relies on:
+//   gutter.width == labelWidth + spacing + gap, and the label BOX (not the
+//   glyphs) is what the layout places, so the strip between the box and the
+//   axis is at least `gap`.
+let realCJK: [CGFloat] = [26.4, 24.0, 25.7]      // 美国 / 日本 / 中国 at 10pt bold-ish
+let gm = MUChartLabelMetrics.gutter(labels: three, fontSize: 10, available: 310, widths: realCJK)
+check(near(gm.labelWidth, 26.4), "the reserved label box is the MEASURED widest label")
+check(near(gm.width, 26.4 + 3 + 10), "gutter = label box + annotation spacing + 10pt gap")
+check(gm.width - gm.labelWidth - 3 >= 10 - 1e-6, "at least 10pt of blank strip before the axis")
+check(gm.truncated == false && gm.labels == three, "measured widths never truncate a name that fits")
+
+// One to six series, all long Chinese names: every one gets a box of the same
+// width, and the strip to the axis is never smaller than the gap.
+for n in 1...6 {
+    let names = (0..<n).map { "系列名称\($0)很长" }
+    let widths = names.map { CGFloat($0.count) * 10.6 }
+    let g = MUChartLabelMetrics.gutter(labels: names, fontSize: 10, available: 320, widths: widths)
+    check(g.labels.count == n && g.labelWidth > 0, "\(n) long CJK series: every series keeps a label box")
+    check(g.width >= g.labelWidth + 3 + 10 - 1e-6 || g.truncated,
+          "\(n) long CJK series: the gutter still holds the box plus the gap (or truncates)")
+    check(g.labelWidth <= g.width - 3 + 1e-6, "\(n) long CJK series: the box never exceeds the gutter")
+}
+// A narrow card: the box shrinks with the font, and the gap survives.
+let narrow = MUChartLabelMetrics.gutter(labels: three, fontSize: 10, available: 150, widths: realCJK)
+check(narrow.width <= max(56, 150 * 0.42) + 1e-6, "narrow card: the gutter stays within its cap")
+check(narrow.labelWidth <= narrow.width - 3 - 10 + 1e-6 || narrow.truncated,
+      "narrow card: the label box still leaves the gap (shrunk or truncated otherwise)")
+
+// The vertical layout now takes the REAL mark positions; equal and negative end
+// values must still be separated, in the order of the values.
+let negValues: [Double] = [-2.5, -2.5, 4.0]
+let nd = MUChartAxis.domain(values: [negValues], includeZero: true)
+let baseY: [CGFloat] = negValues.map { MUChartAxis.pixelY($0, domain: nd, height: 180) }
+let negPlaced = MUChartEndLabels.layout(values: negValues, domain: nd, plotHeight: 180,
+                                        minGap: 13, edgeInset: 7.5, baseY: baseY)
+check(negPlaced.count == 3, "negative and equal end values all get a placement")
+let byValue = negPlaced.sorted { $0.centerY < $1.centerY }        // top first
+check(byValue.map(\.index) == [2, 0, 1],
+      "placements keep the order of the values (top = larger value, ties by series)")
+check(zip(byValue, byValue.dropFirst()).allSatisfy { $1.centerY - $0.centerY >= 13 - 1e-6 },
+      "equal end values are pushed apart by the minimum gap")
+check(negPlaced.allSatisfy { $0.centerY >= 7.5 - 1e-6 && $0.centerY <= 180 - 7.5 + 1e-6 },
+      "no label leaves the plot's vertical inset")
+
+// MARK: - 6. [T-chart-card-flat] Which card drops its own panel
+//
+// Chart output only (title / chart / explanation / dividers) draws flat: the
+// chart's own panel is the surface. Anything the user can touch — a choice, a
+// slider, a button, a table, a metric — keeps the card exactly as before.
+func node(_ name: String, _ children: [MUComp] = [], _ extra: [String: MUValue] = [:]) -> MUComp {
+    var props: [String: MUValue] = extra
+    if !children.isEmpty { props["children"] = .arr(children.map { .comp($0) }) }
+    return MUComp(name: name, props: props, line: 1)
+}
+func text(_ s: String) -> MUComp { node("Text", [], ["text": .str(s)]) }
+func series(_ names: [String]) -> [MUValue] { names.map { .str($0) } }
+
+let chart = node("MultiChart", [], ["kind": .str("line"), "labels": .arr(series(["2019", "2020"])),
+                                    "series": .arr(series(["中国", "美国"])),
+                                    "values": .arr([.arr([.num(1), .num(2)]), .arr([.num(2), .num(3)])])])
+let chartOnly = node("Card", [node("Title", [], ["text": .str("三国实际 GDP 增速")]), chart,
+                              text("2020 年疫情冲击下三国同步失速。")],
+                     ["title": .str("三国实际 GDP 增速")])
+check(MUCardPlane.isChartOnly(chartOnly), "a card of title + chart + explanation draws flat")
+
+let nested = node("Card", [node("Stack", [chart])])
+check(MUCardPlane.isChartOnly(nested), "a chart inside Stack/Row wrappers is still chart output")
+
+let withChoice = node("Card", [chart, node("Choice", [], ["value": .str("$a"),
+                                                           "options": .arr(series(["是", "否"]))])])
+check(!MUCardPlane.isChartOnly(withChoice), "a chart card with a Choice keeps its panel (it is interactive)")
+
+let calculator = node("Card", [node("Segmented", [], ["value": .str("$op"), "options": .arr(series(["+", "-"]))]),
+                               node("Slider", [], ["label": .str("a"), "value": .str("$a"), "min": .num(0), "max": .num(10)]),
+                               text("结果：0")])
+check(!MUCardPlane.isChartOnly(calculator), "the calculator / question card keeps its panel")
+
+let withMetric = node("Card", [chart, node("Metric", [], ["label": .str("增速"), "value": .str("4.8%")])])
+check(!MUCardPlane.isChartOnly(withMetric), "a KPI next to a chart is not chart-only output")
+
+let withTable = node("Card", [chart, node("Table", [], ["headers": .arr(series(["a"])), "rows": .arr([])])])
+check(!MUCardPlane.isChartOnly(withTable), "a table next to a chart keeps the card surface")
+
+let chartsOnly = node("Card", [chart, node("MultiChart")])
+check(MUCardPlane.isChartOnly(chartsOnly), "two charts and nothing else still draw flat")
+
+check(!MUCardPlane.isChartOnly(node("Card", [text("只有文字")], ["title": .str("标题")])),
+      "a text-only card is not chart output (it keeps its panel)")
+
+check(!MUCardPlane.isChartOnly(chart), "only a Card subtree is classified, never a bare chart")
+
+check(!MUCardPlane.isChartOnly(node("Card", [chart, node("Button", [], ["label": .str("好"), "action": .str("@x")])])),
+      "a chart card with a button keeps its panel")
+
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")

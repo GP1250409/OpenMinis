@@ -440,7 +440,21 @@ extension CollectionViewMessageListV3.Coordinator {
                     // `.toolGroup` row; its blocks follow that row only
                     // while it is expanded.
                     let runs = toolFolds.runs[message.id] ?? []
-                    var nextRun = 0
+                    // [T-fold-lead-gap] A run's members are hidden wherever
+                    // they sit, its row is drawn at the ANCHOR (the first
+                    // member after its visible gaps — the calls, not the
+                    // thinking above the remark), and a gap block keeps the
+                    // row it always had. The three lookups below are what the
+                    // contiguous-range walk used to be.
+                    var runByAnchor: [UUID: ToolFoldRun] = [:]
+                    var hiddenMemberIds: Set<UUID> = []
+                    var gapBlockIds: Set<UUID> = []
+                    for run in runs {
+                        runByAnchor[run.anchorBlockId] = run
+                        hiddenMemberIds.formUnion(run.memberIds)
+                        gapBlockIds.formUnion(run.visibleIds)
+                    }
+                    hiddenMemberIds.subtract(gapBlockIds)
                     var bi = 0
                     let blocks = message.blocks
                     // [T-fold-blank-thinking] The one block that may still grow:
@@ -450,9 +464,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     let liveTailBlockId: UUID? = (vm.isProcessing && message.id == vm.toolFoldRunningMessageId)
                         ? message.blocks.last?.id : nil
                     while bi < blocks.count {
-                        if nextRun < runs.count, runs[nextRun].firstBlockId == blocks[bi].id {
-                            let run = runs[nextRun]
-                            nextRun += 1
+                        if let run = runByAnchor[blocks[bi].id] {
                             newItems.append(.toolGroup(message.id, run.firstBlockId))
                             if expandedToolGroups.contains(run.key) {
                                 // [T-fold-blank-thinking] A blank thinking block
@@ -461,11 +473,20 @@ extension CollectionViewMessageListV3.Coordinator {
                                 // there to hide. (It is not a member — the
                                 // planner treats it as empty text — but a
                                 // contiguous range can still cover one.)
+                                // [T-fold-lead-gap] A gap is skipped here: it
+                                // already has its own row above this one.
                                 newItems.append(contentsOf: blocks[run.group.range]
+                                    .filter { !gapBlockIds.contains($0.id) }
                                     .filter { !($0.kind == .thinking && ToolFoldPlanner.isBlankThinking($0)) }
                                     .map { .assistantBlock(message.id, $0.id) })
                             }
-                            bi += run.memberIds.count
+                            bi += 1
+                            continue
+                        }
+                        // [T-fold-lead-gap] A hidden member of a run: its row
+                        // is the run's, wherever in the range it sits.
+                        if hiddenMemberIds.contains(blocks[bi].id) {
+                            bi += 1
                             continue
                         }
                         // [T-fold-blank-thinking] A thinking block with nothing

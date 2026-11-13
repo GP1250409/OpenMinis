@@ -98,6 +98,10 @@ struct ChatShareCell: Identifiable, Equatable {
 /// "Ran N tools · 9s" row shows.
 struct ChatShareFold: Equatable {
     let memberIds: [UUID]
+    /// [T-fold-lead-gap] The block the fold cell is placed AT (the run's
+    /// anchor). Nil falls back to the first member — the shape the chat has
+    /// whenever the run has no visible gap inside it.
+    var anchorId: UUID? = nil
     let toolCount: Int
     let failedCount: Int
     let cancelledCount: Int
@@ -131,7 +135,8 @@ enum ChatShareCells {
             case .reply:
                 for mid in unit.messageIds {
                     let messageFolds = folds[mid] ?? []
-                    let foldAt = Dictionary(messageFolds.compactMap { f in f.memberIds.first.map { ($0, f) } },
+                    let foldAt = Dictionary(messageFolds.compactMap { f in
+                        (f.anchorId ?? f.memberIds.first).map { ($0, f) } },
                                             uniquingKeysWith: { a, _ in a })
                     let folded = Set(messageFolds.flatMap(\.memberIds))
                     for b in blocks[mid] ?? [] {

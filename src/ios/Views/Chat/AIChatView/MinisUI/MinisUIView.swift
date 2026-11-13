@@ -316,6 +316,16 @@ struct MUContext {
 }
 
 enum MUStyle {
+    /// [T-chart-label-physical] Real advance width of `text` in the system font
+    /// a label is drawn in. SwiftUI's `.system(size:weight:)` is UIKit's
+    /// system font of the same size/weight, so this is the width the glyphs
+    /// will occupy — no per-class estimate involved.
+    static func textWidth(_ text: String, size: CGFloat, bold: Bool) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
+        let w = (text as NSString).size(withAttributes: [.font: font]).width
+        return ceil(w * 100) / 100
+    }
+
     static func tone(_ t: String?) -> Color {
         switch t {
         case "accent", "info": return .accentColor
@@ -413,6 +423,16 @@ private struct MUCard: View {
     let ctx: MUContext
     let topLevel: Bool
 
+    /// [T-chart-card-flat] A top-level card that is nothing but chart output
+    /// (title / chart / explanation / source) drops the outer panel: the
+    /// chart's own blue-grey or beige ground is the surface, and stacking a
+    /// second one around it read as a box inside a box. Every other card — a
+    /// calculator, a choice list, a slider form, anything with an input or a
+    /// button — keeps the panel exactly as before. The padding stays in both
+    /// modes: `MinisUIEngine.estimatedHeight` already models it, and the list
+    /// measures the same height either way.
+    private var flat: Bool { topLevel && MUCardPlane.isChartOnly(comp) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let t = comp.str("title") {
@@ -425,11 +445,11 @@ private struct MUCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04))
+                .fill(flat ? Color.clear : (topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 0.6)
+                .stroke(flat ? Color.clear : Color.primary.opacity(0.08), lineWidth: 0.6)
         )
     }
 }
@@ -1008,21 +1028,30 @@ private struct MUMultiChartBody: View {
     ///
     /// `width` is the card's real width (GeometryReader); it decides the trailing
     /// gutter so the end labels can never reach the right-hand axis numbers.
+    ///
+    /// [T-chart-label-physical] The labels are NOT mark annotations any more.
+    /// An annotation is positioned by Swift Charts and may overflow the plot
+    /// area into the axis strip — which is what build 8ec8992's screenshot
+    /// shows: "中国" (bold, 10pt) ends exactly on the axis "5", although the
+    /// plot had a reserved gutter. The labels are now drawn by
+    /// `endLabels(in:)`, inside the plot area's own frame, in a box whose width
+    /// is the MEASURED width of the widest label: the gap to the axis is the
+    /// layout, not an estimate of the text.
     private func chart(width: CGFloat) -> some View {
         let roles = self.roles
         let showEndLabels = kind == "line" && series.count > 1 && MUChartEmphasis.hasEmphasis(roles)
-        let gutter = showEndLabels
-            ? MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width)
-            : MUChartLabelMetrics.Gutter(width: 0, fontSize: 10, labels: series, truncated: false)
-        // Collision-free vertical placement, in points; the order of the labels
-        // always follows the order of the values.
-        let placements = showEndLabels
-            ? MUChartEndLabels.layout(values: lastValues, domain: domain, plotHeight: chartHeight,
-                                      minGap: gutter.fontSize + 3, edgeInset: gutter.fontSize * 0.75)
+        // Real glyph widths, per series, in the font the label is drawn in
+        // (bold for the emphasised series, regular for the grey context lines).
+        let labelWidths: [CGFloat] = showEndLabels
+            ? series.enumerated().map { s, name in
+                MUStyle.textWidth(name, size: 10, bold: !isGreyed(s))
+              }
             : []
-        func endLabelDy(_ s: Int) -> CGFloat {
-            placements.first(where: { $0.index == s })?.dy ?? 0
-        }
+        let gutter = showEndLabels
+            ? MUChartLabelMetrics.gutter(labels: series, fontSize: 10, available: width,
+                                         widths: labelWidths,
+                                         measure: { MUStyle.textWidth($0, size: $1, bold: true) })
+            : MUChartLabelMetrics.Gutter(width: 0, labelWidth: 0, fontSize: 10, labels: series, truncated: false)
         return Chart {
             ForEach(0..<rows, id: \.self) { s in
                 ForEach(0..<cols, id: \.self) { i in
@@ -1033,20 +1062,6 @@ private struct MUMultiChartBody: View {
                             .foregroundStyle(color(s))
                             .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2.0 : (isEmphasised(s) ? 2.8 : 2.4),
                                                    lineCap: .round, lineJoin: .round))
-                        // Direct label at the last point, in the line's own colour: several
-                        // grey lines cannot be told apart by the legend alone. The label is
-                        // pushed by the collision-free layout above.
-                        if i == cols - 1, showEndLabels, s < gutter.labels.count {
-                            PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
-                                .symbolSize(CGFloat(0))
-                                .annotation(position: .trailing, alignment: .center, spacing: 3) {
-                                    Text(gutter.labels[s])
-                                        .font(.system(size: gutter.fontSize, weight: isGreyed(s) ? .regular : .bold))
-                                        .foregroundStyle(color(s))
-                                        .fixedSize()
-                                        .offset(y: endLabelDy(s))
-                                }
-                        }
                     case "stacked":
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
                             .foregroundStyle(color(s))
@@ -1081,6 +1096,66 @@ private struct MUMultiChartBody: View {
                 // length so the tick never runs the height of the plot.
                 AxisTick(centered: false, length: 4, stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(textColor)
                 AxisValueLabel(anchor: .top).foregroundStyle(textColor)
+            }
+        }
+        // [T-chart-label-physical] Drawn inside the plot area's real frame, so
+        // the labels cannot reach the axis strip whatever Charts does with the
+        // annotations (see `endLabels(in:)`).
+        .chartOverlay { proxy in
+            if showEndLabels, !labelWidths.isEmpty {
+                endLabels(in: proxy, gutter: gutter, width: width)
+            }
+        }
+    }
+
+    /// The end-of-line labels, drawn by the view instead of by mark
+    /// annotations [T-chart-label-physical].
+    ///
+    /// Three physical facts decide the geometry, none of them estimated:
+    /// - the plot area's own frame (`ChartProxy.plotAreaFrame`) — the y-axis
+    ///   numbers are drawn OUTSIDE it, so anything inside it is clear of them;
+    /// - the y of each series' last value (`proxy.position(forY:)`), so a label
+    ///   sits on its own line even if the axis or the domain changes;
+    /// - the measured width of the widest label (`gutter.labelWidth`), which is
+    ///   the width of every label's box, so the box's trailing edge — not the
+    ///   glyphs — is what the layout places.
+    ///
+    /// The box's trailing edge is pinned to `plotAreaFrame.maxX - gap`; when
+    /// Charts reports an unpadded plot frame the mark-relative position wins,
+    /// which is still inside the gutter reserved by `chartPlotStyle`.
+    @ViewBuilder
+    private func endLabels(in proxy: ChartProxy, gutter: MUChartLabelMetrics.Gutter,
+                           width: CGFloat) -> some View {
+        GeometryReader { _ in
+            if let frame = proxy.plotAreaFrame {
+                let size = gutter.fontSize
+                let box = gutter.labelWidth
+                // Real y of every series' last value, in plot points.
+                let baseY: [CGFloat] = (0..<rows).map { s in
+                    proxy.position(forY: lastValues[s])
+                        ?? MUChartAxis.pixelY(lastValues[s], domain: domain, height: frame.height)
+                }
+                let placements = MUChartEndLabels.layout(
+                    values: lastValues, domain: domain, plotHeight: frame.height,
+                    minGap: size + 3, edgeInset: size * 0.75, baseY: baseY)
+                let lastX = cols > 0 ? (proxy.position(forX: labels[cols - 1]) ?? frame.maxX) : frame.maxX
+                // The label column: right edge pinned inside the plot, never
+                // before the last mark (which the gutter already made room for).
+                let gap: CGFloat = 8
+                let left = max(lastX + 3, frame.maxX - gap - box)
+                ForEach(placements, id: \.index) { p in
+                    if p.index < gutter.labels.count {
+                        Text(gutter.labels[p.index])
+                            .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
+                            .foregroundStyle(color(p.index))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(width: box, alignment: .leading)
+                            .position(x: left + box / 2,
+                                      y: min(max(frame.minY + p.centerY, frame.minY + size / 2),
+                                             frame.maxY - size / 2))
+                    }
+                }
             }
         }
     }

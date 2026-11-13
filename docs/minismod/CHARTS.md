@@ -47,14 +47,17 @@ CMYK(0,75,35,45)，屏幕近似约 `#942A44`。**该色值仍待用户决定，�
 ## 3. 线末标签与右侧纵轴
 
 - 图区固定 180pt 高（高度事务不变），宽度由 `GeometryReader` 读取真实卡片宽度。
-- `MUChartLabelMetrics.gutter(...)` 由**实际系列名**估算宽度（CJK 1em、数字 0.55em、
-  小写 0.56em…，另加 1pt 余量），gutter = 最宽标签 + 3pt 间隔 + 6pt 安全间距；
+- `MUChartLabelMetrics.gutter(...)` 取**最宽标签**：调用方给了实测宽度就用实测
+  （否则回落到 CJK 1em / 数字 0.55em 的估算），gutter = 标签盒 + 3pt 间隔 + 10pt 间距；
   上限为卡片宽度的 42%（至少 56pt）。
 - gutter 作为 `chartPlotStyle` 的**绘图区内**右侧留白，纵轴数字在绘图区之外，
   两者物理隔离，不再依赖“22pt 够不够”的猜测。
 - 名字太长时按 10 → 9 → 8pt 缩字号，仍放不下才截断加 `…`（每档都保留至少 1 个字符）。
-- 文字宽度是估算（系统字体真实 advance 拿不到），6pt 安全间距就是留给估算误差的；
-  真机上如仍偏挤，先看 `MUChartLabelMetrics.width` 的字宽表，而不是加大常数。
+- ~~文字宽度是估算（系统字体真实 advance 拿不到），6pt 安全间距就是留给估算误差的。~~
+  **20261113 起改为实测 + 物理摆放**：`widths:`/`measure:` 传入 UIView 实测字宽
+  （`MUStyle.textWidth`），标签不再用 mark annotation，而是按
+  `ChartProxy.plotAreaFrame` 与 `proxy.position(forY:)` 画在绘图区之内、
+  右缘钉在 `maxX - 8`，间距 10pt。详见 §8.2。估算表只作为无 UIKit 环境的后备。
 
 ## 4. 末值相近时的防碰撞
 
@@ -98,3 +101,66 @@ CMYK(0,75,35,45)，屏幕近似约 `#942A44`。**该色值仍待用户决定，�
 - 预测区间、虚线趋势线、指数基准红线
 - Econ Sans 字体、官方印刷尺寸（160/332/504pt）与 0.5pt 刻度精度
 - 地图配色（另见 maps styleguide，未整理进代码）
+## 8. 变更说明（mod-chart-fold-polish-20261113，基于 8ec8992）
+
+### 8.1 [T-chart-card-flat] 图表卡不再套第二层底
+
+真机截图（build 8ec8992）里，图表外面是 `MUCard` 的浅灰底 + 0.6pt 描边，
+里面又是 `MUMultiChartBody` 自己的蓝灰/米底，看起来像"盒子里再套一个盒子"。
+
+- 判定是一个**纯函数分类**（`MUCardPlane.isChartOnly`，在 `MinisUICore.swift`，
+  Linux 可编译、有测试）：只有顶层 `Card` 的**整棵子树**都是图表输出时才平面化。
+  允许的叶子：`Title` / `Text` / `Badge` / `Divider`；容器：`Card` / `Stack` / `Row`；
+  必须至少有一个 `BarChart` / `LineChart` / `MultiChart`。
+- 任何交互或数值组件（`Slider` / `Stepper` / `Segmented` / `Toggle` / `Choice` /
+  `Button`）、`Table`、`Metric`、`Callout`、以及**未知组件**都保持原样——
+  计算器卡、选择题卡、表单卡仍有原来的底色与描边，不做全局去卡片。
+- 平面化只去掉底色和描边：`padding(14)` 保留，`MinisUIEngine.estimatedHeight`
+  的高度模型不变（高度事务、真实测高都不受影响）。
+- 图表自己的 `panelFill`（system 4% / Economist 2017 米色 / recent 浅灰）**保留**。
+
+### 8.2 [T-chart-label-physical] 线末标签与右轴数值的间距改成物理保证
+
+8ec8992 的真机图里"中国"仍然贴着右轴刻度"5"。根因有两层，都不是"留白调小"：
+
+1. gutter 宽度是**估算**（按 Unicode 类别 `units * fontSize + 1`），细体→粗体的
+   实际字宽差异会把 6pt 的名义间距吃掉；
+2. 标签画在 **mark annotation** 上——`annotation(position: .trailing)` 由 Swift
+   Charts 摆放，允许**溢出绘图区**，于是它从"预留的 gutter"越到了轴线那一列。
+
+修法：
+
+- `MUChartLabelMetrics.gutter(..., widths:measure:)` 接受**实测字宽**：视图用
+  `MUStyle.textWidth`（UIKit `NSString.size(withAttributes:)`，与
+  `.system(size:weight:)` 同一字体）逐系列测量（强调系列粗体、压灰系列常规），
+  再取最大值作为 **labelWidth**；`width = labelWidth + spacing + gap`，
+  `gap` 默认 10pt。
+- 标签不再用 annotation：`ChartProxy.plotAreaFrame` 给出**真实绘图区矩形**
+  （轴数值在它外面），`proxy.position(forY:)` 给出**真实 mark 的 y**，
+  `MUChartEndLabels.layout(..., baseY:)` 在真实 y 上做避让；
+  每个标签的盒子固定为 `labelWidth`（`.frame(width:alignment: .leading)`）并
+  右缘钉在 `plotAreaFrame.maxX - 8`，因此**版面保证**标签不会进入轴向列，
+  与文字实际宽度的估算误差无关。`chartPlotStyle` 仍预留 gutter，线不会钻到标签下。
+- 长中文、1–6 系列、负值与相同末值、浅/深色都在回归里；颜色映射
+  （`MUChartEmphasis` 数据序强调色）与暗红 `#A81829` 的待定状态**未改**。
+
+### 8.3 [T-fold-lead-gap] 思考与"已执行 N 个工具"之间的单行前言
+
+真机折叠截图（同一包）顺序是：`深度思考 3K`（独立）→ 前言正文 →
+`已执行 14 个工具 · 11m 2s · 3 个失败` → 最终正文。也就是说思考没有并进工具组。
+
+原因是旧契约 `[T-fold-tool-notes]` 里"第一次调用前的单行备注会把上面的思考切出去"
+（`reset()`）。新契约：
+
+- 单行备注（`isSingleLine`，按**换行**而不是按屏幕折行判断）出现在
+  "开场思考"和"第一次调用"之间时，**保留自己那一行**，但不再切掉思考：
+  它记为组内的 **gap**（`Group.visibleGaps`），思考照旧并进这一组。
+- 折叠行的位置在 gap **之后**（`FoldedRun.anchorBlockId`），所以阅读顺序是
+  `前言 → 已执行 N 个工具 → 最终正文`，思考的内容仍在展开里，没有隐藏、没有换序。
+- 仍然保持的边界：最终正文与 `user_ask` / 渲染成功的 `show_ui` 卡是 **barrier**
+  （卡前的过程照样收成一行，卡本身永远可见）；**多行**正文不是备注，仍旧把过程切成两段；
+  执行中的工具（streaming/running/等待确认）不提前折；"结束但没回复"仍按
+  `[T-fold-stopped-tools]` 折；空白思考（`isBlankThinking`）仍旧不占行。
+- 前言之后调用从未到来（被卡或 barrier 截断）时保持旧行为：不折。
+
+文档里 §1–§7 是对 Economist 图表风格与实现边界的既有说明，本节只记录本次三项改动。

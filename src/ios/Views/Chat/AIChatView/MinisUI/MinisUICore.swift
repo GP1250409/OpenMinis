@@ -1461,6 +1461,52 @@ enum MinisUIEngine {
         return ceil(h(c, max(120, width), false))
     }
 }
+// MARK: - Card plane: chart-only cards draw flat [T-chart-card-flat]
+//
+// A top-level `Card` is drawn on the chat bubble as a filled, stroked panel
+// (`ChatColors.secondaryBg` + a hairline border). That panel is right for a
+// card the assistant hands over as an object — a calculator, a set of choices,
+// a slider form — but a chart already brings its own surface (the blue-grey /
+// beige Economist panel). Stacking the two made the device screenshot show a
+// grey card around a grey panel, with the chart's own ground floating inside
+// the card's ground.
+//
+// The decision is a pure classification of the component TREE, not of the
+// `show_ui` call: the card is flat only when the whole subtree is chart output
+// — a title, a chart, a legend/source line, dividers — and nothing else. A
+// slider, a choice, a button, a table, a metric or ANY unknown component keeps
+// the card exactly as it was: a card that does something must still read as a
+// card the user can act on.
+enum MUCardPlane {
+    /// The chart leaves. One of them must be present, and nothing else that is
+    /// not in `plainKinds` below may be.
+    static let chartKinds: Set<String> = ["BarChart", "LineChart", "MultiChart"]
+    /// Text and separators: a chart's title, subtitle, explanation, source note.
+    static let plainKinds: Set<String> = ["Title", "Text", "Badge", "Divider"]
+    /// Containers that only lay their children out. Traversed, never a verdict.
+    static let wrapperKinds: Set<String> = ["Card", "Stack", "Row"]
+
+    /// Whether `card` may be drawn without the outer panel: a Card whose whole
+    /// subtree is chart output. Anything interactive, numeric or unknown — and
+    /// a subtree with no chart at all — answers false, so the default card
+    /// (choice lists, calculators, forms) is never touched.
+    static func isChartOnly(_ card: MUComp) -> Bool {
+        guard card.name == "Card" else { return false }
+        var charts = 0
+        func walk(_ c: MUComp) -> Bool {
+            if chartKinds.contains(c.name) {
+                charts += 1
+                return c.children.isEmpty
+            }
+            if plainKinds.contains(c.name) { return c.children.isEmpty }
+            if wrapperKinds.contains(c.name) { return c.children.allSatisfy(walk) }
+            return false  // Slider/Choice/Button/Table/Metric/Callout/unknown
+        }
+        guard walk(card) else { return false }
+        return charts > 0
+    }
+}
+
 // MARK: - Chart layout & emphasis (pure Foundation; no SwiftUI)
 //
 // Everything in this section is deliberately free of SwiftUI/UIKit so the CI
@@ -1630,7 +1676,8 @@ enum MUChartEndLabels {
     }
 
     static func layout(values: [Double], domain: MUChartDomain, plotHeight: CGFloat,
-                       minGap: CGFloat = 12, edgeInset: CGFloat = 7) -> [Placement] {
+                       minGap: CGFloat = 12, edgeInset: CGFloat = 7,
+                       baseY: [CGFloat]? = nil) -> [Placement] {
         guard !values.isEmpty, plotHeight > 0 else { return [] }
         let inset = min(max(0, edgeInset), plotHeight / 2)
         var gap = max(0, minGap)
@@ -1645,7 +1692,12 @@ enum MUChartEndLabels {
         }.map { $0.offset }
         var natural = [CGFloat](repeating: 0, count: values.count)
         for i in values.indices {
-            natural[i] = MUChartAxis.pixelY(values[i], domain: domain, height: plotHeight)
+            // [T-chart-label-physical] A caller that knows the REAL mark
+            // position (`ChartProxy.position(forY:)`) hands it in; the pixel
+            // mapping below is the fallback for the pure harness and stays the
+            // contract `MUChartAxis.pixelY` is tested against.
+            natural[i] = baseY.flatMap { $0.indices.contains(i) ? $0[i] : nil }
+                ?? MUChartAxis.pixelY(values[i], domain: domain, height: plotHeight)
         }
         var y = order.map { natural[$0] }
         let bottom = plotHeight - inset
@@ -1675,12 +1727,24 @@ enum MUChartEndLabels {
     }
 }
 
-/// Text metrics for the right-hand gutter. The system font's real advances are
-/// not available here, so widths are estimated per Unicode class and padded by
-/// 1pt; the gutter carries an extra 6pt so a small error cannot reach the axis.
+/// Text metrics for the right-hand gutter.
+///
+/// [T-chart-label-physical] The estimate below is only the FALLBACK: a view
+/// that can measure the rendered text (UIKit glyph advances, same size and
+/// weight as the label) passes the real widths in, so the reserved gutter is
+/// the space the glyphs actually need. That is the fix for the build-8ec8992
+/// screenshot, where "中国" (bold, 10pt) reached the "5" axis label: the
+/// per-Unicode-class estimate was narrower than the rendered glyphs and the
+/// 6pt safety gap was eaten by the difference.
 enum MUChartLabelMetrics {
     struct Gutter: Equatable {
+        /// The whole reserved strip: label box + annotation spacing + gap.
         let width: CGFloat
+        /// [T-chart-label-physical] The box the label is drawn in (widest
+        /// label). The view sets it with `.frame(width:)` and leading
+        /// alignment, so a label can never paint past `width` — the gap to the
+        /// axis is a layout guarantee, not an estimate.
+        let labelWidth: CGFloat
         let fontSize: CGFloat
         let labels: [String]
         let truncated: Bool
@@ -1707,23 +1771,59 @@ enum MUChartLabelMetrics {
     /// and a safety gap, shrunk (font 10 → 9 → 8, then truncated) when the phone
     /// is narrow or the names are long. `width` never exceeds the cap, so the
     /// plot keeps most of the card.
+    ///
+    /// - Parameters:
+    ///   - widths: [T-chart-label-physical] real widths of `labels`, measured
+    ///     by the caller at `fontSize`. When present they replace the estimate
+    ///     (scaled when the font has to shrink) — the gutter is then the space
+    ///     the glyphs need, not a model of it.
+    ///   - measure: measure used only for the truncation fallback.
+    ///   - gap: [T-chart-label-physical] blank strip between the label box and
+    ///     the axis. 10pt: the axis numbers are drawn outside the plot, and the
+    ///     complaint was that 6pt of nominal gap still read as "touching".
     static func gutter(labels: [String], fontSize: CGFloat, available: CGFloat,
-                       spacing: CGFloat = 3, gap: CGFloat = 6,
-                       maxFraction: CGFloat = 0.42) -> Gutter {
-        guard !labels.isEmpty else { return Gutter(width: 0, fontSize: fontSize, labels: labels, truncated: false) }
+                       spacing: CGFloat = 3, gap: CGFloat = 10,
+                       maxFraction: CGFloat = 0.42,
+                       widths: [CGFloat]? = nil,
+                       measure: ((String, CGFloat) -> CGFloat)? = nil) -> Gutter {
+        guard !labels.isEmpty else {
+            return Gutter(width: 0, labelWidth: 0, fontSize: fontSize, labels: labels, truncated: false)
+        }
+        /// Width of the widest label at `size`: measured (scaled from
+        /// `fontSize`) when the caller supplied real widths.
+        func widest(at size: CGFloat) -> CGFloat {
+            if let widths, widths.count == labels.count {
+                let scale = size / max(1, fontSize)
+                return (widths.max() ?? 0) * scale
+            }
+            let f = measure ?? { width($0, fontSize: $1) }
+            return labels.map { f($0, size) }.max() ?? 0
+        }
         let cap = max(56, max(120, available) * maxFraction)
         var size = max(8, fontSize)
         for candidate in [max(8, fontSize), max(8, fontSize - 1), max(8, fontSize - 2)] {
             size = candidate
-            let widest = labels.map { width($0, fontSize: candidate) }.max() ?? 0
-            if widest + spacing + gap <= cap {
-                return Gutter(width: widest + spacing + gap, fontSize: candidate, labels: labels, truncated: false)
+            let box = widest(at: candidate)
+            if box + spacing + gap <= cap {
+                return Gutter(width: box + spacing + gap, labelWidth: box, fontSize: candidate,
+                              labels: labels, truncated: false)
             }
         }
         let room = max(8, cap - spacing - gap)
-        let fitted = labels.map { fit($0, room: room, fontSize: size) }
-        let widest = fitted.map { width($0, fontSize: size) }.max() ?? 0
-        return Gutter(width: min(cap, widest + spacing + gap), fontSize: size,
+        let f = measure ?? { width($0, fontSize: $1) }
+        let fitted = labels.map { text -> String in
+            guard f(text, size) > room else { return text }
+            var out = ""
+            for character in text {
+                let candidate = out + String(character)
+                if f(candidate + "…", size) > room { break }
+                out = candidate
+            }
+            if out.isEmpty { out = String(text.first ?? " ") }
+            return out + "…"
+        }
+        let box = min(room, fitted.map { f($0, size) }.max() ?? room)
+        return Gutter(width: min(cap, box + spacing + gap), labelWidth: box, fontSize: size,
                       labels: fitted, truncated: fitted != labels)
     }
 

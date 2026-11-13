@@ -71,7 +71,11 @@ extension CollectionViewMessageListV3.Coordinator {
         @discardableResult
         func expandToolGroupForSearch(messageId: UUID, blockId: UUID) -> Bool {
             guard let vm,
-                  let run = toolFoldRunsByMessage[messageId]?.first(where: { $0.memberIds.contains(blockId) }),
+                  // [T-fold-lead-gap] A gap block inside the run keeps its
+                  // own row, so a search hit on it is already visible: only a
+                  // truly hidden member has to open the run.
+                  let run = toolFoldRunsByMessage[messageId]?.first(where: {
+                      $0.memberIds.contains(blockId) && !$0.visibleIds.contains(blockId) }),
                   !expandedToolGroups.contains(run.key) else { return false }
             expandedToolGroups.insert(run.key)
             applySnapshot(messages: vm.messages, caller: "search")

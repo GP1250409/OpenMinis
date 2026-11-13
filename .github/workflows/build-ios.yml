@@ -24,6 +24,10 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/chart_layout_regression.py 2>&1 | tee chart-layout-regression.log
+      - name: Tool fold regression tests [T-fold-lead-gap]
+        run: |
+          set -o pipefail
+          python3 scripts/toolfold_linux_check.py 2>&1 | tee toolfold-regression.log
       - name: AOJIT images
         env:
           GH_TOKEN: ${{ github.token }}
@@ -102,6 +106,7 @@ jobs:
             mod-regression.log
             genui-height-regression.log
             chart-layout-regression.log
+            toolfold-regression.log
             build/genui-height/
             build.log
             build/mod-regression/*.swift

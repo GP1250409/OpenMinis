@@ -27,9 +27,15 @@ import Foundation
 /// - thinking blocks (members; a run of thinking only has `toolCount == 0`),
 /// - empty text blocks (a text block that has not received content yet),
 /// - one-line remarks between tool calls (`note`, see `markingNotes`): folded
-///   along, not counted. [T-fold-tool-notes] A remark before the FIRST call is
-///   not part of the process: it stays visible and separates the thinking above
-///   it from the call below it, as it always has.
+///   along, not counted. [T-fold-tool-notes] [T-fold-lead-gap] A remark before
+///   the FIRST call always keeps its own row, but it is not a barrier: when the
+///   run opened on thinking, that thinking still folds with the calls below the
+///   remark, and the remark becomes a GAP inside the group — visible, still in
+///   order, its neighbours folded around it. This is the boundary the device
+///   screenshot showed: "Deep Thinking 3K" on its own above "Ran 14 tools".
+///   A remark with nothing folded before it (`o TTt`) behaves exactly as before.
+///   A MULTI-line text is never a note, so a real paragraph between the
+///   thinking and the calls still cuts the run in two.
 ///
 /// It ends at a non-empty text block, [T-fold-card-boundary] an interactive
 /// card for the user (a question, a generated UI), an info block, a delegate
@@ -113,6 +119,8 @@ enum ToolFoldPlanner {
         case text(isEmpty: Bool)
         /// [T-fold-tool-notes] A one-line text with a tool call after it — a
         /// remark between calls, not the reply. See `markingNotes`.
+        /// [T-fold-lead-gap] Before the first call it stays visible and becomes
+        /// a gap in the group it sits in, never a member.
         case note
         /// [T-fold-card-boundary] A card for the user (a question, a generated
         /// UI). Always visible, never a member, and it CLOSES the run before
@@ -141,17 +149,24 @@ enum ToolFoldPlanner {
         let cancelledCount: Int
         /// [T-fold-all-process] How many thinking blocks the run covers.
         let thinkingCount: Int
+        /// [T-fold-lead-gap] Blocks inside `range` that KEEP their own row: the
+        /// one-line remarks written between the opening thinking and the first
+        /// call. They are not members (nothing is hidden there) but they sit
+        /// inside the range, so every surface that draws a range has to skip
+        /// them instead of treating the range as one solid block of members.
+        let visibleGaps: [Int]
 
         /// A run with no tool call is a thinking run ([T-fold-all-process]).
         var kind: Kind { toolCount > 0 ? .tools : .thinking }
 
         init(range: ClosedRange<Int>, toolCount: Int, failedCount: Int, cancelledCount: Int,
-             thinkingCount: Int = 0) {
+             thinkingCount: Int = 0, visibleGaps: [Int] = []) {
             self.range = range
             self.toolCount = toolCount
             self.failedCount = failedCount
             self.cancelledCount = cancelledCount
             self.thinkingCount = thinkingCount
+            self.visibleGaps = visibleGaps
         }
     }
 
@@ -176,6 +191,9 @@ enum ToolFoldPlanner {
         var tools = 0, thinks = 0, failed = 0, cancelled = 0
         /// The run as it stood at its latest note (the soft end).
         var softEnd: Group?
+        /// [T-fold-lead-gap] One-line remarks between the run's opening
+        /// thinking and its first call: they stay visible (range gaps).
+        var leadGaps: [Int] = []
         /// [T-fold-trailing-thinking] Last thinking block of the stretch that
         /// follows the run's latest member, while no tool, note or barrier has
         /// come after it: it folds when the reply closes the run.
@@ -185,6 +203,7 @@ enum ToolFoldPlanner {
             start = nil
             tools = 0; thinks = 0; failed = 0; cancelled = 0
             softEnd = nil
+            leadGaps = []
             trailingThinking = nil
         }
         /// Whether a run with `t` calls and `k` thinking blocks is worth a row:
@@ -196,6 +215,21 @@ enum ToolFoldPlanner {
         /// The run's last folded block: its last member, or the thinking that
         /// trails it when that thinking leads into the reply.
         func lastBlock() -> Int { max(lastMember, trailingThinking ?? lastMember) }
+        /// Whether the run is worth folding when it closes here. [T-fold-lead-gap]
+        /// A run that opened on thinking and only ever met remarks before a
+        /// barrier or the end never got its calls: the remark cuts it exactly
+        /// as it always did, and the thinking keeps the row it always had.
+        func foldsAtClose() -> Bool {
+            qualifies(tools, thinks) && !(tools == 0 && !leadGaps.isEmpty)
+        }
+        /// [T-fold-lead-gap] The gaps that fall inside `lo...hi` — and only for
+        /// a run that really has a call: a remark whose calls never arrived
+        /// leaves the thinking on its own, and a run of thinking only has no
+        /// gap to draw.
+        func gaps(_ lo: Int, _ hi: Int) -> [Int] {
+            guard tools > 0 else { return [] }
+            return leadGaps.filter { $0 >= lo && $0 <= hi }
+        }
         /// The run was cut without a reply: fold what came before its latest
         /// note, if that much qualifies on its own.
         func closeAtSoftEnd() {
@@ -223,15 +257,26 @@ enum ToolFoldPlanner {
                 if outcome == .failed { failed += 1 }
                 if outcome == .cancelled { cancelled += 1 }
             case .note:
-                // Only after a call: a remark before the first one is not part
-                // of the process and stays visible — and it separates any
-                // thinking before it from the call after it.
+                // [T-fold-lead-gap] A remark between the run's thinking and its
+                // first call is the model introducing the work it is about to
+                // do. It keeps its own row (it is text, never a member), but it
+                // no longer cuts the thinking above it out of the process: with
+                // the old `reset()` the device showed a "Deep Thinking" pill of
+                // its own above the folded "Ran 14 tools" row. The remark is
+                // recorded as a GAP inside the run instead.
+                if let s = start, tools == 0, thinks > 0, s <= i {
+                    leadGaps.append(i)
+                    continue
+                }
+                // Only after a call: a remark with no run open (or none yet)
+                // is not part of the process and stays visible.
                 guard let s = start, tools > 0 else { reset(); continue }
                 lastMember = i
                 trailingThinking = nil
                 softEnd = Group(range: s...i, toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled,
-                                thinkingCount: thinks)
+                                thinkingCount: thinks,
+                                visibleGaps: gaps(s, i))
             case .thinking:
                 // [T-fold-all-process] Thinking IS the process: it opens the
                 // run when no call has come yet (the old `leadThinking` case)
@@ -247,10 +292,11 @@ enum ToolFoldPlanner {
                 // [T-fold-card-boundary] A card closes the run the same way:
                 // what came before it is a finished process (its trailing
                 // thinking included), and the card stays outside it, on show.
-                if let s = start, qualifies(tools, thinks) {
+                if let s = start, foldsAtClose() {
                     groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                         failedCount: failed, cancelledCount: cancelled,
-                                        thinkingCount: thinks))
+                                        thinkingCount: thinks,
+                                        visibleGaps: gaps(s, lastBlock())))
                 }
                 reset()
             }
@@ -266,10 +312,11 @@ enum ToolFoldPlanner {
         // still waiting for its confirmation) keeps its capsules visible even
         // here. While the task runs, this shape is the pause before the next
         // calls: only the part up to the latest note folds then.
-        if ended, let s = start, qualifies(tools, thinks) {
+        if ended, let s = start, foldsAtClose() {
             groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled,
-                                thinkingCount: thinks))
+                                thinkingCount: thinks,
+                                visibleGaps: gaps(s, lastBlock())))
         } else {
             // A run still open here has no reply after it: only its part up to
             // the latest note folds; the rest stays unfolded.
@@ -509,7 +556,15 @@ extension ToolFoldPlanner {
         let key: String
         /// The first folded block (a thinking block when lead thinking folds).
         let firstBlockId: UUID
-        /// Every folded block, in order.
+        /// [T-fold-lead-gap] The block the fold row is DRAWN at: the first
+        /// member that is actually hidden. With a visible gap in front of it
+        /// (thinking · remark · calls) the row belongs where the calls are,
+        /// below the remark, not above it.
+        let anchorBlockId: UUID
+        /// [T-fold-lead-gap] Blocks inside `group.range` that keep their own
+        /// row (see `Group.visibleGaps`), in order.
+        let visibleIds: [UUID]
+        /// Every folded block, in order (gaps included).
         let memberIds: [UUID]
         let group: Group
         /// [T-fold-tool-duration] Summed execution time of the folded tool
@@ -530,8 +585,17 @@ extension ToolFoldPlanner {
             let members = blocks[group.range]
             let firstTool = members.first { $0.toolUseId != nil } ?? members[members.startIndex]
             let durations = members.compactMap(\.toolDuration)
+            // [T-fold-lead-gap] The gaps keep their rows; the fold row anchors
+            // on the first block that is really hidden behind it.
+            // The row goes where the CALLS are: below the remark, so the
+            // remark keeps its place in the reading order (thinking above it
+            // is what moves into the row).
+            let anchor = group.visibleGaps.last.map { min($0 + 1, group.range.upperBound) }
+                ?? group.range.lowerBound
             return FoldedRun(key: firstTool.toolUseId ?? firstTool.id.uuidString,
                              firstBlockId: members[members.startIndex].id,
+                             anchorBlockId: blocks[anchor].id,
+                             visibleIds: group.visibleGaps.filter { group.range.contains($0) }.map { blocks[$0].id },
                              memberIds: members.map(\.id),
                              group: group,
                              duration: durations.isEmpty ? nil : durations.reduce(0, +))
