@@ -204,7 +204,62 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
             }
           }
         }
-        let marker="MAP_RENDER_PASS checks=\(checks+dynamicChecks) png=\(96+dynamicPNGs)\nMAP_DYNAMIC_PASS checks=\(dynamicChecks) png=\(dynamicPNGs)\n"
+
+        // Generic MapPack native simulator rendering & performance budget tests.
+        let packCases: [(String, String)] = [
+            ("world", "root = GeoMap(\"world\", [\"US\",\"CN\",\"DE\",\"GB\",\"JP\",\"FR\",\"BR\",\"AU\",\"ZA\",\"MT\"], [25,18,4.5,3.3,4.2,3.0,2.1,1.7,0.4,0.02], \"blue\", \"全球主要经济体示例\", \"Natural Earth 1:50m Equal Earth 多边形与孔洞测试\", \"内置测试\", \"万亿\", [\"CN\",\"US\"], null, \"location\", [[116.4,39.9,1],[-0.12,51.5,1],[151.2,-33.86,0]], [\"北京\",\"伦敦\",\"悉尼\"])"),
+            ("eu", "root = GeoMap(\"eu\", [\"DE\",\"FR\",\"GB\",\"IT\",\"ES\",\"PL\",\"UA\",\"NO\",\"SE\",\"MT\"], [4.5,3.0,3.3,2.2,1.6,0.8,0.2,0.5,0.6,0.02], \"green\", \"欧洲示例\", \"LAEA 等积投影与马耳他/冰岛边界测试\", \"内置测试\", null, [\"DE\",\"MT\"], null, \"location\", [[13.4,52.5,1],[-21.9,64.1,1]], [\"Berlin\",\"Reykjavik\"])"),
+            ("de", "root = GeoMap(\"de\", [\"DE-BY\",\"DE-NW\",\"DE-BW\",\"DE-BE\"], [10,20,30,40], \"purple\", \"德国各州\", \"16 州一级行政区\", \"内置测试\", null, [\"DE-BE\"])"),
+            ("es", "root = GeoMap(\"es\", [\"ES-MD\",\"ES-CT\",\"ES-AN\",\"ES-CN\"], [40,35,28,15], \"yellowBlue\", \"西班牙大区\", \"含加那利群岛插图测试\", \"内置测试\", null, [\"ES-CN\"], null, \"location\", [[-3.7,40.4,1],[-16.25,28.46,0]], [\"Madrid\",\"Tenerife\"])"),
+            ("jp", "root = GeoMap(\"jp\", [\"JP-13\",\"JP-27\",\"JP-01\",\"JP-47\"], [95,60,40,20], \"red\", \"日本都道府县\", \"含冲绳插图测试\", \"内置测试\", null, [\"JP-47\"], null, \"location\", [[139.69,35.69,1],[127.68,26.21,0]], [\"东京\",\"那霸\"])"),
+            ("au", "root = GeoMap(\"au\", [\"AU-NSW\",\"AU-VIC\",\"AU-QLD\",\"AU-WA\"], [80,65,50,35], \"greenPurple\", \"澳大利亚州与领地\", \"南半球 Albers 投影验证\", \"内置测试\", null, [\"AU-NSW\"])"),
+            ("us-county", "root = GeoMap(\"us-county\", [\"06037\",\"36061\",\"17031\",\"48201\",\"02016\",\"15003\"], [-25,-32,12,8,-5,28], \"diverging\", \"美国县级测试（3,143 县）\", \"含 50 州界叠加层与阿拉斯加/夏威夷插图\", \"US Census 2020 示意\", \"百分点\", [\"06037\",\"48201\"], [-30,-15,0,15,30])"),
+        ]
+        var packChecks = 0, packPNGs = 0
+        ChatThemeStore.select("")
+        for (tag, prog) in packCases {
+            for dark in [false, true] {
+                autoreleasepool {
+                    let v = MinisUIEngine.validate(prog)
+                    guard v.ok, let comp = v.root else { fatalError("pack fixture invalid: \(tag) \(MinisUIEngine.feedback(v))") }
+                    let width = 390.0
+                    let m = MUMapMetrics(comp, width: width)
+                    let scheme: ColorScheme = dark ? .dark : .light
+                    let parent = MUSurface.rgb(ChatColors.background, over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
+                    let surface = MUSurface.rgb(ChatColors.secondaryBg, over: parent, scheme: scheme)
+                    let content = MUMapView(comp: comp)
+                        .modifier(MUCardSurface(fill: ChatColors.secondaryBg))
+                        .modifier(MURootSurface())
+                        .background(ChatColors.background)
+                        .environment(\.colorScheme, scheme)
+                    let host = UIHostingController(rootView: content)
+                    host.overrideUserInterfaceStyle = dark ? .dark : .light
+                    if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
+                    let measured = host.sizeThatFits(in: CGSize(width: width, height: 10000))
+                    guard abs(measured.height - m.height) < 0.6 else { fatalError("pack height mismatch \(tag): \(measured.height) != \(m.height)") }
+                    let t0 = CFAbsoluteTimeGetCurrent()
+                    let renderer = ImageRenderer(content: content.frame(width: width, height: m.height))
+                    renderer.scale = 2
+                    guard let image = renderer.uiImage, let png = image.pngData() else { fatalError("pack render failed: \(tag)") }
+                    let elapsed = CFAbsoluteTimeGetCurrent() - t0
+                    print(String(format: "PACK_RENDER_TIMING %@ dark=%@ elapsed_ms=%.1f", tag, dark ? "true" : "false", elapsed * 1000))
+                    guard elapsed < 5.0 else { fatalError("pack render budget exceeded for \(tag): \(elapsed)s") }
+                    guard maxPixelContrast(image, box: CGRect(x: 10, y: 16, width: width - 20, height: m.titleHeight), surface: surface) >= 4.5 else { fatalError("pack title contrast \(tag)") }
+                    guard maxPixelContrast(image, box: CGRect(x: 10, y: 8, width: width - 20, height: 4), surface: surface) >= 3.0 else { fatalError("pack top rule contrast \(tag)") }
+                    let stats = MUMapPackStore.shared.cacheStats()
+                    guard stats.packCount <= MUMapPackStore.maxCachedPacks, stats.byteCount <= MUMapPackStore.maxCachedBytes else {
+                        fatalError("pack cache budget exceeded: \(stats)")
+                    }
+                    try! png.write(to: out.appendingPathComponent("pack-\(tag)-\(dark ? "dark" : "light").png"))
+                    packPNGs += 1
+                    packChecks += 5
+                }
+            }
+        }
+
+        let totalChecks = checks + dynamicChecks + packChecks
+        let totalPNGs = 96 + dynamicPNGs + packPNGs
+        let marker="MAP_RENDER_PASS checks=\(totalChecks) png=\(totalPNGs)\nMAP_DYNAMIC_PASS checks=\(dynamicChecks) png=\(dynamicPNGs)\nMAP_PACK_RENDER_PASS checks=\(packChecks) png=\(packPNGs)\n"
         try! marker.write(to:out.appendingPathComponent("result.log"),atomically:true,encoding:.utf8)
         print(marker); fflush(stdout); exit(0)
     }

@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "br-admin1",
+  "aliases": [
+    "br",
+    "brazil"
+  ],
+  "version": "2026.11.1",
+  "scope": "BR",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:BR",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 740.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        -5.0,
+        -22.0,
+        -54.0,
+        -14.0
+      ],
+      "bounds": [
+        -0.3440938685674512,
+        -0.34068985938619134,
+        0.3306618148713047,
+        0.3329009438739643
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        710
+      ],
+      "lonMin": -74.5,
+      "lonMax": -34.0,
+      "latMin": -34.0,
+      "latMax": 5.5,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "90438ba858395a41707245d60f45cbe60364b213f5968a1d45ae23756eed245a",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "902f1b71b1487bcdaca6a037c0c1c8ba3dca7f0f3bfd0bf68ac3b2ae1772e299",
+    "bytes": 11328,
+    "features": 27,
+    "rings": 63,
+    "vertices": 2644,
+    "overlays": 0
+  }
+}

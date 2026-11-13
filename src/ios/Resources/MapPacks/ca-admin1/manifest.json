@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "ca-admin1",
+  "aliases": [
+    "ca",
+    "canada"
+  ],
+  "version": "2026.11.1",
+  "scope": "CA",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:CA",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 660.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        49.0,
+        77.0,
+        -95.0,
+        60.0
+      ],
+      "bounds": [
+        -0.3688596052021393,
+        -0.30581329384713174,
+        0.47275679996049885,
+        0.41948706924795937
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        630
+      ],
+      "lonMin": -142.0,
+      "lonMax": -52.0,
+      "latMin": 41.5,
+      "latMax": 83.5,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "be5866871c4d5d967b3915a3fb9efbaf50602706c6025f889daaf6c2a901b09e",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "f20358b39e7289a1663630499e3cd5bed4c6cc49cd6c67deee7c5b675fcdbb4a",
+    "bytes": 19544,
+    "features": 13,
+    "rings": 228,
+    "vertices": 4396,
+    "overlays": 0
+  }
+}

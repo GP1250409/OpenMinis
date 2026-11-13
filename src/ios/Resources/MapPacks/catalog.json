@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "packs": [
+    {
+      "id": "us-admin1",
+      "aliases": [
+        "us",
+        "usa",
+        "us-states"
+      ],
+      "level": "admin1",
+      "manifestFile": "us-admin1/manifest.json",
+      "manifestSha256": "798bb9d47a7ffdab43eb17ef699b8d81ca8484e997aef75d365966a61644967b",
+      "codesFile": "us-admin1/codes.tsv",
+      "codesSha256": "817403efa5e797f86ed3f8620a7b0d157a9d7c59ac65d832ee70b641815d5db0",
+      "geometryFile": "us-admin1/geometry.mump",
+      "geometrySha256": "33735846f6a81640238614f4287ec458c1dc36c1fd102971f37cbd6e29641b37",
+      "featureCount": 51,
+      "ringCount": 173,
+      "vertexCount": 3707,
+      "geometryBytes": 16652,
+      "codesBytes": 2969
+    },
+    {
+      "id": "world-admin0",
+      "aliases": [
+        "world",
+        "global",
+        "world-countries"
+      ],
+      "level": "admin0",
+      "manifestFile": "world-admin0/manifest.json",
+      "manifestSha256": "276eb5d41bb7b1bf4c337dd4beccef8eefeaee5a9f26b859b976ee97c054aafe",
+      "codesFile": "world-admin0/codes.tsv",
+      "codesSha256": "ea189d502852879e79ae3661665689a48c9e39c990681de1537d1ee233598785",
+      "geometryFile": "world-admin0/geometry.mump",
+      "geometrySha256": "74193670592194c13638043efc34e191684dfde95db5d6757ae331e365ee3bc5",
+      "featureCount": 241,
+      "ringCount": 678,
+      "vertexCount": 11929,
+      "geometryBytes": 55100,
+      "codesBytes": 17915
+    },
+    {
+      "id": "europe-admin0",
+      "aliases": [
+        "eu",
+        "europe",
+        "eu-admin0"
+      ],
+      "level": "admin0",
+      "manifestFile": "europe-admin0/manifest.json",
+      "manifestSha256": "80bfe40badec253f6879d367186fd49cbe9775231d50e4b6ea6fa2ed8b8cfac3",
+      "codesFile": "europe-admin0/codes.tsv",
+      "codesSha256": "e80aaff05efb8262c4b95eeea4578aba5de2a6353c9a044d44691e5d4afb877f",
+      "geometryFile": "europe-admin0/geometry.mump",
+      "geometrySha256": "ed20ae581ea3042745f2323c91ba707053ad13944e3d9893c936f01df6f0123f",
+      "featureCount": 47,
+      "ringCount": 201,
+      "vertexCount": 3778,
+      "geometryBytes": 17128,
+      "codesBytes": 2143
+    },
+    {
+      "id": "de-admin1",
+      "aliases": [
+        "de",
+        "germany"
+      ],
+      "level": "admin1",
+      "manifestFile": "de-admin1/manifest.json",
+      "manifestSha256": "d170e02a17421f936e92233477434d31c68b7d371661a1e48ba203249a137cb4",
+      "codesFile": "de-admin1/codes.tsv",
+      "codesSha256": "d7501a40f4b9cda1a69b15010e0e3783622c5cefae2ae33310bcb844f143ddfb",
+      "geometryFile": "de-admin1/geometry.mump",
+      "geometrySha256": "9753f48406968ec0eadb7d991cd34ef332b4995ee229f485cc1b0931cb04de62",
+      "featureCount": 16,
+      "ringCount": 39,
+      "vertexCount": 1427,
+      "geometryBytes": 6180,
+      "codesBytes": 1222
+    },
+    {
+      "id": "jp-admin1",
+      "aliases": [
+        "jp",
+        "japan"
+      ],
+      "level": "admin1",
+      "manifestFile": "jp-admin1/manifest.json",
+      "manifestSha256": "f920754dc87e0186aca7ff9a91b866eb286d3405bf67a40058f16121da1d1a07",
+      "codesFile": "jp-admin1/codes.tsv",
+      "codesSha256": "5ad7768548fc3aae392dea6eed119279efc20b29de583b0c02c212227dfcfd7b",
+      "geometryFile": "jp-admin1/geometry.mump",
+      "geometrySha256": "ae7ffca9786b80000acce1c869387fdde54f904ea7af3be4a49faf319c2d8291",
+      "featureCount": 47,
+      "ringCount": 116,
+      "vertexCount": 1889,
+      "geometryBytes": 8924,
+      "codesBytes": 3361
+    },
+    {
+      "id": "ca-admin1",
+      "aliases": [
+        "ca",
+        "canada"
+      ],
+      "level": "admin1",
+      "manifestFile": "ca-admin1/manifest.json",
+      "manifestSha256": "5378928596b274c82c4bb42cbb832f50165e4e3cf7a826960c26aa57bc38c7af",
+      "codesFile": "ca-admin1/codes.tsv",
+      "codesSha256": "be5866871c4d5d967b3915a3fb9efbaf50602706c6025f889daaf6c2a901b09e",
+      "geometryFile": "ca-admin1/geometry.mump",
+      "geometrySha256": "f20358b39e7289a1663630499e3cd5bed4c6cc49cd6c67deee7c5b675fcdbb4a",
+      "featureCount": 13,
+      "ringCount": 228,
+      "vertexCount": 4396,
+      "geometryBytes": 19544,
+      "codesBytes": 856
+    },
+    {
+      "id": "au-admin1",
+      "aliases": [
+        "au",
+        "australia"
+      ],
+      "level": "admin1",
+      "manifestFile": "au-admin1/manifest.json",
+      "manifestSha256": "4193a378b83fae0e7e9371f7392cebcb657225916144c346b234181d80830c58",
+      "codesFile": "au-admin1/codes.tsv",
+      "codesSha256": "dd0cd4865d6625596575ef259f4f660c7b07d25eb9bf0b21d84ef33140d403e8",
+      "geometryFile": "au-admin1/geometry.mump",
+      "geometrySha256": "0ba80fd677d1d2f722aa8ea18e7178969d704d68285f2f432ef6c5e1a7983de5",
+      "featureCount": 8,
+      "ringCount": 83,
+      "vertexCount": 1521,
+      "geometryBytes": 6844,
+      "codesBytes": 616
+    },
+    {
+      "id": "br-admin1",
+      "aliases": [
+        "br",
+        "brazil"
+      ],
+      "level": "admin1",
+      "manifestFile": "br-admin1/manifest.json",
+      "manifestSha256": "6df72ddb7a3a884acbbb1eeba354a01655e8b3da10e2feb6bea2c3f7a906dd7a",
+      "codesFile": "br-admin1/codes.tsv",
+      "codesSha256": "90438ba858395a41707245d60f45cbe60364b213f5968a1d45ae23756eed245a",
+      "geometryFile": "br-admin1/geometry.mump",
+      "geometrySha256": "902f1b71b1487bcdaca6a037c0c1c8ba3dca7f0f3bfd0bf68ac3b2ae1772e299",
+      "featureCount": 27,
+      "ringCount": 63,
+      "vertexCount": 2644,
+      "geometryBytes": 11328,
+      "codesBytes": 1633
+    },
+    {
+      "id": "kr-admin1",
+      "aliases": [
+        "kr",
+        "korea"
+      ],
+      "level": "admin1",
+      "manifestFile": "kr-admin1/manifest.json",
+      "manifestSha256": "12af23170964f661d887623a566189c282dd17580ecc76b9eaab09e746969c7b",
+      "codesFile": "kr-admin1/codes.tsv",
+      "codesSha256": "c2111d73403d01da59f694bd434890d9e070d7786cb6658f2523d89b2903b00a",
+      "geometryFile": "kr-admin1/geometry.mump",
+      "geometrySha256": "f4ef766a7d95758ecfe6723562ab3f0ace9fa92c045f7541d6bc89a4da3f4379",
+      "featureCount": 17,
+      "ringCount": 70,
+      "vertexCount": 942,
+      "geometryBytes": 4496,
+      "codesBytes": 1207
+    },
+    {
+      "id": "gb-admin1",
+      "aliases": [
+        "gb",
+        "uk",
+        "united-kingdom"
+      ],
+      "level": "admin1",
+      "manifestFile": "gb-admin1/manifest.json",
+      "manifestSha256": "ac4cad0f5ea39be14a0f6e0a07034a1ed2531c0de1787eaf3f1ab7b769dab9bc",
+      "codesFile": "gb-admin1/codes.tsv",
+      "codesSha256": "293152ae47680f249c80a23c680523365ce27578de6dfc9520de6e4a4886b7cb",
+      "geometryFile": "gb-admin1/geometry.mump",
+      "geometrySha256": "bf40e4e3d586181158d10d883c1a9dbbef3eacecd63982a7f5988f58452534ba",
+      "featureCount": 4,
+      "ringCount": 161,
+      "vertexCount": 1258,
+      "geometryBytes": 6384,
+      "codesBytes": 210
+    },
+    {
+      "id": "fr-admin1",
+      "aliases": [
+        "fr",
+        "france"
+      ],
+      "level": "admin1",
+      "manifestFile": "fr-admin1/manifest.json",
+      "manifestSha256": "6534aad39d2411efb5ac7f6552352889352ba38388529ccf7e4a7c1c2275716d",
+      "codesFile": "fr-admin1/codes.tsv",
+      "codesSha256": "8067d51c6a1f1fac553260f1f1f287d2d05bdcaebb26500f5dc616ccb1409b6c",
+      "geometryFile": "fr-admin1/geometry.mump",
+      "geometrySha256": "810849eb865af150d9545df877ef42bc91a596e9b4e7babd0e8f2d88a327148d",
+      "featureCount": 13,
+      "ringCount": 27,
+      "vertexCount": 1262,
+      "geometryBytes": 5400,
+      "codesBytes": 1081
+    },
+    {
+      "id": "it-admin1",
+      "aliases": [
+        "it",
+        "italy"
+      ],
+      "level": "admin1",
+      "manifestFile": "it-admin1/manifest.json",
+      "manifestSha256": "5545cf04994d21e3fc43e1da674c82c6680599ebfec3b997fba75c71f24021af",
+      "codesFile": "it-admin1/codes.tsv",
+      "codesSha256": "5a7cc2ff99c18bbc82a18d5d01e37a43b7af46d4f66ec331744fd32ea0b7b6cc",
+      "geometryFile": "it-admin1/geometry.mump",
+      "geometrySha256": "0ffbf2822e8122f1280316405aad88c6fdd679a1a79c217bb7c4390df3d6d307",
+      "featureCount": 20,
+      "ringCount": 38,
+      "vertexCount": 1084,
+      "geometryBytes": 4832,
+      "codesBytes": 1234
+    },
+    {
+      "id": "es-admin1",
+      "aliases": [
+        "es",
+        "spain"
+      ],
+      "level": "admin1",
+      "manifestFile": "es-admin1/manifest.json",
+      "manifestSha256": "3ac1f4b8202d74990181213da5c084417f699e3d462dfaa9c5a4064925eebd1b",
+      "codesFile": "es-admin1/codes.tsv",
+      "codesSha256": "6141c5e1d8cccf88193579068c8d85aba10b6b9750b5a49e5babbbe7f70151ca",
+      "geometryFile": "es-admin1/geometry.mump",
+      "geometrySha256": "214d9feb1110c4967e3973b3b8896bef516b8e82701d84c70095fd022058681a",
+      "featureCount": 19,
+      "ringCount": 48,
+      "vertexCount": 1397,
+      "geometryBytes": 6188,
+      "codesBytes": 1442
+    },
+    {
+      "id": "us-county",
+      "aliases": [
+        "us-counties",
+        "us-admin2"
+      ],
+      "level": "admin2",
+      "manifestFile": "us-county/manifest.json",
+      "manifestSha256": "8f42f837cdaa5bc571fee7ec84e148e52ade23523193261a24543bc0013c6cef",
+      "codesFile": "us-county/codes.tsv",
+      "codesSha256": "b8929801f3d2a9fa9b36265d1e9dcb4e1bbd780cac3a876a6cdba7ca55a7013f",
+      "geometryFile": "us-county/geometry.mump",
+      "geometrySha256": "2849d4e420f07019d2794aca7d9738051aef1e4aa48bf54b5bf24f86f3373711",
+      "featureCount": 3143,
+      "ringCount": 3242,
+      "vertexCount": 37159,
+      "geometryBytes": 217072,
+      "codesBytes": 355213
+    }
+  ]
+}

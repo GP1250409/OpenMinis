@@ -163,7 +163,7 @@ if not swiftc:
 
 binary = root / 'build/chart-layout/ChartLayoutTests'
 binary.parent.mkdir(parents=True, exist_ok=True)
-compile_cmd = [swiftc, '-swift-version', '5', str(core), str(core.with_name('MinisUIMapCore.swift')), str(core.with_name('MinisUIMapData.swift')), str(tests), '-o', str(binary)]
+compile_cmd = [swiftc, '-swift-version', '5', str(core), str(core.with_name('MinisUIMapCore.swift')), str(core.with_name('MinisUIMapData.swift')), str(core.with_name('MinisUIMapPack.swift')), str(tests), '-o', str(binary)]
 print('COMPILE: swiftc MinisUICore.swift main.swift', flush=True)
 proc = subprocess.run(compile_cmd, capture_output=True, text=True)
 if proc.returncode != 0:

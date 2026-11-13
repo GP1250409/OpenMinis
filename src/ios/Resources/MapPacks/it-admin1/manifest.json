@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "it-admin1",
+  "aliases": [
+    "it",
+    "italy"
+  ],
+  "version": "2026.11.1",
+  "scope": "IT",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:IT",
+  "source": {
+    "name": "geoBoundaries ITA ADM2 (ISTAT)",
+    "url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/ITA/ADM2/geoBoundaries-ITA-ADM2_simplified.geojson",
+    "version": "9469f09",
+    "inputSha256": "a01b6408d7d9061318034f8f4f54b377b99b5f8dcf5a7f84c5fa1e8ee3c86549"
+  },
+  "license": {
+    "spdx": "CC-BY-3.0",
+    "attribution": "geoBoundaries / ISTAT (CC BY 3.0)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2023,
+  "complianceNote": "geoBoundaries / ISTAT (CC BY 3.0) · Albers · 意大利20大区 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 780.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        38.0,
+        45.0,
+        12.5,
+        42.0
+      ],
+      "bounds": [
+        -0.07230654031293292,
+        -0.11359303278297572,
+        0.08017808680361127,
+        0.08888360437126064
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        750
+      ],
+      "lonMin": 6.5,
+      "lonMax": 18.8,
+      "latMin": 35.4,
+      "latMax": 47.2,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "5a7cc2ff99c18bbc82a18d5d01e37a43b7af46d4f66ec331744fd32ea0b7b6cc",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "0ffbf2822e8122f1280316405aad88c6fdd679a1a79c217bb7c4390df3d6d307",
+    "bytes": 4832,
+    "features": 20,
+    "rings": 38,
+    "vertices": 1084,
+    "overlays": 0
+  }
+}

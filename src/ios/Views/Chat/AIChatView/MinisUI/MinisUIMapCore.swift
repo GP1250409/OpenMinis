@@ -254,8 +254,13 @@ struct MUMapMetrics {
         subtitleHeight=h(c.str("subtitle"),12)
         unitHeight=h(c.str("unit"),10)
         sourceHeight=h(c.str("source").map { "来源："+$0 },10)
-        noteHeight=h(c.name == "GeoMap" ? "Natural Earth · Albers · AK/HI 插图 · 非导航地图" : (c.str("region") == "cn" ? "中国34省级行政区（含台港澳）· 方块拓扑示意" : nil),9)
-        let tiles=MUMapRegion.tiles(c.str("region") ?? "us")
+        let regionArg = c.str("region") ?? "us"
+        let packMeta = c.name == "GeoMap" ? MUMapPackStore.shared.metadata(for: regionArg) : nil
+        let noteText: String? = c.name == "GeoMap"
+            ? (packMeta?.manifest.complianceNote ?? "Natural Earth · Albers · AK/HI 插图 · 非导航地图")
+            : (regionArg == "cn" ? "中国34省级行政区（含台港澳）· 方块拓扑示意" : nil)
+        noteHeight=h(noteText,9)
+        let tiles=MUMapRegion.tiles(regionArg)
         columns=(tiles.map(\.column).max() ?? 0)+1
         rows=(tiles.map(\.row).max() ?? 0)+1
         cell=max(0,(max(1,width)-20-Double(columns-1)*2)/Double(columns))
@@ -283,7 +288,13 @@ struct MUMapMetrics {
         unitY=top
         if unitHeight > 0 { top += unitHeight+4 }
         plotY=top
-        plotHeight=c.name == "GeoMap" ? max(1,usable*0.64) : Double(rows)*cell+Double(rows-1)*2
+        if c.name == "GeoMap" {
+            let cw = max(1.0, packMeta?.manifest.canvas.width ?? 1000.0)
+            let ch = max(1.0, packMeta?.manifest.canvas.height ?? 640.0)
+            plotHeight = max(1, usable * (ch / cw))
+        } else {
+            plotHeight = Double(rows)*cell+Double(rows-1)*2
+        }
         footerY=top+plotHeight+8
         height=ceil(footerY+Double(min(3,c.strings("highlight").count))*14+sourceHeight+noteHeight+10)
     }
@@ -313,26 +324,62 @@ enum MUMapCore {
         MUArg("scale",.oneOf(MUMapScale.names),false), MUArg("title",.string,false), MUArg("subtitle",.string,false),
         MUArg("source",.string,false), MUArg("unit",.string,false), MUArg("highlight",.strings,false), MUArg("bins",.numbers,false)]
     static let blockArgs = [MUArg("region",.oneOf(["us","cn"]),true)] + commonArgs
-    static let geoArgs = [MUArg("region",.oneOf(["us"]),true)] + commonArgs + [MUArg("mode",.oneOf(["location","cutout"]),false), MUArg("points",.matrix,false), MUArg("pointLabels",.strings,false)]
+    static let geoArgs = [MUArg("region",.string,true)] + commonArgs + [MUArg("mode",.oneOf(["location","cutout"]),false), MUArg("points",.matrix,false), MUArg("pointLabels",.strings,false)]
+
+    static func canonical(_ raw: String, componentName: String, region: String) -> String? {
+        if componentName == "BlockMap" { return MUMapRegion.canonical(raw, region: region) }
+        return MUMapPackStore.shared.canonical(raw, region: region)
+    }
+
     static func values(_ c: MUComp) -> [String:Double] {
         let region = c.str("region") ?? "us"
         var out: [String:Double] = [:]
         for (raw,value) in zip(c.strings("codes"),c.numbers("values")) {
-            if let code = MUMapRegion.canonical(raw, region:region) { out[code] = value }
+            if let code = canonical(raw, componentName: c.name, region: region) { out[code] = value }
         }
         return out
     }
     static func highlights(_ c: MUComp) -> [String] {
-        c.strings("highlight").compactMap { MUMapRegion.canonical($0,region:c.str("region") ?? "us") }
+        let region = c.str("region") ?? "us"
+        return c.strings("highlight").compactMap { canonical($0, componentName: c.name, region: region) }
     }
     static func checks(_ c: MUComp) -> [MUError] {
         var errors: [MUError] = []
         func fail(_ code: String, _ msg: String) { errors.append(MUError(code:code,line:c.line,msg:"\(c.name): \(msg)")) }
         let region = c.str("region") ?? "us", codes = c.strings("codes"), nums = c.numbers("values")
+
+        let packMeta: MUMapPackMetadata?
+        if c.name == "GeoMap" {
+            packMeta = MUMapPackStore.shared.metadata(for: region)
+            if packMeta == nil {
+                if MUMapPackStore.shared.isUnshippedChinaRegion(region) {
+                    fail("map-region", "GeoMap(\"cn\") requires an authorized compliant China boundary pack (not bundled by default); use BlockMap(\"cn\", ...) for schematic 34-province topology")
+                } else {
+                    let avail = MUMapPackStore.shared.availablePackIds().joined(separator: ", ")
+                    fail("map-region", "unknown GeoMap region '\(region)'; available packs: \(avail)")
+                }
+                return errors
+            }
+        } else {
+            packMeta = nil
+        }
+
         let all = codes + c.strings("highlight")
-        let unknown = all.filter { MUMapRegion.canonical($0,region:region) == nil }
-        if !unknown.isEmpty { fail("map-code", "unknown region codes: " + unknown.joined(separator:", ") + "; valid: " + MUMapRegion.tiles(region).map(\.code).joined(separator:", ")) }
-        let known = codes.compactMap { MUMapRegion.canonical($0,region:region) }
+        let unknown = all.filter { canonical($0, componentName: c.name, region: region) == nil }
+        if !unknown.isEmpty {
+            if let packMeta {
+                if packMeta.features.count <= 60 {
+                    let validList = packMeta.features.map(\.code).joined(separator: ", ")
+                    fail("map-code", "unknown region codes: " + unknown.joined(separator:", ") + "; valid: " + validList)
+                } else {
+                    let sample = packMeta.features.prefix(6).map(\.code).joined(separator: ", ")
+                    fail("map-code", "unknown region codes: " + unknown.joined(separator:", ") + "; code system: \(packMeta.manifest.codeSystem) (e.g. \(sample))")
+                }
+            } else {
+                fail("map-code", "unknown region codes: " + unknown.joined(separator:", ") + "; valid: " + MUMapRegion.tiles(region).map(\.code).joined(separator:", "))
+            }
+        }
+        let known = codes.compactMap { canonical($0, componentName: c.name, region: region) }
         if Set(known).count != known.count { fail("map-duplicate", "duplicate region codes (including aliases)") }
         if codes.count != nums.count { fail("map-mismatch", "codes and values must have equal lengths") }
         if nums.contains(where: { !$0.isFinite }) { fail("map-number", "values must be finite") }
@@ -346,14 +393,14 @@ enum MUMapCore {
             }
         }
         if c.strings("highlight").count > 3 { fail("map-highlight", "at most 3 highlights; use a separate legend/Text for more") }
-        if c.name == "GeoMap" {
+        if c.name == "GeoMap", let packMeta {
             let points = c.matrix("points"), labels = c.strings("pointLabels")
             if points.count > 30 { fail("map-points", "at most 30 points") }
             if !labels.isEmpty && labels.count != points.count { fail("map-points", "pointLabels must match points") }
             if points.contains(where: { $0.count != 3 || !$0.allSatisfy(\.isFinite) || !(-180...180).contains($0[0]) || !(-90...90).contains($0[1]) || ![0.0,1.0].contains($0[2]) }) {
                 fail("map-points", "points rows must be [longitude, latitude, capital:0|1]")
-            } else if points.contains(where: { MUMapProjection.usPoint(lon:$0[0],lat:$0[1]) == nil }) {
-                fail("map-points", "point outside the US projection/inset coverage")
+            } else if points.contains(where: { MUMapProjection.projectPoint(lon:$0[0],lat:$0[1],manifest:packMeta.manifest) == nil }) {
+                fail("map-points", "point outside \(packMeta.manifest.id) projection/inset coverage")
             }
         }
         return errors
@@ -361,16 +408,41 @@ enum MUMapCore {
     static func fallback(_ c: MUComp) -> String {
         var lines = [c.str("title"),c.str("subtitle")].compactMap { $0 }
         let values = values(c), region = c.str("region") ?? "us", unit = c.str("unit") ?? ""
-        for tile in MUMapRegion.tiles(region) {
-            lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+        if c.name == "GeoMap", let packMeta = MUMapPackStore.shared.metadata(for: region) {
+            if packMeta.features.count <= 80 {
+                for f in packMeta.features {
+                    let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                }
+            } else {
+                let hi = Set(highlights(c))
+                var shown = 0
+                for f in packMeta.features where values[f.code] != nil || hi.contains(f.code) {
+                    let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                    shown += 1
+                }
+                let omitted = packMeta.features.count - shown
+                if omitted > 0 { lines.append("其余 \(omitted) 个区域无数据") }
+            }
+        } else {
+            for tile in MUMapRegion.tiles(region) {
+                lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+            }
         }
         for (i,p) in c.matrix("points").enumerated() where p.count == 3 {
             let labels = c.strings("pointLabels")
             lines.append("\(i < labels.count ? labels[i] : "城市")：\(p[0]), \(p[1])\(p[2] == 1 ? " 首都" : "")")
         }
         if let s = c.str("source") { lines.append("来源："+s) }
-        if region == "cn" { lines.append("中国34个省级行政区（含台湾、香港、澳门）；方块拓扑示意，非地理边界图") }
-        if c.name == "GeoMap" { lines.append("Natural Earth 公有领域；Albers 本土投影，阿拉斯加/夏威夷独立插图；非导航地图") }
+        if c.name == "BlockMap" && region == "cn" { lines.append("中国34个省级行政区（含台湾、香港、澳门）；方块拓扑示意，非地理边界图") }
+        if c.name == "GeoMap" {
+            if let packMeta = MUMapPackStore.shared.metadata(for: region) {
+                lines.append("\(packMeta.manifest.complianceNote) · \(packMeta.manifest.license.attribution)")
+            } else {
+                lines.append("Natural Earth 公有领域；Albers 本土投影，阿拉斯加/夏威夷独立插图；非导航地图")
+            }
+        }
         return lines.joined(separator:"\n")
     }
 }
@@ -395,12 +467,25 @@ struct MUMapProjectionSpec {
 }
 
 enum MUMapProjection {
-    // Geometry occupies a 1000 × 640 canvas. Uniform aspect-fit, no distortion.
-    static func view(_ p: CGPoint, in rect: CGRect) -> CGPoint {
-        let scale = min(rect.width/1000,rect.height/640)
-        return CGPoint(x:rect.midX-500*scale+p.x*scale,y:rect.midY-320*scale+p.y*scale)
+    static func view(_ p: CGPoint, canvasSize: CGSize = CGSize(width: 1000, height: 640), in rect: CGRect) -> CGPoint {
+        let cw = max(1.0, canvasSize.width), ch = max(1.0, canvasSize.height)
+        let scale = min(rect.width / cw, rect.height / ch)
+        return CGPoint(x: rect.midX - (cw / 2) * scale + p.x * scale, y: rect.midY - (ch / 2) * scale + p.y * scale)
+    }
+    static func projectPoint(lon: Double, lat: Double, manifest: MUMapPackManifest) -> CGPoint? {
+        guard lon.isFinite, lat.isFinite else { return nil }
+        let canvasRect = CGRect(x: 0, y: 0, width: manifest.canvas.width, height: manifest.canvas.height)
+        for zone in manifest.zones where zone.contains(lon: lon, lat: lat) {
+            if let p = zone.project(lon: lon, lat: lat), canvasRect.contains(p) {
+                return p
+            }
+        }
+        return nil
     }
     static func usPoint(lon: Double, lat: Double) -> CGPoint? {
+        if let meta = MUMapPackStore.shared.metadata(for: "us-admin1") {
+            return projectPoint(lon: lon, lat: lat, manifest: meta.manifest)
+        }
         guard lon.isFinite,lat.isFinite else { return nil }
         let key: String
         if lat >= 50 && lat <= 72 && (lon <= -129 && lon >= -180 || lon >= 170 && lon <= 180) { key="AK" }

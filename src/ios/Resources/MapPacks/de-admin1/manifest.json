@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "de-admin1",
+  "aliases": [
+    "de",
+    "germany"
+  ],
+  "version": "2026.11.1",
+  "scope": "DE",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:DE",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 德国16州 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 780.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        48.0,
+        54.0,
+        10.5,
+        51.0
+      ],
+      "bounds": [
+        -0.050896363876749104,
+        -0.06511440566348858,
+        0.0493166818114335,
+        0.07128589447632228
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        750
+      ],
+      "lonMin": 5.5,
+      "lonMax": 15.5,
+      "latMin": 47.0,
+      "latMax": 55.2,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "d7501a40f4b9cda1a69b15010e0e3783622c5cefae2ae33310bcb844f143ddfb",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "9753f48406968ec0eadb7d991cd34ef332b4995ee229f485cc1b0931cb04de62",
+    "bytes": 6180,
+    "features": 16,
+    "rings": 39,
+    "vertices": 1427,
+    "overlays": 0
+  }
+}

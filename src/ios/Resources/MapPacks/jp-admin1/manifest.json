@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "id": "jp-admin1",
+  "aliases": [
+    "jp",
+    "japan"
+  ],
+  "version": "2026.11.1",
+  "scope": "JP",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:JP",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 冲绳插图 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 740.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        33.0,
+        42.0,
+        137.0,
+        37.5
+      ],
+      "bounds": [
+        -0.12338512791364203,
+        -0.13617976601175075,
+        0.11206080700051038,
+        0.14153695614324135
+      ],
+      "frame": [
+        140,
+        15,
+        840,
+        710
+      ],
+      "lonMin": 128.0,
+      "lonMax": 146.5,
+      "latMin": 29.5,
+      "latMax": 46.0,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    },
+    {
+      "id": "Okinawa",
+      "projection": "albers",
+      "params": [
+        25.0,
+        27.5,
+        127.0,
+        26.2
+      ],
+      "bounds": [
+        -0.06453804747410442,
+        -0.033304112309406886,
+        0.06789984523029452,
+        0.0407365981835035
+      ],
+      "frame": [
+        24,
+        30,
+        230,
+        165
+      ],
+      "lonMin": 122.5,
+      "lonMax": 132.0,
+      "latMin": 23.8,
+      "latMax": 28.8,
+      "antimeridianWrap": false,
+      "insetLabel": {
+        "text": "沖縄 Okinawa",
+        "x": 24,
+        "y": 202
+      },
+      "insetBox": [
+        16,
+        22,
+        246,
+        198
+      ]
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "5ad7768548fc3aae392dea6eed119279efc20b29de583b0c02c212227dfcfd7b",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "ae7ffca9786b80000acce1c869387fdde54f904ea7af3be4a49faf319c2d8291",
+    "bytes": 8924,
+    "features": 47,
+    "rings": 116,
+    "vertices": 1889,
+    "overlays": 1
+  }
+}

@@ -59,32 +59,39 @@ Test-only dependencies: JUnit 4.13.2 (**EPL-1.0**), MockWebServer 4.12.0 (**Apac
 | [models.dev](https://github.com/sst/models.dev) catalogue snapshot | iOS bundle / Android `assets/models-dev-api.json` (offline copy of `https://models.dev/api.json`, refreshed at run time) | **MIT** |
 | [tiktoken](https://github.com/openai/tiktoken) `cl100k_base` BPE ranks | iOS `src/ios/Shared/cl100k_base.tiktoken`; the tokenizer in `BPETokenizer.swift` is ported from tiktoken | **MIT** |
 
-## Offline show_ui map data (MOD Phase 2)
+## Offline show_ui map data (MOD Phase 2 & MapPack v1 Engine)
 
-- **Natural Earth**: `MinisUIMapData.swift` contains simplified, spherical-Albers-projected
-  US state geometry (50 states + District of Columbia; Alaska and Hawaii in separate
-  insets) derived from **Natural Earth 1:50m admin-1 states/provinces**.
-- License: **Public Domain**. First-party terms:
-  https://www.naturalearthdata.com/about/terms-of-use/
-  (all versions of raster/vector data may be modified and used for personal,
-  educational and commercial purposes; permission/attribution not required).
-- Pinned upstream data:
-  https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_1_states_provinces.geojson
-- Input SHA256: `69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9`.
-  Reproduce using `python3 scripts/generate_map_data.py` (stdlib only).
-  Generated geometry is about 45 KB / 3,707 vertices, entirely offline in the app.
-- The China BlockMap topology is original project code, not copied boundary data.
-  It includes all 34 Chinese province-level divisions, including Taiwan, Hong Kong
-  and Macao; it is an abstract equal-size grid and NOT a geographic boundary map,
-  standard map, territorial/border assertion or navigational product. No China or
-  world boundary dataset is shipped in this phase; standard-map compliance,
-  boundary completeness and South China Sea inset requirements must be reviewed
-  before a future China GeoMap is enabled.
+All bundled offline map resources under `src/ios/Resources/MapPacks/` are reproducible
+from pinned upstream sources via `python3 scripts/generate_map_packs.py`.
+
+- **Natural Earth** (`us-admin1`, `world-admin0`, `europe-admin0`, `de-admin1`,
+  `jp-admin1`, `ca-admin1`, `au-admin1`, `br-admin1`, `kr-admin1`, and fallback
+  `MinisUIMapData.swift`):
+  - Upstream commit `ca96624a56bd078437bca8184e78163e5039ad19`
+    (`ne_50m_admin_0_countries.geojson` SHA256 `3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb`,
+    `ne_50m_admin_1_states_provinces.geojson` SHA256 `69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9`,
+    `ne_10m_admin_1_states_provinces.geojson` SHA256 `22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5`).
+  - License: **Public Domain**. First-party terms:
+    https://www.naturalearthdata.com/about/terms-of-use/
+    (cartographic overview boundaries, not standard national boundaries or navigation data).
+- **U.S. Census Bureau Cartographic Boundary Files (2020, 1:20m)** (`us-county`,
+  3,143 counties/equivalents in 50 states + DC plus state boundary overlays):
+  - `cb_2020_us_county_20m.zip` SHA256 `9394913edbd6f72791b06b84509e59ea2d275d10b73ae27ef87df3bdb061890c`
+  - `cb_2020_us_state_20m.zip` SHA256 `1d872779cbfa2c2bf828850664aa9593a35844205e2e4bed5aeb78affb8da050`
+  - License: **Public Domain** (U.S. Government work, 17 U.S.C. § 105).
+- **geoBoundaries `gbOpen` (commit `9469f09`)**:
+  - `gb-admin1` (4 nations): `geoBoundaries-GBR-ADM1_simplified.geojson` (SHA256 `85a05dc0e939aff5cca6d9b8bf0684efe6c098a54579b24531a3f5594a6e450e`) — Eurostat / ONS, **CC BY 4.0**.
+  - `fr-admin1` (13 metropolitan regions): `geoBoundaries-FRA-ADM1_simplified.geojson` (SHA256 `7dc61e5c7e4c81f5fa10d339e6a5bc8428f1346f43f4426d9d165d2e44fc3a7e`) — IGN-F, **Etalab Open License 2.0**.
+  - `it-admin1` (20 regions): `geoBoundaries-ITA-ADM2_simplified.geojson` (SHA256 `a01b6408d7d9061318034f8f4f54b377b99b5f8dcf5a7f84c5fa1e8ee3c86549`) — ISTAT, **CC BY 3.0**.
+  - `es-admin1` (19 communities/cities): `geoBoundaries-ESP-ADM1_simplified.geojson` (SHA256 `b61a1bf661b90883763f633f5e9dbc27e7356309e42cbe56b60d2ceab5112f63`) — IGN-ES, **CC BY 4.0**.
+- **China Boundaries**:
+  - `BlockMap("cn", ...)` uses original project topology (34 provincial-level tiles including Taiwan, Hong Kong, and Macao; explicitly NOT a geographic boundary map or standard map).
+  - No China geographic boundary dataset (`GeoMap("cn")`) is bundled in the default repository or IPA; standard-map compliance (`GS` review approval), redistribution authorization, and South China Sea inset requirements must be supplied/verified before enabling a `cn-admin1` pack.
 - Economist maps styleguide (5 May 2017, pp.3–6, 8–9,12): layout/colour references
-  only, documented in `docs/minismod/CHARTS.md`; original PDF/artwork/fonts are NOT
-  bundled or redistributed. Named screen palettes are sampled from the retained
-  PDF, not a claim of official published hex values. The two ten-stop diverging
-  palettes and China topology are explicitly project adaptations.
+  only, documented in `docs/minismod/CHARTS.md` and `docs/minismod/MAPS.md`; original
+  PDF/artwork/fonts are NOT bundled or redistributed. Named screen palettes are sampled
+  from the retained PDF, not a claim of official published hex values. The two ten-stop
+  diverging palettes and China topology are explicitly project adaptations.
 
 ## Removed / historical
 

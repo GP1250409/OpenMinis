@@ -56,7 +56,7 @@ def main():
     arch = platform.machine()
     cmd = ['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-parse-as-library','-sdk',sdk,
            '-target',arch+'-apple-ios16.0-simulator',str(core),
-           str(core.with_name('MinisUIMapCore.swift')),str(core.with_name('MinisUIMapData.swift')),str(core.with_name('MinisUIMapView.swift')),str(core.parent.parent/'Support/ChatColors.swift'),str(generated),'-o',str(app/'ChartRender')]
+           str(core.with_name('MinisUIMapCore.swift')),str(core.with_name('MinisUIMapData.swift')),str(core.with_name('MinisUIMapPack.swift')),str(core.with_name('MinisUIMapView.swift')),str(core.parent.parent/'Support/ChatColors.swift'),str(generated),'-o',str(app/'ChartRender')]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out/'compile.log').write_text(result.stdout)
     print(result.stdout, flush=True)

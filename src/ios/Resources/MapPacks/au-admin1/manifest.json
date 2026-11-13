@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "au-admin1",
+  "aliases": [
+    "au",
+    "australia"
+  ],
+  "version": "2026.11.1",
+  "scope": "AU",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:AU",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 澳大利亚8州及领地 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 700.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        -18.0,
+        -36.0,
+        132.0,
+        -27.0
+      ],
+      "bounds": [
+        -0.29586697845404575,
+        -0.3009999793361273,
+        0.33262486114779233,
+        0.3018284096711119
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        670
+      ],
+      "lonMin": 112.0,
+      "lonMax": 155.0,
+      "latMin": -44.5,
+      "latMax": -9.0,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "dd0cd4865d6625596575ef259f4f660c7b07d25eb9bf0b21d84ef33140d403e8",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "0ba80fd677d1d2f722aa8ea18e7178969d704d68285f2f432ef6c5e1a7983de5",
+    "bytes": 6844,
+    "features": 8,
+    "rings": 83,
+    "vertices": 1521,
+    "overlays": 0
+  }
+}

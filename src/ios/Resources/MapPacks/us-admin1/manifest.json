@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "id": "us-admin1",
+  "aliases": [
+    "us",
+    "usa",
+    "us-states"
+  ],
+  "version": "2026.11.1",
+  "scope": "US",
+  "level": "admin1",
+  "codeSystem": "USPS 2-letter / ISO 3166-2:US",
+  "source": {
+    "name": "Natural Earth 1:50m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth · Albers · AK/HI 插图 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 640.0,
+    "coordScale": 10.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.9,
+    "overlayStrokeWidth": 1.0,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        29.5,
+        45.5,
+        -96.0,
+        23.0
+      ],
+      "bounds": [
+        -0.3684252699583955,
+        0.0435035826966188,
+        0.35296394350717675,
+        0.49861090659631624
+      ],
+      "frame": [
+        20,
+        0,
+        960,
+        520
+      ],
+      "lonMin": -126.0,
+      "lonMax": -66.0,
+      "latMin": 24.0,
+      "latMax": 50.0,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    },
+    {
+      "id": "AK",
+      "projection": "albers",
+      "params": [
+        55.0,
+        65.0,
+        -154.0,
+        50.0
+      ],
+      "bounds": [
+        -0.2562280634075693,
+        0.06520390949063604,
+        0.2328992986791199,
+        0.37286679516898896
+      ],
+      "frame": [
+        30,
+        445,
+        240,
+        175
+      ],
+      "lonMin": 170.0,
+      "lonMax": -129.0,
+      "latMin": 50.0,
+      "latMax": 72.0,
+      "antimeridianWrap": true,
+      "insetLabel": {
+        "text": "AK",
+        "x": 35,
+        "y": 620
+      },
+      "insetBox": null
+    },
+    {
+      "id": "HI",
+      "projection": "albers",
+      "params": [
+        8.0,
+        18.0,
+        -157.0,
+        13.0
+      ],
+      "bounds": [
+        -0.3241212407929492,
+        0.10436132588859337,
+        0.03621978299376432,
+        0.27633415552983553
+      ],
+      "frame": [
+        300,
+        540,
+        145,
+        80
+      ],
+      "lonMin": -161.0,
+      "lonMax": -154.0,
+      "latMin": 18.0,
+      "latMax": 23.0,
+      "antimeridianWrap": false,
+      "insetLabel": {
+        "text": "HI",
+        "x": 300,
+        "y": 620
+      },
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "817403efa5e797f86ed3f8620a7b0d157a9d7c59ac65d832ee70b641815d5db0",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "33735846f6a81640238614f4287ec458c1dc36c1fd102971f37cbd6e29641b37",
+    "bytes": 16652,
+    "features": 51,
+    "rings": 173,
+    "vertices": 3707,
+    "overlays": 0
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "id": "us-county",
+  "aliases": [
+    "us-counties",
+    "us-admin2"
+  ],
+  "version": "2026.11.1",
+  "scope": "US",
+  "level": "admin2",
+  "codeSystem": "US County FIPS 2020 (5-digit GEOID)",
+  "source": {
+    "name": "US Census Cartographic Boundary 2020 (1:20m)",
+    "url": "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_county_20m.zip",
+    "version": "2020-20m",
+    "inputSha256": "9394913edbd6f72791b06b84509e59ea2d275d10b73ae27ef87df3bdb061890c"
+  },
+  "license": {
+    "spdx": "Public Domain (17 U.S.C. § 105)",
+    "attribution": "U.S. Census Bureau (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2020,
+  "complianceNote": "US Census 2020 · 3,143 县 · Albers · AK/HI 插图 · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 640.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.25,
+    "overlayStrokeWidth": 0.85,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        29.5,
+        45.5,
+        -96.0,
+        23.0
+      ],
+      "bounds": [
+        -0.36887556976864244,
+        0.042240522968129524,
+        0.3534555873927187,
+        0.4977010580633947
+      ],
+      "frame": [
+        20,
+        0,
+        960,
+        520
+      ],
+      "lonMin": -126.0,
+      "lonMax": -66.0,
+      "latMin": 24.0,
+      "latMax": 50.0,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    },
+    {
+      "id": "AK",
+      "projection": "albers",
+      "params": [
+        55.0,
+        65.0,
+        -154.0,
+        50.0
+      ],
+      "bounds": [
+        -0.33933967046308433,
+        0.0648225649525328,
+        0.23341476783860615,
+        0.3719508107188564
+      ],
+      "frame": [
+        30,
+        445,
+        240,
+        175
+      ],
+      "lonMin": 170.0,
+      "lonMax": -129.0,
+      "latMin": 50.0,
+      "latMax": 72.0,
+      "antimeridianWrap": true,
+      "insetLabel": {
+        "text": "AK",
+        "x": 35,
+        "y": 620
+      },
+      "insetBox": null
+    },
+    {
+      "id": "HI",
+      "projection": "albers",
+      "params": [
+        8.0,
+        18.0,
+        -157.0,
+        13.0
+      ],
+      "bounds": [
+        -0.05309594455875463,
+        0.10354800477671322,
+        0.03605022022274382,
+        0.16123141983732303
+      ],
+      "frame": [
+        300,
+        540,
+        145,
+        80
+      ],
+      "lonMin": -161.0,
+      "lonMax": -154.0,
+      "latMin": 18.0,
+      "latMax": 23.0,
+      "antimeridianWrap": false,
+      "insetLabel": {
+        "text": "HI",
+        "x": 300,
+        "y": 620
+      },
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "b8929801f3d2a9fa9b36265d1e9dcb4e1bbd780cac3a876a6cdba7ca55a7013f",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "2849d4e420f07019d2794aca7d9738051aef1e4aa48bf54b5bf24f86f3373711",
+    "bytes": 217072,
+    "features": 3143,
+    "rings": 3242,
+    "vertices": 37159,
+    "overlays": 128
+  }
+}

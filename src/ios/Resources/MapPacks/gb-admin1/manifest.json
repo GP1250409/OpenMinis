@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "gb-admin1",
+  "aliases": [
+    "gb",
+    "uk",
+    "united-kingdom"
+  ],
+  "version": "2026.11.1",
+  "scope": "GB",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:GB",
+  "source": {
+    "name": "geoBoundaries GBR ADM1 (Eurostat/ONS)",
+    "url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/GBR/ADM1/geoBoundaries-GBR-ADM1_simplified.geojson",
+    "version": "9469f09",
+    "inputSha256": "85a05dc0e939aff5cca6d9b8bf0684efe6c098a54579b24531a3f5594a6e450e"
+  },
+  "license": {
+    "spdx": "CC-BY-4.0",
+    "attribution": "geoBoundaries / Eurostat (CC BY 4.0)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2021,
+  "complianceNote": "geoBoundaries (CC BY 4.0) · Albers · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 780.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        51.0,
+        58.0,
+        -2.5,
+        54.5
+      ],
+      "bounds": [
+        -0.05724856184292668,
+        -0.07943281822510317,
+        0.0451517520395326,
+        0.11083896234135127
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        750
+      ],
+      "lonMin": -8.8,
+      "lonMax": 2.0,
+      "latMin": 49.8,
+      "latMax": 61.0,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "293152ae47680f249c80a23c680523365ce27578de6dfc9520de6e4a4886b7cb",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "bf40e4e3d586181158d10d883c1a9dbbef3eacecd63982a7f5988f58452534ba",
+    "bytes": 6384,
+    "features": 4,
+    "rings": 161,
+    "vertices": 1258,
+    "overlays": 0
+  }
+}

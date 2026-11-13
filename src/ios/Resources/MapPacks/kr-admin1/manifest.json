@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "kr-admin1",
+  "aliases": [
+    "kr",
+    "korea"
+  ],
+  "version": "2026.11.1",
+  "scope": "KR",
+  "level": "admin1",
+  "codeSystem": "ISO 3166-2:KR",
+  "source": {
+    "name": "Natural Earth 1:10m Admin-1",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "version": "ca96624a",
+    "inputSha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+  },
+  "license": {
+    "spdx": "CC0-1.0 / Public Domain",
+    "attribution": "Natural Earth (Public Domain)",
+    "commercialAllowed": true
+  },
+  "boundaryYear": 2022,
+  "complianceNote": "Natural Earth 1:10m · Albers · 非导航地图",
+  "canvas": {
+    "width": 1000.0,
+    "height": 780.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.75,
+    "overlayStrokeWidth": 0.9,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        34.0,
+        38.0,
+        127.5,
+        36.0
+      ],
+      "bounds": [
+        -0.03972011019832621,
+        -0.04880847195166749,
+        0.04732031280309708,
+        0.04586755825683175
+      ],
+      "frame": [
+        20,
+        15,
+        960,
+        750
+      ],
+      "lonMin": 124.5,
+      "lonMax": 131.5,
+      "latMin": 33.0,
+      "latMax": 38.7,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "c2111d73403d01da59f694bd434890d9e070d7786cb6658f2523d89b2903b00a",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "f4ef766a7d95758ecfe6723562ab3f0ace9fa92c045f7541d6bc89a4da3f4379",
+    "bytes": 4496,
+    "features": 17,
+    "rings": 70,
+    "vertices": 942,
+    "overlays": 0
+  }
+}

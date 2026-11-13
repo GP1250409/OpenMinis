@@ -161,9 +161,13 @@ struct MUMapView: View {
         }
         if comp.name == "BlockMap" { drawBlocks(context,m,theme,values,highlight,bins,colors) }
         else { drawGeo(context,m,theme,values,highlight,bins,colors) }
+        let region=comp.str("region") ?? "us"
+        let packMeta=comp.name == "GeoMap" ? MUMapPackStore.shared.metadata(for:region) : nil
         var footer=m.footerY
         for code in highlight.prefix(3) {
-            let label=MUMapRegion.tiles(comp.str("region") ?? "us").first { $0.code == code }?.label ?? code
+            let label=comp.name == "BlockMap"
+                ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
+                : MUMapPackStore.shared.displayName(for:code,region:region)
             let value=values[code].map { String(format:"%.4g",$0)+(comp.str("unit") ?? "") } ?? "无数据"
             // A dedicated one-line box (<=3 lines total), never over the plot.
             context.fill(Path(CGRect(x:10,y:footer,width:max(0,m.width-20),height:12)),with:.color(theme.accent.color))
@@ -174,8 +178,9 @@ struct MUMapView: View {
             paragraph("来源："+source,CGRect(x:10,y:footer,width:m.width-20,height:m.sourceHeight),context:context,color:theme.muted,size:10); footer+=m.sourceHeight
         }
         if comp.name == "GeoMap" {
-            paragraph("Natural Earth · Albers · AK/HI 插图 · 非导航地图",CGRect(x:10,y:footer,width:m.width-20,height:m.noteHeight),context:context,color:theme.muted,size:9)
-        } else if comp.str("region") == "cn" {
+            let note=packMeta?.manifest.complianceNote ?? "Natural Earth · Albers · AK/HI 插图 · 非导航地图"
+            paragraph(note,CGRect(x:10,y:footer,width:m.width-20,height:m.noteHeight),context:context,color:theme.muted,size:9)
+        } else if region == "cn" {
             paragraph("中国34省级行政区（含台港澳）· 方块拓扑示意",CGRect(x:10,y:footer,width:m.width-20,height:m.noteHeight),context:context,color:theme.muted,size:9)
         }
     }
@@ -194,33 +199,67 @@ struct MUMapView: View {
 
     private func drawGeo(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
         let rect=CGRect(x:10,y:m.plotY,width:max(1,m.width-20),height:m.plotHeight)
+        let region=comp.str("region") ?? "us"
+        guard let packMeta=MUMapPackStore.shared.metadata(for:region),
+              let packGeom=MUMapPackStore.shared.geometry(for:region) else { return }
         let location=(comp.str("mode") ?? "location") == "location"
         if location { context.fill(Path(rect),with:.color(theme.sea.color)) }
-        for region in MUMapGeometry.us {
-            var path=Path()
-            for ring in region.rings {
-                guard let first=ring.first else { continue }
-                path.move(to:MUMapProjection.view(first,in:rect))
-                for p in ring.dropFirst() { path.addLine(to:MUMapProjection.view(p,in:rect)) }
-                path.closeSubpath()
+
+        let cw=max(1.0,packMeta.manifest.canvas.width), ch=max(1.0,packMeta.manifest.canvas.height)
+        let canvasSize=CGSize(width:cw,height:ch)
+        let viewScale=min(rect.width/cw,rect.height/ch)
+        let tx=rect.midX-(cw/2)*viewScale, ty=rect.midY-(ch/2)*viewScale
+        var xform=CGAffineTransform(translationX:tx,y:ty).scaledBy(x:viewScale,y:viewScale)
+
+        var ctx=context
+        if packMeta.manifest.styleHints.clipToCanvas { ctx.clip(to:Path(rect)) }
+
+        let strokeW=packMeta.manifest.styleHints.featureStrokeWidth
+        let highlightSet=Set(highlight)
+        var highlightedIndices:[Int]=[]
+        for (idx,feat) in packMeta.features.enumerated() where idx < packGeom.featurePaths.count {
+            guard let transformed=packGeom.featurePaths[idx].copy(using:&xform) else { continue }
+            let path=Path(transformed)
+            let fill=values[feat.code].map { colors[bins.index($0)] }
+                ?? (highlightSet.contains(feat.code) ? theme.focus : (values.isEmpty ? theme.land : theme.missing))
+            ctx.fill(path,with:.color(fill.color),style:FillStyle(eoFill:true))
+            if strokeW >= 0.5 {
+                ctx.stroke(path,with:.color(theme.text.color),lineWidth:strokeW)
+                ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:3).color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
+            } else {
+                ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:2.2).color),lineWidth:strokeW)
             }
-            let fill=values[region.code].map { colors[bins.index($0)] }
-                ?? (highlight.contains(region.code) ? theme.focus : (values.isEmpty ? theme.land : theme.missing))
-            context.fill(path,with:.color(fill.color),style:FillStyle(eoFill:true))
-            context.stroke(path,with:.color(theme.text.color),lineWidth:1)
-            context.stroke(path,with:.color(theme.border.readable(on:fill,minimum:3).color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
-            if highlight.contains(region.code) { context.stroke(path,with:.color(theme.accent.color),lineWidth:1.25) }
+            if highlightSet.contains(feat.code) { highlightedIndices.append(idx) }
         }
-        // Separate inset labels make their shifted/scaled placement explicit.
-        for (label,p) in [("AK",CGPoint(x:35,y:620)),("HI",CGPoint(x:300,y:620))] {
-            let a=MUMapProjection.view(p,in:rect)
-            text(label,CGRect(x:a.x,y:a.y-10,width:25,height:12),context:context,color:theme.landText.readable(on:location ? theme.sea : surface),size:8)
+        let ovWidth=packMeta.manifest.styleHints.overlayStrokeWidth
+        for (kind,cgPath) in packGeom.overlayPaths {
+            guard let transformed=cgPath.copy(using:&xform) else { continue }
+            let path=Path(transformed)
+            if kind == 1 {
+                ctx.stroke(path,with:.color(theme.muted.color.opacity(0.65)),lineWidth:0.75)
+            } else if kind == 2 {
+                ctx.stroke(path,with:.color(theme.text.color),lineWidth:max(0.9,ovWidth))
+            } else {
+                ctx.stroke(path,with:.color(theme.text.color.opacity(0.72)),lineWidth:ovWidth)
+            }
+        }
+        for idx in highlightedIndices {
+            if let transformed=packGeom.featurePaths[idx].copy(using:&xform) {
+                ctx.stroke(Path(transformed),with:.color(theme.accent.color),lineWidth:1.25)
+            }
+        }
+
+        for zone in packMeta.manifest.zones {
+            if let lbl=zone.insetLabel {
+                let a=MUMapProjection.view(CGPoint(x:lbl.x,y:lbl.y),canvasSize:canvasSize,in:rect)
+                text(lbl.text,CGRect(x:a.x,y:a.y-10,width:72,height:12),context:context,color:theme.landText.readable(on:location ? theme.sea : surface),size:8)
+            }
         }
         var occupied: [CGRect]=[]
         let labels=comp.strings("pointLabels")
         for (i,p) in comp.matrix("points").enumerated() where p.count == 3 {
-            guard let raw=MUMapProjection.usPoint(lon:p[0],lat:p[1]) else { continue }
-            let a=MUMapProjection.view(raw,in:rect), capital=p[2] == 1
+            guard let raw=MUMapProjection.projectPoint(lon:p[0],lat:p[1],manifest:packMeta.manifest) else { continue }
+            let a=MUMapProjection.view(raw,canvasSize:canvasSize,in:rect), capital=p[2] == 1
             let diameter=capital ? 3.5 : 3.0
             let marker=CGRect(x:a.x-diameter/2,y:a.y-diameter/2,width:diameter,height:diameter)
             let shape=capital ? Path(marker) : Path(ellipseIn:marker)
