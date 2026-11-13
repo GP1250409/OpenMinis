@@ -180,8 +180,10 @@ enum MUMapScale {
 
 struct MUMapBins {
     let edges: [Double] // Interior cut points. [a,b) except final [a,+infinity).
+    private let exactLabels: Bool
     var count: Int { edges.count + 1 }
     init(values: [Double], boundaries: [Double] = [], diverging: Bool = false) {
+        exactLabels = !boundaries.isEmpty
         if !boundaries.isEmpty { edges = boundaries; return }
         let finite = values.filter(\.isFinite)
         var lo = finite.min() ?? 0, hi = finite.max() ?? 1
@@ -193,7 +195,14 @@ struct MUMapBins {
     func index(_ value: Double) -> Int { edges.firstIndex(where: { value < $0 }) ?? edges.count }
     func label(_ index: Int) -> String {
         if edges.isEmpty { return "全部" }
-        func n(_ x: Double) -> String { String(format: "%.3g", x) }
+        func n(_ x: Double) -> String {
+            // Explicit user thresholds must not collapse under %.3g rounding.
+            // Automatic equal-width bins retain their concise approximate ticks.
+            guard exactLabels else { return String(format: "%.3g", x) }
+            if x == 0 { return "0" }
+            let s=String(x)
+            return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
+        }
         if index == 0 { return "<" + n(edges[0]) }
         if index == edges.count { return "≥" + n(edges[index-1]) }
         return n(edges[index-1]) + "–<" + n(edges[index])

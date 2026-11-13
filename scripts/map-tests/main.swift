@@ -40,6 +40,8 @@ check(bins.index(10)==1,"boundary goes right")
 check(bins.index(20)==2,"last boundary goes right")
 check(bins.index(1000)==2,"overflow bin")
 check(bins.label(1)=="10–<20","half-open legend")
+check(MUMapBins(values:[],boundaries:[-30.125,-30.124]).label(1)=="-30.125–<-30.124","explicit close decimal boundaries remain distinct and complete")
+check(MUMapBins(values:[],boundaries:[-1e100,1e100]).label(1).contains("e+100"),"extreme explicit interval preserves exponent")
 for input in [[-3.0,9.0],[0.0],[0.0,0.0],[-100.0,-20.0],[]] {
     let b=MUMapBins(values:input,diverging:true)
     check(b.count==6,"six automatic bins")
