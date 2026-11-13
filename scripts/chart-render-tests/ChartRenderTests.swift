@@ -48,6 +48,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                     let scenarios: [(kind: String, count: Int, framed: Bool)] = (1...6).map { ("line", $0, true) }
                         + [("bar", 1, false), ("line", 1, false), ("bar", 3, true), ("stacked", 6, true)]
                     for scenario in scenarios {
+                      autoreleasepool {
                         let count = scenario.count, kind = scenario.kind
                         let names = (0..<count).map { $0 == 0 ? "中国" : "很长的中文系列名称第\($0)组" }
                         let matrix = (0..<count).map { i -> [Double] in
@@ -129,7 +130,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                                     check(ink.minY > box.minY && ink.maxY < box.maxY, id + " bitmap digit not vertically clipped")
                                 }
                             }
-                            check(maxPixelContrast(image,box:g.plot,surface:surface) >= 3, id + " actual plot bitmap contrast >= 3")
+                            check(maxPixelContrast(image,box:g.plot,surface:surface,minimum:3) >= 3, id + " actual plot bitmap contrast >= 3")
                             let pixels = measure(image, geometry: g)
                             check(pixels.left != nil && pixels.right != nil, id + " real bitmap ink detected")
                             if let left = pixels.left, let right = pixels.right {
@@ -152,6 +153,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             measurements.append("\(id) left=\(pixels.left ?? -1) right=\(pixels.right ?? -1) gap=\(pixels.gap ?? -1) height=\(size.height) estimate=\(estimate) plot=\(g.plot)")
                         } else { check(false, id + " missing production ChartProxy geometry") }
                         host.willMove(toParent: nil); host.view.removeFromSuperview(); host.removeFromParent()
+                      }
                     }
                 }
             }
@@ -164,7 +166,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         fflush(stdout)
         exit(failed == 0 ? 0 : 1)
     }
-    func maxPixelContrast(_ image: UIImage, box: CGRect, surface: MUMapRGB) -> Double {
+    func maxPixelContrast(_ image: UIImage, box: CGRect, surface: MUMapRGB, minimum: Double = 4.5) -> Double {
         let rect=CGRect(x:floor(box.minX*image.scale),y:floor(box.minY*image.scale),width:ceil(box.width*image.scale),height:ceil(box.height*image.scale))
         guard let cg=image.cgImage?.cropping(to:rect) else { return 0 }
         let w=cg.width, h=cg.height
@@ -182,7 +184,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         for i in stride(from:0,to:bytes.count,by:4) {
             let l=0.2126*linear[Int(bytes[i])]+0.7152*linear[Int(bytes[i+1])]+0.0722*linear[Int(bytes[i+2])]
             result=max(result,(max(l,background)+0.05)/(min(l,background)+0.05))
-            if result >= 4.5 { return result }
+            if result >= minimum { return result }
         }
         return result
     }
