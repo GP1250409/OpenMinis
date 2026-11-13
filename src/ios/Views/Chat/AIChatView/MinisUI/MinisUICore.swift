@@ -1923,3 +1923,16 @@ extension MUChartAxis {
         return result
     }
 }
+
+/// A value carried by each theme; all Phase 1 presets deliberately use the
+/// same phone scale. Keeping the values in Foundation also ties them to sizing.
+struct MUChartFontScale: Equatable {
+    let title: CGFloat
+    let subtitle: CGFloat
+    let legend: CGFloat
+    let tick: CGFloat
+    let source: CGFloat
+    static let phone = Self(title: MUChartTypography.title, subtitle: MUChartTypography.subtitle,
+                            legend: MUChartTypography.legend, tick: MUChartTypography.tick,
+                            source: MUChartTypography.source)
+}

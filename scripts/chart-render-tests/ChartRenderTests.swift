@@ -47,6 +47,10 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             .environment(\.colorScheme, dark ? .dark : .light)
                         let id = "\(palette.isEmpty ? "system" : palette)-\(Int(width))-\(kind)-\(count)-\(scenario.framed)-\(dark ? "dark" : "light")"
                         let host = UIHostingController(rootView: view)
+                        // This is a card snapshot, not a screen snapshot. Without
+                        // this UIKit injects the phone's 62pt status safe area into
+                        // sizeThatFits and shifts pixels outside the named space.
+                        if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
                         host.overrideUserInterfaceStyle = dark ? .dark : .light
                         host.view.backgroundColor = dark ? .black : .white
                         let parent = window!.rootViewController!
@@ -113,23 +117,25 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
         let by = min(h - 1, max(0, Int((g.plot.midY) * scale)))
         let bg = (by * w + w - 2) * 4
-        func ink(_ x: Int, _ y: Int) -> Bool {
+        func ink(_ x: Int, _ y: Int, threshold: Int) -> Bool {
             let i = (y * w + x) * 4
-            return (0..<3).map { abs(Int(bytes[i + $0]) - Int(bytes[bg + $0])) }.max()! > 24
+            return (0..<3).map { abs(Int(bytes[i + $0]) - Int(bytes[bg + $0])) }.max()! > threshold
         }
-        func extent(_ rect: CGRect) -> (Int?, Int?) {
+        func extent(_ rect: CGRect, threshold: Int = 24) -> (Int?, Int?) {
             let x0 = max(0, Int(ceil(rect.minX * scale))), x1 = min(w, Int(ceil(rect.maxX * scale)))
             let y0 = max(0, Int(ceil(rect.minY * scale))), y1 = min(h, Int(ceil(rect.maxY * scale)))
             guard x1 > x0, y1 > y0 else { return (nil, nil) }
             var lo: Int?, hi: Int?
             for x in x0..<x1 {
-                for y in y0..<y1 where ink(x, y) {
+                for y in y0..<y1 where ink(x, y, threshold: threshold) {
                     lo = min(lo ?? x, x); hi = max(hi ?? x, x); break
                 }
             }
             return (lo, hi)
         }
-        let plot = extent(g.plot.insetBy(dx: -1, dy: 1))
+        // 0.5pt grid strokes are antialiased over 1–2 pixels; their visible
+        // contrast can be <24 even though dark text easily exceeds that.
+        let plot = extent(g.plot.insetBy(dx: -1, dy: 1), threshold: 8)
         let axisRect = CGRect(x: g.axisColumn.minX - 0.5, y: g.plot.minY - 16,
                               width: g.axisColumn.width + 1, height: g.plot.height + 15)
         let axis = extent(axisRect)

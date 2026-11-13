@@ -96,6 +96,10 @@ need('MUChartTypography.estimatedHeight' in core_text,
      'height estimates share the typography and row contract')
 need('0xFFFFFF, dark: 0x161B1F' in view_text and 'theme.topRule' in view_text,
      '2017 web theme uses white ground plus top rule, with adapted dark ground')
+need('let fonts: MUChartFontScale = .phone' in view_text and 'theme.fonts.subtitle' in view_text,
+     'each complete theme exposes the shared phone typography scale')
+need('if !framed, !unit.isEmpty' in view_text,
+     'single-series units remain visible inside the existing axis headroom')
 need('MUChartRenderGeometryKey' in view_text,
      'actual ChartProxy geometry is exposed to the real rendering fixture')
 need('.chartOverlay { proxy in' in view_text and 'proxy.plotAreaFrame' in view_text,

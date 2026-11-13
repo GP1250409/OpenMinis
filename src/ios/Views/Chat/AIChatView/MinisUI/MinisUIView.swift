@@ -760,6 +760,7 @@ enum MUChartStyle {
 /// Official web colours: 2017 v1.2 p12; dark mode and SF fonts are adaptations.
 enum MUChartLook { case system, recent, guide2017 }
 struct MUChartTheme {
+    let fonts: MUChartFontScale = .phone
     let look: MUChartLook
     let panel: Color
     let grid: Color
@@ -918,7 +919,7 @@ private struct MUMultiChartBody: View {
     private var crossesZero: Bool { domain.lower < 0 && domain.upper > 0 }
     private func axisText(_ value: Double) -> String { MUStyle.numText(value) }
     private func axisWidth(_ value: Double) -> CGFloat {
-        let font = UIFont.monospacedDigitSystemFont(ofSize: MUChartTypography.tick,
+        let font = UIFont.monospacedDigitSystemFont(ofSize: theme.fonts.tick,
                      weight: value == 0 && crossesZero ? .bold : .regular)
         return ceil((axisText(value) as NSString).size(withAttributes: [.font: font]).width)
     }
@@ -931,12 +932,12 @@ private struct MUMultiChartBody: View {
                     Rectangle().fill(theme.tag).frame(width: 28, height: 4)
                 }.frame(height: 6).padding(.horizontal, MUChartColumns.innerInset)
                 if let title {
-                    Text(title).font(.system(size: MUChartTypography.title, weight: .bold))
+                    Text(title).font(.system(size: theme.fonts.title, weight: .bold))
                         .foregroundStyle(theme.title).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, MUChartColumns.innerInset)
                 }
                 if let subtitle {
-                    Text(subtitle).font(.system(size: MUChartTypography.subtitle))
+                    Text(subtitle).font(.system(size: theme.fonts.subtitle))
                         .foregroundStyle(theme.subtitle).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, MUChartColumns.innerInset)
                 }
@@ -944,9 +945,14 @@ private struct MUMultiChartBody: View {
             if series.count > 1 && !showEndLabels { legend }
             GeometryReader { geo in
                 chart(width: geo.size.width)
+                if !framed, !unit.isEmpty {
+                    Text(unit).font(.system(size: theme.fonts.subtitle)).foregroundStyle(theme.subtitle)
+                        .lineLimit(1).frame(width: max(0, geo.size.width - 70), alignment: .leading)
+                        .padding(.leading, MUChartColumns.innerInset)
+                }
             }.frame(height: chartHeight + MUChartTypography.xAxisHeight + MUChartTypography.plotTop)
             if framed, let source {
-                Text(source).font(.system(size: MUChartTypography.source)).foregroundStyle(theme.source)
+                Text(source).font(.system(size: theme.fonts.source)).foregroundStyle(theme.source)
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, MUChartColumns.innerInset)
             }
         }
@@ -963,7 +969,7 @@ private struct MUMultiChartBody: View {
                     Rectangle().fill(color(s))
                         .frame(width: theme.legendStyle(for: kind) == .shortLine ? 14 : 8,
                                height: theme.legendStyle(for: kind) == .shortLine ? 2 : 8)
-                    Text(series[s]).font(.system(size: MUChartTypography.legend)).foregroundStyle(theme.subtitle).lineLimit(1)
+                    Text(series[s]).font(.system(size: theme.fonts.legend)).foregroundStyle(theme.subtitle).lineLimit(1)
                 }.frame(height: 16, alignment: .leading)
             }
         }.padding(.horizontal, MUChartColumns.innerInset)
@@ -992,7 +998,12 @@ private struct MUMultiChartBody: View {
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i])).foregroundStyle(color(s))
                     default:
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
-                            .foregroundStyle(barColor(series: s, index: i)).position(by: .value("s", name))
+                            .foregroundStyle(barColor(series: s, index: i))
+                            .cornerRadius(look == .system ? 4 : 0).position(by: .value("s", name))
+                    }
+                    if kind == "line", rows == 1, look == .system, !hl.contains(labels[i]) {
+                        PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
+                            .foregroundStyle(color(s))
                     }
                     if kind == "line", rows == 1, hl.contains(labels[i]) {
                         PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
@@ -1040,7 +1051,7 @@ private struct MUMultiChartBody: View {
                     let y = frame.minY + (proxy.position(forY: value)
                         ?? MUChartAxis.pixelY(value, domain: domain, height: frame.height))
                     Text(axisText(value))
-                        .font(.system(size: MUChartTypography.tick, weight: value == 0 && crossesZero ? .bold : .regular))
+                        .font(.system(size: theme.fonts.tick, weight: value == 0 && crossesZero ? .bold : .regular))
                         .monospacedDigit().foregroundStyle(theme.axis)
                         .frame(width: columns.axisWidth, height: 14, alignment: .trailing)
                         .position(x: axisX + columns.axisWidth / 2, y: y - 1.5 - 7)
@@ -1066,7 +1077,7 @@ private struct MUMultiChartBody: View {
                             path.move(to: CGPoint(x: x, y: frame.maxY))
                             path.addLine(to: CGPoint(x: x, y: frame.maxY + 5))
                         }.stroke(theme.axis, lineWidth: 0.5)
-                        Text(text).font(.system(size: MUChartTypography.tick)).monospacedDigit()
+                        Text(text).font(.system(size: theme.fonts.tick)).monospacedDigit()
                             .foregroundStyle(theme.axis).lineLimit(1)
                             .frame(width: min(44, frame.width / 3), height: 14)
                             .position(x: min(max(x, frame.minX + 22), frame.maxX - 22), y: frame.maxY + 14)
