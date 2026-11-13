@@ -1127,38 +1127,38 @@ private struct MUMultiChartBody: View {
     private func endLabels(in proxy: ChartProxy, gutter: MUChartLabelMetrics.Gutter,
                            width: CGFloat) -> some View {
         GeometryReader { geo in
-            // `plotAreaFrame` is an Anchor<CGRect>: resolve it in THIS
-            // geometry (the overlay fills the chart), so the rect is real.
-            if let anchor = proxy.plotAreaFrame {
-                let frame = geo[anchor]
-                let size = gutter.fontSize
-                let box = gutter.labelWidth
-                // Real y of every series' last value, in plot points.
-                let baseY: [CGFloat] = (0..<rows).map { s in
-                    proxy.position(forY: lastValues[s])
-                        ?? MUChartAxis.pixelY(lastValues[s], domain: domain, height: frame.height)
-                }
-                let placements = MUChartEndLabels.layout(values: lastValues, domain: domain,
-                                                         plotHeight: frame.height,
-                                                         minGap: size + 3, edgeInset: size * 0.75,
-                                                         baseY: baseY)
-                let lastX = cols > 0 ? (proxy.position(forX: labels[cols - 1]) ?? frame.maxX) : frame.maxX
-                // The label column: right edge pinned inside the plot, never
-                // before the last mark (which the gutter already made room for).
-                let gap: CGFloat = 8
-                let left = max(lastX + 3, frame.maxX - gap - box)
-                ForEach(placements, id: \.index) { p in
-                    if p.index < gutter.labels.count {
-                        Text(gutter.labels[p.index])
-                            .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
-                            .foregroundStyle(color(p.index))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(width: box, alignment: .leading)
-                            .position(x: left + box / 2,
-                                      y: min(max(frame.minY + p.centerY, frame.minY + size / 2),
-                                             frame.maxY - size / 2))
-                    }
+            // `plotAreaFrame` is a NON-OPTIONAL `Anchor<CGRect>` in Swift Charts
+            // (`var plotAreaFrame: Anchor<CGRect> { get }`, iOS 16+): there is
+            // nothing to unwrap, only an anchor to resolve in THIS geometry
+            // (the overlay fills the chart), so the rect is real.
+            let frame = geo[proxy.plotAreaFrame]
+            let size = gutter.fontSize
+            let box = gutter.labelWidth
+            // Real y of every series' last value, in plot points.
+            let baseY: [CGFloat] = (0..<rows).map { s in
+                proxy.position(forY: lastValues[s])
+                    ?? MUChartAxis.pixelY(lastValues[s], domain: domain, height: frame.height)
+            }
+            let placements = MUChartEndLabels.layout(values: lastValues, domain: domain,
+                                                     plotHeight: frame.height,
+                                                     minGap: size + 3, edgeInset: size * 0.75,
+                                                     baseY: baseY)
+            let lastX = cols > 0 ? (proxy.position(forX: labels[cols - 1]) ?? frame.maxX) : frame.maxX
+            // The label column: right edge pinned inside the plot, never
+            // before the last mark (which the gutter already made room for).
+            let gap: CGFloat = 8
+            let left = max(lastX + 3, frame.maxX - gap - box)
+            ForEach(placements, id: \.index) { p in
+                if p.index < gutter.labels.count {
+                    Text(gutter.labels[p.index])
+                        .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
+                        .foregroundStyle(color(p.index))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(width: box, alignment: .leading)
+                        .position(x: left + box / 2,
+                                  y: min(max(frame.minY + p.centerY, frame.minY + size / 2),
+                                         frame.maxY - size / 2))
                 }
             }
         }
