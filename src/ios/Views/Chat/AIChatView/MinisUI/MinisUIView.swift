@@ -174,7 +174,7 @@ struct MinisUICardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
-        .environment(\.muSurface, MUSurface.rgb(ChatColors.background, over: MUSurface.base(nil, scheme: surfaceScheme), scheme: surfaceScheme))
+        .modifier(MURootSurface())
     }
 
     /// Parsed once per program text (shared cache).
@@ -387,7 +387,7 @@ struct MUNodeView: View {
         case "Text":
             Text(MUStyle.inline(comp.str("text") ?? ""))
                 .font(.system(size: 14))
-                .foregroundStyle(MUStyle.tone(comp.str("tone")))
+                .modifier(MUReadableText(color: MUStyle.tone(comp.str("tone"))))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         case "Metric": MUMetric(comp: comp)
@@ -430,8 +430,7 @@ private struct MUCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let t = comp.str("title") {
-                Text(t).font(.system(size: 16, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
+                MUCardTitle(title: t)
             }
             ForEach(Array(comp.children.enumerated()), id: \.offset) { _, c in MUNodeView(comp: c, ctx: ctx) }
         }

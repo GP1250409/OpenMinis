@@ -8,7 +8,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 UI=ROOT/'src/ios/Views/Chat/AIChatView/MinisUI'
 p=argparse.ArgumentParser(); p.add_argument('--swiftc',default=shutil.which('swiftc')); p.add_argument('--source-only',action='store_true'); p.add_argument('--render-simulator',action='store_true'); args=p.parse_args()
 core=(UI/'MinisUIMapCore.swift').read_text(); view=(UI/'MinisUIMapView.swift').read_text()
-checks=[('Foundation-only', 'import SwiftUI' not in core and 'import UIKit' not in core),
+checks=[('Foundation plus conditional native font metrics', 'import SwiftUI' not in core and '#if canImport(UIKit)' in core),
         ('one height formula','MUMapMetrics(comp,width:width).height' in view and 'MUMapMetrics(c, width: Double(w)).height' in (UI/'MinisUICore.swift').read_text()),
         ('native dispatch','case "BlockMap", "GeoMap": MUMapView(comp: comp)' in (UI/'MinisUIView.swift').read_text()),
         ('theme storage only', '@AppStorage(MUChartStyle.key)' in view and not re.search(r'MUChartStyle\.(?!key)',view)),

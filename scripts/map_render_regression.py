@@ -13,13 +13,13 @@ production_key=re.search(r'enum MUChartStyle\s*\{\s*static let key = "([^"]+)"',
 assert 'static let key = "'+production_key+'"' in fixture.read_text(), 'fixture theme key drift'
 sdk=run(['xcrun','--sdk','iphonesimulator','--show-sdk-path']).strip()
 arch=run(['uname','-m']).strip()
-sources=[UI/n for n in ['MinisUICore.swift','MinisUIMapCore.swift','MinisUIMapData.swift','MinisUIMapView.swift']]+[fixture]
-cmd=['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-sdk',sdk,'-target',f'{arch}-apple-ios17.0-simulator','-parse-as-library',*map(str,sources),'-o',str(APP/'MapRender')]
+sources=[UI/n for n in ['MinisUICore.swift','MinisUIMapCore.swift','MinisUIMapData.swift','MinisUIMapView.swift']]+[UI.parent/'Support/ChatColors.swift',fixture]
+cmd=['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-sdk',sdk,'-target',f'{arch}-apple-ios16.0-simulator','-parse-as-library',*map(str,sources),'-o',str(APP/'MapRender')]
 (OUT/'compile-command.txt').write_text(' '.join(cmd))
 r=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
 (OUT/'compile.log').write_text(r.stdout)
 if r.returncode: print(r.stdout); raise SystemExit('MAP_RENDER_COMPILE_FAILED')
-info={'CFBundleIdentifier':'com.gonepaul.map.render','CFBundleExecutable':'MapRender','CFBundleName':'MapRender','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'17.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
+info={'CFBundleIdentifier':'com.gonepaul.map.render','CFBundleExecutable':'MapRender','CFBundleName':'MapRender','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'16.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
 (APP/'Info.plist').write_bytes(plistlib.dumps(info))
 run(['codesign','--force','--sign','-',str(APP)])
 devices=json.loads(run(['xcrun','simctl','list','devices','available','-j']))['devices']
@@ -39,6 +39,8 @@ rendered=container/'tmp/map-render'
 assert rendered.is_dir(),'Fixture did not produce native renders'
 for p in rendered.iterdir(): shutil.copy2(p,OUT/p.name)
 print('MAP_RENDER_JOURNAL', (OUT/'progress.log').read_text() if (OUT/'progress.log').exists() else 'APP_NOT_STARTED')
-marker=(OUT/'result.log').read_text(); assert 'MAP_RENDER_PASS checks=1728 png=96' in marker
-assert len(list(OUT.glob('*.png')))==96
+marker=(OUT/'result.log').read_text(); assert re.search(r'MAP_RENDER_PASS checks=(\d+) png=(\d+)',marker)
+assert int(re.search(r'checks=(\d+)',marker)[1]) >= 1728
+assert 'MAP_DYNAMIC_PASS' in marker
+assert len(list(OUT.glob('*.png'))) >= 192
 print(marker)

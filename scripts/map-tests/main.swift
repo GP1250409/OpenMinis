@@ -102,4 +102,22 @@ let next=MUMapLabels.place(anchor:CGPoint(x:40,y:40),size:CGSize(width:30,height
 check(!box.intersects(next),"labels avoid overlap")
 let leader=MUMapLabels.leader(anchor:CGPoint(x:40,y:40),label:box)
 check(zip(leader,leader.dropFirst()).allSatisfy { $0.x == $1.x || $0.y == $1.y },"orthogonal leaders only")
+for width in [120.0,240,320,390] {
+    for edges in [[-30.0,-20,-10,0,10,20,30],[-30.125,-20.125,-10.125,-0.125,0,0.125,10.125,20.125,30.125]] {
+        let raw="root = BlockMap(\"us\", [\"TX\"], [-12.1], \"diverging\", \"参议院：34州定盘，民主党赢下21席\", \"蓝＝民主党胜，红＝共和党胜，色深＝领先幅度；2026年完整说明文字按宽度自动换行而不截断\", \"Wikipedia / AP，截至2026-11-13，长来源说明\", \"百分点\", [\"TX\"], ["+edges.map(String.init(describing:)).joined(separator:",")+"])"
+        let v=MinisUIEngine.validate(raw)
+        check(v.ok,"8/10 interval long-text fixture valid")
+        guard let c=v.root else { fatalError("fixture missing") }
+        let m=MUMapMetrics(c,width:width), bins=MUMapBins(values:c.numbers("values"),boundaries:edges,diverging:true)
+        check(m.legendFrames.count==bins.count,"every interval has its own box")
+        for (i,r) in m.legendFrames.enumerated() {
+            check(r.maxX<=width-10+0.1 && r.minX>=10,"interval within horizontal bounds")
+            check(r.maxY<m.missingY && r.minY>=m.legendY,"interval before missing row")
+            check(Double(MUMapTypography.measure(bins.label(i),width:r.width-8,size:11).height)<=r.height-12,"full interval glyph height reserved")
+        }
+        check(m.subtitleHeight>20 && m.sourceHeight>10,"long explanation wraps without ellipsis")
+        check(m.plotY>=m.unitY+m.unitHeight,"unit does not cover map")
+        check(MinisUIEngine.estimatedHeight(c,width:width)==m.height,"long-text estimated height equals native layout contract")
+    }
+}
 print("MAP_REGRESSION_PASS checks=\(checks)")

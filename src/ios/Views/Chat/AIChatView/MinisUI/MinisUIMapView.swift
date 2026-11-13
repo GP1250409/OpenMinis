@@ -21,7 +21,10 @@ enum MUSurface {
     }
     static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
-        let resolved = UIColor(color).resolvedColor(with: traits)
+        // Bridge INSIDE the requested traits: on iOS 16 UIColor(Color) may
+        // eagerly flatten a dynamic SwiftUI colour using UITraitCollection.current.
+        var resolved = UIColor.clear
+        traits.performAsCurrent { resolved = UIColor(color).resolvedColor(with: traits) }
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
         func byte(_ x: CGFloat) -> Int { Int((min(1, max(0, x)) * 255).rounded()) }
@@ -30,6 +33,29 @@ enum MUSurface {
     }
     static func foreground(_ color: Color, on surface: MUMapRGB, scheme: ColorScheme, minimum: Double = 4.5) -> Color {
         rgb(color, over: surface, scheme: scheme).readable(on: surface, minimum: minimum).color
+    }
+}
+// The same root path is used by chat cards and the native regression fixture.
+struct MURootSurface: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        let surface = MUSurface.rgb(ChatColors.background, over: MUSurface.base(nil, scheme: scheme), scheme: scheme)
+        content.environment(\.muSurface, surface).foregroundStyle(surface.ink.color)
+    }
+}
+struct MUCardTitle: View {
+    let title: String
+    var body: some View {
+        Text(title).font(.system(size:16,weight:.semibold))
+            .fixedSize(horizontal:false,vertical:true)
+    }
+}
+struct MUReadableText: ViewModifier {
+    let color: Color
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        content.foregroundStyle(MUSurface.foreground(color,on:MUSurface.base(inherited,scheme:scheme),scheme:scheme))
     }
 }
 // Shared by MUCard and the bitmap fixtures: no extra geometry or layout pass.
@@ -89,8 +115,17 @@ struct MUMapView: View {
             s=String(s.dropLast(s.hasSuffix("…") ? 2 : 1))+"…"
             resolved=context.resolve(Text(s).font(font).foregroundColor(color.color))
         }
+        resolved.shading = .color(color.color) // Do not inherit Card foregroundStyle.
         let measured=resolved.measure(in:constraint)
         context.draw(resolved,at:CGPoint(x:centered ? rect.midX : rect.minX,y:rect.midY-min(rect.height,measured.height)/2),anchor:centered ? .top : .topLeading)
+    }
+
+    // Explanatory text and interval labels are NEVER truncated. Unlike tile
+    // codes, their measured multiline boxes participate in MUMapMetrics.
+    private func paragraph(_ string: String, _ rect: CGRect, context: GraphicsContext, color: MUMapRGB, size: Double, bold: Bool = false) {
+        var resolved=context.resolve(Text(string).font(.system(size:size,weight:bold ? .semibold : .regular)).foregroundColor(color.color))
+        resolved.shading = .color(color.color)
+        context.draw(resolved,in:rect)
     }
 
     private func draw(_ context: GraphicsContext, _ m: MUMapMetrics) {
@@ -104,27 +139,26 @@ struct MUMapView: View {
         context.fill(Path(CGRect(x:10,y:8,width:18,height:4)),with:.color(theme.accent.color))
         var y=16.0
         if let title=comp.str("title") {
-            text(title,CGRect(x:10,y:y,width:m.width-20,height:22),context:context,color:theme.text,size:16,bold:true); y+=26
+            paragraph(title,CGRect(x:10,y:y,width:m.width-20,height:m.titleHeight),context:context,color:theme.text,size:16,bold:true); y+=m.titleHeight+4
         }
         if let subtitle=comp.str("subtitle") {
-            text(subtitle,CGRect(x:10,y:y,width:m.width-20,height:20),context:context,color:theme.muted,size:12); y+=24
+            paragraph(subtitle,CGRect(x:10,y:y,width:m.width-20,height:m.subtitleHeight),context:context,color:theme.muted,size:12)
         }
-        if !values.isEmpty {
-            let w=max(0,(m.width-20)/Double(bins.count))
-            for i in 0..<bins.count {
-                let x=10+Double(i)*w
-                let swatch=Path(CGRect(x:x,y:y,width:max(0,w-1),height:9))
-                context.fill(swatch,with:.color(colors[i].color))
-                context.stroke(swatch,with:.color(theme.text.color),lineWidth:0.5)
-                text(bins.label(i),CGRect(x:x,y:y+10,width:max(0,w-1),height:14),context:context,color:theme.text,size:8,centered:true)
-            }
-            let missing=Path(CGRect(x:10,y:y+29,width:9,height:9))
+        for (i,frame) in m.legendFrames.enumerated() {
+            let swatch=Path(CGRect(x:frame.minX,y:frame.minY,width:frame.width,height:9))
+            context.fill(swatch,with:.color(colors[i].color))
+            context.stroke(swatch,with:.color(theme.text.color),lineWidth:0.5)
+            paragraph(bins.label(i),CGRect(x:frame.minX+4,y:frame.minY+12,width:frame.width-8,height:frame.height-12),context:context,color:theme.text,size:11)
+        }
+        if !m.legendFrames.isEmpty {
+            let missing=Path(CGRect(x:10,y:m.missingY+2,width:9,height:9))
             context.fill(missing,with:.color(theme.missing.color))
             context.stroke(missing,with:.color(theme.text.color),lineWidth:0.5)
-            text("无数据",CGRect(x:23,y:y+26,width:80,height:15),context:context,color:theme.muted,size:9)
-            y+=44
+            paragraph("无数据",CGRect(x:23,y:m.missingY,width:80,height:18),context:context,color:theme.muted,size:10)
         }
-        if let unit=comp.str("unit") { text(unit,CGRect(x:10,y:y,width:m.width-20,height:16),context:context,color:theme.muted,size:10) }
+        if let unit=comp.str("unit") {
+            paragraph(unit,CGRect(x:10,y:m.unitY,width:m.width-20,height:m.unitHeight),context:context,color:theme.muted,size:10)
+        }
         if comp.name == "BlockMap" { drawBlocks(context,m,theme,values,highlight,bins,colors) }
         else { drawGeo(context,m,theme,values,highlight,bins,colors) }
         var footer=m.footerY
@@ -137,12 +171,12 @@ struct MUMapView: View {
             footer+=14
         }
         if let source=comp.str("source") {
-            text("来源："+source,CGRect(x:10,y:footer,width:m.width-20,height:20),context:context,color:theme.muted,size:10); footer+=20
+            paragraph("来源："+source,CGRect(x:10,y:footer,width:m.width-20,height:m.sourceHeight),context:context,color:theme.muted,size:10); footer+=m.sourceHeight
         }
         if comp.name == "GeoMap" {
-            text("Natural Earth · Albers · AK/HI 插图 · 非导航地图",CGRect(x:10,y:footer,width:m.width-20,height:18),context:context,color:theme.muted,size:8)
+            paragraph("Natural Earth · Albers · AK/HI 插图 · 非导航地图",CGRect(x:10,y:footer,width:m.width-20,height:m.noteHeight),context:context,color:theme.muted,size:9)
         } else if comp.str("region") == "cn" {
-            text("中国34省级行政区（含台港澳）· 方块拓扑示意",CGRect(x:10,y:footer,width:m.width-20,height:18),context:context,color:theme.muted,size:9)
+            paragraph("中国34省级行政区（含台港澳）· 方块拓扑示意",CGRect(x:10,y:footer,width:m.width-20,height:m.noteHeight),context:context,color:theme.muted,size:9)
         }
     }
 

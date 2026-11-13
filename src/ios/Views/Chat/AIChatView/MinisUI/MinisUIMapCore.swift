@@ -1,5 +1,8 @@
 // Offline maps for Minis UI Lang. Pure Foundation; shared by iOS and Linux tests.
 import Foundation
+#if canImport(UIKit)
+import UIKit // Native glyph metrics; Linux uses a conservative source-test fallback.
+#endif
 #if canImport(CoreGraphics)
 import CoreGraphics // Apple geometry conveniences; no UI/rendering dependency.
 #endif
@@ -197,6 +200,25 @@ struct MUMapBins {
     }
 }
 
+// The native estimator and Canvas share EXACT font metrics and geometry.
+// Foundation fallback is only for non-rendering Linux contract tests.
+enum MUMapTypography {
+    static func measure(_ text: String, width: Double, size: Double, bold: Bool = false) -> CGSize {
+        let w = max(1, width)
+        #if canImport(UIKit)
+        let font = UIFont.systemFont(ofSize: size, weight: bold ? .semibold : .regular)
+        let box = (text as NSString).boundingRect(with: CGSize(width:w,height:1000000),
+            options:[.usesLineFragmentOrigin,.usesFontLeading], attributes:[.font:font], context:nil)
+        return CGSize(width:ceil(min(w,box.width)),height:ceil(max(font.lineHeight,box.height))+2)
+        #else
+        let glyphs = text.reduce(0.0) { $0 + ($1.isASCII ? size*0.65 : size) }
+        return CGSize(width:min(w,glyphs),height:ceil(max(1,ceil(glyphs/w))*size*1.3)+2)
+        #endif
+    }
+    static func naturalWidth(_ text: String, size: Double) -> Double {
+        Double(measure(text,width:1000000,size:size).width)
+    }
+}
 struct MUMapMetrics {
     let width: Double
     let columns: Int
@@ -204,30 +226,60 @@ struct MUMapMetrics {
     let cell: Double
     let gap = 2.0
     let inset = 10.0
+    let titleHeight, subtitleHeight, unitHeight, sourceHeight, noteHeight: Double
+    let legendY: Double
+    let legendFrames: [CGRect]
+    let missingY: Double
+    let unitY: Double
     let plotY: Double
     let plotHeight: Double
     let footerY: Double
     let height: Double
     init(_ c: MUComp, width: Double) {
-        self.width = max(1, width)
-        let tiles = MUMapRegion.tiles(c.str("region") ?? "us")
-        columns = (tiles.map(\.column).max() ?? 0) + 1
-        rows = (tiles.map(\.row).max() ?? 0) + 1
-        cell = max(0, (max(1,width) - 20 - Double(columns-1)*2) / Double(columns))
-        var top = 16.0
-        if c.str("title") != nil { top += 26 }
-        if c.str("subtitle") != nil { top += 24 }
-        // Legend has fixed 44pt; units use their own 16pt row. Never overlay.
-        if !c.numbers("values").isEmpty { top += 44 }
-        if c.str("unit") != nil { top += 16 }
-        plotY = top
-        plotHeight = c.name == "GeoMap" ? max(1, (max(1,width)-20)*0.64) : Double(rows)*cell + Double(rows-1)*2
-        footerY = top + plotHeight + 8
-        let highlights = min(3, c.strings("highlight").count)
-        height = ceil(footerY + Double(highlights)*14 + (c.str("source") == nil ? 0 : 20) + (c.name == "GeoMap" ? 18 : (c.str("region") == "cn" ? 18 : 0)) + 10)
+        self.width = max(1,width)
+        let usable = max(1,width-20)
+        func h(_ text: String?, _ size: Double, _ bold: Bool = false) -> Double {
+            text.map { Double(MUMapTypography.measure($0,width:usable,size:size,bold:bold).height) } ?? 0
+        }
+        titleHeight=h(c.str("title"),16,true)
+        subtitleHeight=h(c.str("subtitle"),12)
+        unitHeight=h(c.str("unit"),10)
+        sourceHeight=h(c.str("source").map { "来源："+$0 },10)
+        noteHeight=h(c.name == "GeoMap" ? "Natural Earth · Albers · AK/HI 插图 · 非导航地图" : (c.str("region") == "cn" ? "中国34省级行政区（含台港澳）· 方块拓扑示意" : nil),9)
+        let tiles=MUMapRegion.tiles(c.str("region") ?? "us")
+        columns=(tiles.map(\.column).max() ?? 0)+1
+        rows=(tiles.map(\.row).max() ?? 0)+1
+        cell=max(0,(max(1,width)-20-Double(columns-1)*2)/Double(columns))
+        var top=16.0
+        if titleHeight > 0 { top += titleHeight+4 }
+        if subtitleHeight > 0 { top += subtitleHeight+4 }
+        legendY=top
+        var frames:[CGRect]=[]
+        if !c.numbers("values").isEmpty {
+            let bins=MUMapBins(values:c.numbers("values"),boundaries:c.numbers("bins"),diverging:(c.str("scale") ?? "").hasPrefix("diverging"))
+            var x=10.0, y=top, rowHeight=0.0
+            for i in 0..<bins.count {
+                let w=min(usable,max(44,MUMapTypography.naturalWidth(bins.label(i),size:11)+12))
+                let labelHeight=Double(MUMapTypography.measure(bins.label(i),width:max(1,w-8),size:11).height)
+                let itemHeight=12+labelHeight
+                if x > 10 && x+w > self.width-10 { x=10; y += rowHeight+6; rowHeight=0 }
+                frames.append(CGRect(x:x,y:y,width:w,height:itemHeight))
+                x += w+6; rowHeight=max(rowHeight,itemHeight)
+            }
+            top=y+rowHeight+6
+            missingY=top
+            top += 20
+        } else { missingY=top }
+        legendFrames=frames
+        unitY=top
+        if unitHeight > 0 { top += unitHeight+4 }
+        plotY=top
+        plotHeight=c.name == "GeoMap" ? max(1,usable*0.64) : Double(rows)*cell+Double(rows-1)*2
+        footerY=top+plotHeight+8
+        height=ceil(footerY+Double(min(3,c.strings("highlight").count))*14+sourceHeight+noteHeight+10)
     }
     func rect(_ tile: MUMapTile) -> CGRect {
-        CGRect(x: inset+Double(tile.column)*(cell+gap), y: plotY+Double(tile.row)*(cell+gap), width:cell,height:cell)
+        CGRect(x:inset+Double(tile.column)*(cell+gap),y:plotY+Double(tile.row)*(cell+gap),width:cell,height:cell)
     }
 }
 

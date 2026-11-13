@@ -119,7 +119,7 @@ need('.modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.pr
      'Card preserves original fill, rounded border, and nested alpha via shared modifier')
 need('.background(framed ? theme.panel' not in view_text and 'on: surface, scheme: scheme)' in view_text,
      'chart interior is transparent and foregrounds consume the composited surface')
-need('MUSurface.rgb(ChatColors.background' in view_text,
+need('.modifier(MURootSurface())' in view_text and 'MUSurface.rgb(ChatColors.background' in (view.parent / 'MinisUIMapView.swift').read_text(),
      'standalone output inherits the actual chat theme background')
 need('.chartYScale(domain: domain.lower...domain.upper, range: .plotDimension(startPadding: 0, endPadding: 0))' in view_text,
      'the y domain is explicit, so a value\'s pixel position is exact')

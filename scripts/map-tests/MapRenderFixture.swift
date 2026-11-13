@@ -119,7 +119,85 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
         }
               }
             }
-        let marker="MAP_RENDER_PASS checks=\(checks) png=96\n"
+        // Faithful minimal REAL root/Card path: production ChatColors (no
+        // palette stub), MURootSurface, MUCardSurface, Canvas, UIKit traits.
+        // Contrast cases intentionally disagree with the device appearance.
+        let longSubtitle="蓝＝民主党胜，红＝共和党胜，色深＝领先幅度；2026年美国参议院选举，各州按两党得票领先百分点着色，未投票州保留无数据轮廓。"
+        var dynamicChecks=0, dynamicPNGs=0
+        for themeID in ["", "chatgpt", "claude", "deepseek"] {
+          ChatThemeStore.select(themeID)
+          for dark in [true,false,true] { // switch appearance and reload
+            let scheme:ColorScheme=dark ? .dark : .light
+            let traits=UITraitCollection(userInterfaceStyle:dark ? .dark : .light)
+            let parent=MUSurface.rgb(ChatColors.background,over:MUMapRGB(hex:"#FFFFFF"),scheme:scheme)
+            let expected=ChatThemeStore.current?.background.uiColor ?? UIColor.systemBackground
+            var rr:CGFloat=0,gg:CGFloat=0,bb:CGFloat=0,aa:CGFloat=0
+            expected.resolvedColor(with:traits).getRed(&rr,green:&gg,blue:&bb,alpha:&aa)
+            let actual=parent.rgb
+            guard abs(actual.0-Double(rr))<0.01, abs(actual.1-Double(gg))<0.01, abs(actual.2-Double(bb))<0.01 else { fatalError("dynamic root resolves wrong traits") }
+            dynamicChecks+=3
+            for width in [240.0,320.0] {
+              for cardCase in 0..<4 {
+                let program="root = BlockMap(\"us\", [\"TX\",\"NC\",\"OH\"], [-12.1,-19.6,-4.8], \"diverging\", \"参议院：34州定盘，民主党赢下21席\", \""+longSubtitle+"\", \"Wikipedia / AP，截至2026-11-13，完整长来源说明不会被裁切\", \"百分点\", [\"TX\",\"NC\",\"OH\"], [-30,-20,-10,0,10,20,30])"
+                let testedProgram=width == 240 ? program.replacingOccurrences(of:"[-30,-20,-10,0,10,20,30]",with:"[-30.125,-20.125,-10.125,-0.125,0,0.125,10.125,20.125,30.125]") : program
+                let v=MinisUIEngine.validate(testedProgram)
+                guard v.ok,let comp=v.root else { fatalError(MinisUIEngine.feedback(v)) }
+                let m=MUMapMetrics(comp,width:width)
+                let fill:Color=cardCase == 1 ? ChatColors.secondaryBg : (cardCase == 2 ? Color.white : Color.black.opacity(0.4))
+                var surface=cardCase == 0 ? parent : MUSurface.rgb(fill,over:parent,scheme:scheme)
+                if cardCase == 3 { surface=MUSurface.rgb(Color.primary.opacity(0.04),over:surface,scheme:scheme) }
+                let content=Group {
+                  if cardCase == 0 { MUMapView(comp:comp) }
+                  else if cardCase == 3 { MUMapView(comp:comp).modifier(MUCardSurface(fill:Color.primary.opacity(0.04))).modifier(MUCardSurface(fill:fill)) }
+                  else { MUMapView(comp:comp).modifier(MUCardSurface(fill:fill)) }
+                }.modifier(MURootSurface()).environment(\.colorScheme,scheme).background(ChatColors.background)
+                // Each label's complete native glyph measurement must fit;
+                // no ellipsis, font shrinking or silent range simplification.
+                let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:true)
+                for (i,box) in m.legendFrames.enumerated() {
+                    let measured=MUMapTypography.measure(bins.label(i),width:box.width-8,size:11)
+                    guard measured.height<=box.height-12, box.maxX<=width-10+0.1, box.maxY<m.missingY else { fatalError("legend clipped") }
+                    dynamicChecks+=3
+                }
+                guard m.subtitleHeight > 30, m.sourceHeight > 20, m.plotY >= m.unitY+m.unitHeight else { fatalError("long explanation not fully allocated") }
+                dynamicChecks+=3
+                let headings=VStack(alignment:.leading,spacing:4) {
+                    MUCardTitle(title:"参议院：34州定盘")
+                    Text("根节点文本").modifier(MUReadableText(color:.primary))
+                }
+                let headingContent=Group {
+                    if cardCase == 0 { headings }
+                    else if cardCase == 3 { headings.modifier(MUCardSurface(fill:Color.primary.opacity(0.04))).modifier(MUCardSurface(fill:fill)) }
+                    else { headings.modifier(MUCardSurface(fill:fill)) }
+                }.modifier(MURootSurface()).environment(\.colorScheme,scheme).background(ChatColors.background)
+                let headingRenderer=ImageRenderer(content:headingContent.frame(width:width,height:60)); headingRenderer.scale=2
+                guard let headingImage=headingRenderer.uiImage,
+                    maxPixelContrast(headingImage,box:CGRect(x:0,y:0,width:width,height:30),surface:surface)>=4.5,
+                    maxPixelContrast(headingImage,box:CGRect(x:0,y:30,width:width,height:30),surface:surface)>=4.5 else { fatalError("actual Card title/root Text contrast") }
+                dynamicChecks+=2
+                let host=UIHostingController(rootView:content)
+                host.overrideUserInterfaceStyle=dark ? .dark : .light
+                if #available(iOS 16.4,*) { host.safeAreaRegions=[] }
+                let measured=host.sizeThatFits(in:CGSize(width:width,height:10000))
+                guard abs(measured.height-m.height)<0.6 else { fatalError("dynamic height mismatch") }
+                let renderer=ImageRenderer(content:content.frame(width:width,height:m.height)); renderer.scale=2
+                guard let image=renderer.uiImage else { fatalError("dynamic image missing") }
+                let subtitleY=16+m.titleHeight+4
+                for box in [CGRect(x:10,y:16,width:width-20,height:m.titleHeight),CGRect(x:10,y:subtitleY,width:width-20,height:m.subtitleHeight),CGRect(x:10,y:m.footerY+42,width:width-20,height:m.sourceHeight)] {
+                    guard maxPixelContrast(image,box:box,surface:surface)>=4.5 else { fatalError("dynamic explanation contrast") }
+                    dynamicChecks+=1
+                }
+                for box in m.legendFrames {
+                    guard maxPixelContrast(image,box:CGRect(x:box.minX+4,y:box.minY+12,width:box.width-8,height:box.height-12),surface:surface)>=4.5 else { fatalError("dynamic interval contrast") }
+                    dynamicChecks+=1
+                }
+                try! image.pngData()!.write(to:out.appendingPathComponent("dynamic-\(dynamicPNGs)-\(themeID)-\(dark)-\(cardCase)-\(Int(width)).png"))
+                dynamicPNGs+=1; dynamicChecks+=1
+              }
+            }
+          }
+        }
+        let marker="MAP_RENDER_PASS checks=\(checks+dynamicChecks) png=\(96+dynamicPNGs)\nMAP_DYNAMIC_PASS checks=\(dynamicChecks) png=\(dynamicPNGs)\n"
         try! marker.write(to:out.appendingPathComponent("result.log"),atomically:true,encoding:.utf8)
         print(marker); fflush(stdout); exit(0)
     }
