@@ -411,6 +411,7 @@ struct MUNodeView: View {
         case "Choice": MUChoice(comp: comp, ctx: ctx)
         case "Table": MUTable(comp: comp)
         case "BarChart", "LineChart": MUChart(comp: comp)
+        case "BlockMap", "GeoMap": MUMapView(comp: comp)
         case "MultiChart": MUMultiChart(comp: comp)
         case "Button": MUButton(comp: comp, ctx: ctx)
         default: EmptyView()

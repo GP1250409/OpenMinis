@@ -59,6 +59,33 @@ Test-only dependencies: JUnit 4.13.2 (**EPL-1.0**), MockWebServer 4.12.0 (**Apac
 | [models.dev](https://github.com/sst/models.dev) catalogue snapshot | iOS bundle / Android `assets/models-dev-api.json` (offline copy of `https://models.dev/api.json`, refreshed at run time) | **MIT** |
 | [tiktoken](https://github.com/openai/tiktoken) `cl100k_base` BPE ranks | iOS `src/ios/Shared/cl100k_base.tiktoken`; the tokenizer in `BPETokenizer.swift` is ported from tiktoken | **MIT** |
 
+## Offline show_ui map data (MOD Phase 2)
+
+- **Natural Earth**: `MinisUIMapData.swift` contains simplified, spherical-Albers-projected
+  US state geometry (50 states + District of Columbia; Alaska and Hawaii in separate
+  insets) derived from **Natural Earth 1:50m admin-1 states/provinces**.
+- License: **Public Domain**. First-party terms:
+  https://www.naturalearthdata.com/about/terms-of-use/
+  (all versions of raster/vector data may be modified and used for personal,
+  educational and commercial purposes; permission/attribution not required).
+- Pinned upstream data:
+  https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_1_states_provinces.geojson
+- Input SHA256: `69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9`.
+  Reproduce using `python3 scripts/generate_map_data.py` (stdlib only).
+  Generated geometry is about 45 KB / 3,707 vertices, entirely offline in the app.
+- The China BlockMap topology is original project code, not copied boundary data.
+  It includes all 34 Chinese province-level divisions, including Taiwan, Hong Kong
+  and Macao; it is an abstract equal-size grid and NOT a geographic boundary map,
+  standard map, territorial/border assertion or navigational product. No China or
+  world boundary dataset is shipped in this phase; standard-map compliance,
+  boundary completeness and South China Sea inset requirements must be reviewed
+  before a future China GeoMap is enabled.
+- Economist maps styleguide (5 May 2017, pp.3–6, 8–9,12): layout/colour references
+  only, documented in `docs/minismod/CHARTS.md`; original PDF/artwork/fonts are NOT
+  bundled or redistributed. Named screen palettes are sampled from the retained
+  PDF, not a claim of official published hex values. The two ten-stop diverging
+  palettes and China topology are explicitly project adaptations.
+
 ## Removed / historical
 
 - **swift-markdown-ui** (MIT) — formerly vendored under `deps/swift-markdown-ui`; no longer referenced by the Xcode project or imported by any source file, and is not part of the open-source tree.

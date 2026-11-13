@@ -94,6 +94,8 @@ enum MinisUIPrompt {
             ("BarChart", "Bar chart, one series. highlight = label texts of the bars to bring out; how they look depends on the user's chart-colour setting (system: orange bars on blue, Economist recent: red on grey, Economist 2017: cyan on blue), so do not promise a colour in your text. Use it for the one thing the reader should notice, e.g. the latest or the largest value."),
             ("LineChart", "Line chart, one series. highlight = label texts of the points to bring out: the line turns context grey and the marked points and their values are drawn in the accent colour. Leave it out for a plain line."),
             ("MultiChart", "Chart with 1–6 series, a legend, subtitle and source line. kind \"line\" (trends), \"bar\" (side-by-side bars) or \"stacked\" (parts of a whole). series = one name per row of values; values = number[][] with one row per series, each row as long as labels. title = short headline that states the point, subtitle = what is measured incl. unit and period, source = where the numbers really come from. highlight = series names and/or label texts: a highlighted series gets a fixed accent colour in data order (2017 style blue → dark cyan → gold, recent style red → dark red → blue, system blue → teal → indigo) and the other series turn grey, so highlight at most 1–2 series; a highlighted label recolours that bar (one-series) or marks that point. In a line chart every series is also named at its last point, and those names are pushed apart so they never overlap. No second y-axis, no dashed/forecast styling, no pie/donut, no custom colours, no image export. Prefer this over BarChart/LineChart when comparing series, and stay at 4 series or fewer if you can."),
+            ("BlockMap", "Offline equal-size tile map. region us = 50 states + DC, cn = China's 34 province-level divisions including Taiwan, Hong Kong and Macao. codes/values are parallel arrays; omit missing regions instead of inventing zeroes. US codes are postal abbreviations; CN accepts Chinese abbreviations/names, BJ/TJ/HE/SX/NM/LN/JL/HL/SH/JS/ZJ/AH/FJ/JX/SD/HA/HB/HN/GD/GX/HI/CQ/SC/GZ/YN/XZ/SN/GS/QH/NX/XJ/TW/HK/MO or GB numeric codes. This is topology, not geographic boundaries. bins = 1–9 increasing INTERIOR cut points, [a,b); absent = six equal-width bins. diverging scales default to a zero-symmetric domain; explicit diverging bins must also be symmetric and include zero. highlight = at most 3 region codes, shown in separate non-overlapping caption boxes. title/subtitle/source are single-line, keep short; full text survives copy/export."),
+            ("GeoMap", "Offline preprojected US state choropleth/focus/location map only (region us); NOT world or China boundaries. Spherical Albers for contiguous USA plus independently projected AK/HI insets, not navigation. Same codes/values/scale/bins/highlight as BlockMap. For focus/location use codes=[], values=[], highlight=[postal codes]. mode location = sea and land, cutout = plain ground and red top rule in Economist themes. points = up to 30 [longitude, latitude, capital:0|1] rows in US coverage; pointLabels = matching city names. City labels may be omitted if crowded (full text remains in copy/export). No live maps, roads, routes, rivers or custom/disputed borders. Boundary source is Natural Earth public domain; source still describes YOUR numeric data, not the boundary dataset."),
             ("Button", "Runs an action when tapped."),
         ]
         let comps = docs.map { "- \(sig($0.0)) — \($0.1)" }.joined(separator: "\n")
@@ -130,6 +132,19 @@ enum MinisUIPrompt {
         - Forecast/estimate points: there is no dashed-line or shaded-forecast
           style, so put it in the series name ("中国（预测）") or in `subtitle`;
           do not claim styling the chart cannot draw.
+
+        Maps
+        - Prefer BlockMap for regional numeric comparisons; use GeoMap only when the
+          US geographic position/outline helps. Never claim BlockMap preserves area,
+          distance or borders. Do not invent data or sources; missing = omit the code.
+          Label estimates/illustrations as 估算/示意数据 in subtitle/source, give the
+          real numeric source and period. Neither component downloads data.
+        - Map palettes follow the user's three chart themes. Optional scale is blue,
+          red, green, yellow, purple, stone, yellowBlue, greenPurple, diverging
+          (blue to red) or divergingStoneGreen. Do not promise custom colours.
+        - One variable: use 1–3 highlight codes and their direct caption boxes;
+          the segmented colour key still explains quantitative bins, not categories.
+          Put long annotations in a separate Text, not into the map title/source.
 
         The `program` argument uses Minis UI Lang (a subset of OpenUI Lang):
 
