@@ -6,9 +6,15 @@ import UIKit
 // Python verifies the value against MinisUIView.swift before building.
 enum MUChartStyle { static let key = "genuiChartPalette" }
 
-@main struct MapRenderFixture: App {
-    var body: some Scene {
-        WindowGroup { Color.white.onAppear { DispatchQueue.main.async { renderMaps() } } }
+@main final class MapRenderFixture: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey:Any]? = nil) -> Bool {
+        let window=UIWindow(frame:UIScreen.main.bounds)
+        window.rootViewController=UIViewController()
+        window.makeKeyAndVisible()
+        self.window=window
+        DispatchQueue.main.async { self.renderMaps() }
+        return true
     }
     @MainActor private func renderMaps() {
         let programs:[(String,String)] = [

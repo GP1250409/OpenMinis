@@ -1,5 +1,8 @@
 // Offline maps for Minis UI Lang. Pure Foundation; shared by iOS and Linux tests.
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics // Apple geometry conveniences; no UI/rendering dependency.
+#endif
 
 struct MUMapTile {
     let code: String
