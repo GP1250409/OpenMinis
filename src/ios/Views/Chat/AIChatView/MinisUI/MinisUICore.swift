@@ -235,6 +235,8 @@ enum MinisUILibrary {
                        MUArg("values", .matrix, true), MUArg("title", .string, false),
                        MUArg("subtitle", .string, false), MUArg("source", .string, false),
                        MUArg("unit", .string, false), MUArg("highlight", .strings, false)],
+        "BlockMap": MUMapCore.blockArgs,
+        "GeoMap": MUMapCore.geoArgs,
         "Button": [MUArg("label", .string, true), MUArg("action", .action, true),
                    MUArg("style", .oneOf(["primary", "secondary"]), false)],
     ]
@@ -1132,6 +1134,8 @@ enum MinisUIEngine {
         }
         for (c, _) in nodes {
             switch c.name {
+            case "BlockMap", "GeoMap":
+                errs += MUMapCore.checks(c)
             case "Row":
                 if c.children.count > MinisUILibrary.maxRowChildren {
                     warns.append(MUError(code: "layout", line: c.line, msg: "Row has \(c.children.count) children; max 3 on a phone"))
@@ -1386,6 +1390,8 @@ enum MinisUIEngine {
             case "Table":
                 out.append(c.strings("headers").joined(separator: " | "))
                 out += c.rows("rows").map { $0.joined(separator: " | ") }
+            case "BlockMap", "GeoMap":
+                out.append(MUMapCore.fallback(c))
             case "BarChart", "LineChart":
                 let unit = c.str("unit") ?? ""
                 for (a, b) in zip(c.strings("labels"), c.numbers("values")) {
@@ -1446,6 +1452,7 @@ enum MinisUIEngine {
                 let opts = c.strings("options")
                 return opts.map { 20 * textLines($0, w - 52, 13) + 22 }.reduce(0, +) + CGFloat(max(0, opts.count - 1)) * 8
             case "Table": return CGFloat(c.rows("rows").count + 1) * 30
+            case "BlockMap", "GeoMap": return CGFloat(MUMapMetrics(c, width: Double(w)).height)
             case "BarChart", "LineChart":
                 return MUChartTypography.estimatedHeight(title: nil, subtitle: nil, source: nil,
                     seriesCount: 0, kind: c.name == "LineChart" ? "line" : "bar", width: w, framed: false)
@@ -1479,7 +1486,7 @@ enum MinisUIEngine {
 enum MUCardPlane {
     /// The chart leaves. One of them must be present, and nothing else that is
     /// not in `plainKinds` below may be.
-    static let chartKinds: Set<String> = ["BarChart", "LineChart", "MultiChart"]
+    static let chartKinds: Set<String> = ["BarChart", "LineChart", "MultiChart", "BlockMap", "GeoMap"]
     /// Text and separators: a chart's title, subtitle, explanation, source note.
     static let plainKinds: Set<String> = ["Title", "Text", "Badge", "Divider"]
     /// Containers that only lay their children out. Traversed, never a verdict.
