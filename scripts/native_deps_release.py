@@ -41,7 +41,10 @@ SENTINELS = [
     "deps/lame-build/lib/libmp3lame.a",
 ]
 
-HASH_INPUT_DIRS = [
+KEY_PATHSPECS = [
+    ".gitmodules",
+    "deps/*.sh",
+    "deps/aot/README.md",
     "deps/ffmpeg-patch",
     "deps/rclone-mobile",
     "deps/talloc",
@@ -49,51 +52,20 @@ HASH_INPUT_DIRS = [
     "deps/ish",
 ]
 
-SKIP_DIR_NAMES = {".git", "build", "build-ios", ".meson-build"}
-
-
-def iter_input_files() -> list[pathlib.Path]:
-    files: list[pathlib.Path] = []
-    gm = ROOT / ".gitmodules"
-    if gm.exists():
-        files.append(gm)
-    for p in sorted((ROOT / "deps").glob("*.sh")):
-        if p.is_file() or p.is_symlink():
-            files.append(p)
-    aot_readme = ROOT / "deps/aot/README.md"
-    if aot_readme.exists():
-        files.append(aot_readme)
-    for rel_dir in HASH_INPUT_DIRS:
-        base = ROOT / rel_dir
-        if not base.exists():
-            continue
-        for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
-            dirnames[:] = sorted(
-                d for d in dirnames
-                if d not in SKIP_DIR_NAMES and not d.startswith("build-")
-            )
-            for fname in sorted(filenames):
-                files.append(pathlib.Path(dirpath) / fname)
-    return sorted(set(files), key=lambda p: p.relative_to(ROOT).as_posix())
-
 
 def compute_deps_key() -> str:
+    """Compute a deterministic hash from tracked git index entries only.
+
+    Using `git ls-files -s` ensures the key is identical before and after
+    in-tree builds (e.g. lame's ./configure && make) and ignores submodule
+    .git pointer files.
+    """
+    out = subprocess.check_output(
+        ["git", "-C", str(ROOT), "ls-files", "-s", "--", *KEY_PATHSPECS],
+    )
     h = hashlib.sha256()
     h.update(f"{FORMAT_VERSION}\0{AOT_TAG}\0".encode())
-    files = iter_input_files()
-    for p in files:
-        rel = p.relative_to(ROOT).as_posix()
-        h.update(rel.encode())
-        h.update(b"\0")
-        if p.is_symlink():
-            h.update(b"L")
-            h.update(os.readlink(p).encode())
-        else:
-            h.update(b"F")
-            with p.open("rb") as f:
-                while chunk := f.read(1 << 20):
-                    h.update(chunk)
-        h.update(b"\0")
+    h.update(out)
     return h.hexdigest()[:16]
 
 
@@ -199,6 +171,8 @@ def curl_upload(upload_url: str, token: str, src: pathlib.Path) -> None:
             "Content-Type: application/octet-stream",
             "--data-binary",
             f"@{src}",
+            "-o",
+            "/dev/null",
             upload_url,
         ],
         check=True,
@@ -314,7 +288,6 @@ def cmd_publish() -> int:
             payload["target_commitish"] = sha
         c_status, c_rel = api_request(f"{api_base}/releases", token, method="POST", payload=payload)
         if c_status == 422:
-            # Another concurrent job likely just created it.
             status, rel = api_request(f"{api_base}/releases/tags/{tag}", token)
         elif c_status in (200, 201) and isinstance(c_rel, dict):
             status, rel = 200, c_rel
