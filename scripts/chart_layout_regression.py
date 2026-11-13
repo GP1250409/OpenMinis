@@ -117,7 +117,7 @@ need('MUCardPlane.isChartOnly(comp)' not in view_text and 'flat ? Color.clear' n
      'legacy chart classifier cannot make the outer Card transparent')
 need('.modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))' in view_text,
      'Card preserves original fill, rounded border, and nested alpha via shared modifier')
-need('.background(framed ? theme.panel' not in view_text and '.adapted(to: surface, scheme: scheme)' in view_text,
+need('.background(framed ? theme.panel' not in view_text and 'on: surface, scheme: scheme)' in view_text,
      'chart interior is transparent and foregrounds consume the composited surface')
 need('MUSurface.rgb(ChatColors.background' in view_text,
      'standalone output inherits the actual chat theme background')

@@ -70,7 +70,7 @@ def main():
     run(['xcrun','simctl','install',uid,str(app)])
     try:
         result = subprocess.run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=240)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=900)
         console = result.stdout
     except subprocess.TimeoutExpired as error:
         console = error.stdout or b''

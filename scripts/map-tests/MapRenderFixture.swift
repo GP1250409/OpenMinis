@@ -47,6 +47,10 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
         ]
         let out=URL(fileURLWithPath:NSTemporaryDirectory()).appendingPathComponent("map-render")
         try! FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
+        func journal(_ phase: String) {
+            try! phase.write(to:out.appendingPathComponent("progress.log"),atomically:true,encoding:.utf8)
+        }
+        journal("started")
         var checks=0
         for style in ["","economist","economist2017"] {
             let defaults=UserDefaults(suiteName:"map-fixture-"+style)!
@@ -54,6 +58,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
             for dark in [false,true] {
               for surfaceCase in 0..<4 {
                for (name,program) in programs {
+                journal("case \(style) \(name) dark=\(dark) surface=\(surfaceCase) before validate")
                 let validation=MinisUIEngine.validate(program)
                 guard validation.ok,let comp=validation.root else { fatalError(MinisUIEngine.feedback(validation)) }
                 let width=390.0,height=MUMapMetrics(comp,width:width).height
@@ -86,12 +91,14 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                           ramp.allSatisfy({ $0.ink.contrast(on:$0) >= 4.5 }) else { fatalError("ramp collapsed or label contrast") }
                     checks+=1
                 }
+                journal("case \(style) \(name) dark=\(dark) surface=\(surfaceCase) before host")
                 let host=UIHostingController(rootView:content)
                 let measured=host.sizeThatFits(in:CGSize(width:width,height:10000))
                 guard abs(measured.height-height)<0.6 else { fatalError("height mismatch \(name): \(measured.height) != \(height)") }
                 checks+=1
                 if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
                 host.overrideUserInterfaceStyle=dark ? .dark : .light
+                journal("case \(style) \(name) dark=\(dark) surface=\(surfaceCase) before image")
                 let renderer=ImageRenderer(content:content.frame(width:width,height:height))
                 renderer.scale=2
                 guard let image=renderer.uiImage,let png=image.pngData() else { fatalError("render failed") }
@@ -105,6 +112,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                 guard maxPixelContrast(image,box:CGRect(x:10,y:16,width:width-20,height:22),surface:surface) >= 4.5 else { fatalError("map title bitmap contrast") }
                 guard maxPixelContrast(image,box:CGRect(x:10,y:8,width:width-20,height:4),surface:surface) >= 3 else { fatalError("map top rule bitmap contrast") }
                 checks+=2
+                journal("case \(style) \(name) dark=\(dark) surface=\(surfaceCase) completed")
                 try! png.write(to:out.appendingPathComponent("surface\(surfaceCase)-\(dark ? "dark" : "light")-\(style.isEmpty ? "system" : style)-\(name).png"))
                 checks+=1
             }

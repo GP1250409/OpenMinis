@@ -815,6 +815,21 @@ struct MUChartTheme {
 }
 
 extension MUChartTheme {
+    private static let surfaceLock = NSLock()
+    private static var surfaceThemes: [String: Self] = [:]
+    static func resolved(for style: String, on surface: MUMapRGB, scheme: ColorScheme) -> Self {
+        // Every mark requests its colour. Resolve a preset once per actual
+        // surface/trait instead of repeating colour conversion for each mark.
+        let key = style + ":" + surface.hex + (scheme == .dark ? ":dark" : ":light")
+        surfaceLock.lock()
+        defer { surfaceLock.unlock() }
+        if let cached = surfaceThemes[key] { return cached }
+        let theme = current(for: style).adapted(to: surface, scheme: scheme)
+        if surfaceThemes.count >= 128 { surfaceThemes.removeAll(keepingCapacity: true) }
+        surfaceThemes[key] = theme
+        return theme
+    }
+
     func adapted(to surface: MUMapRGB, scheme: ColorScheme) -> Self {
         func text(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme) }
         func graphic(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme, minimum: 3) }
@@ -887,8 +902,8 @@ private struct MUMultiChartBody: View {
     @Environment(\.colorScheme) private var scheme
     private var surface: MUMapRGB { MUSurface.base(inherited, scheme: scheme) }
     private var theme: MUChartTheme {
-        MUChartTheme.current(for: look == .guide2017 ? MUChartStyle.economist2017
-                                  : (look == .recent ? MUChartStyle.economist : "")).adapted(to: surface, scheme: scheme)
+        MUChartTheme.resolved(for: look == .guide2017 ? MUChartStyle.economist2017
+                                   : (look == .recent ? MUChartStyle.economist : ""), on: surface, scheme: scheme)
     }
     private var rows: Int { matrix.count }
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }

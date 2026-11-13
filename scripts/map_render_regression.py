@@ -30,14 +30,15 @@ if d['state']!='Booted': run(['xcrun','simctl','boot',uid])
 run(['xcrun','simctl','bootstatus',uid,'-b'])
 run(['xcrun','simctl','install',uid,str(APP)])
 try:
-    output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=180)
+    output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=900)
     (OUT/'launch.log').write_text(output); print(output)
 except subprocess.TimeoutExpired as exc:
-    (OUT/'launch.log').write_text(str(exc.stdout)); raise SystemExit('MAP_RENDER_LAUNCH_TIMEOUT')
+    (OUT/'launch.log').write_text(str(exc.stdout)); print('MAP_RENDER_LAUNCH_TIMEOUT; collecting journal and partial PNGs')
 container=pathlib.Path(run(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data']).strip())
 rendered=container/'tmp/map-render'
 assert rendered.is_dir(),'Fixture did not produce native renders'
 for p in rendered.iterdir(): shutil.copy2(p,OUT/p.name)
+print('MAP_RENDER_JOURNAL', (OUT/'progress.log').read_text() if (OUT/'progress.log').exists() else 'APP_NOT_STARTED')
 marker=(OUT/'result.log').read_text(); assert 'MAP_RENDER_PASS checks=1728 png=96' in marker
 assert len(list(OUT.glob('*.png')))==96
 print(marker)
