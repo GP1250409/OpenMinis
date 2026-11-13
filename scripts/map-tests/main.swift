@@ -82,7 +82,7 @@ for name in ["BlockMap","GeoMap"] {
     let program="root = Card([\(name)(\"us\", [\"CA\", \"NY\"], [1, 2], \"blue\", \"示意数据\", null, \"示意，非官方\")])"
     let result=MinisUIEngine.validate(program)
     check(result.ok,"\(name) Lang parses and validates")
-    check(result.root.map { MUCardPlane.isChartOnly($0) } ?? false,"\(name) flat card")
+    check(result.root.map { MUCardPlane.retainsOuterSurface($0) } ?? false,"\(name) retains outer Card")
     check(MinisUIEngine.fallbackText(result.root).contains("来源：示意，非官方"),"\(name) source export")
 }
 check(!MinisUIEngine.validate("root = BlockMap(\"us\", [\"ZZ\"], [1])").ok,"Lang rejects unknown code")

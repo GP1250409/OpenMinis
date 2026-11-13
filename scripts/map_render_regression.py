@@ -38,6 +38,6 @@ container=pathlib.Path(run(['xcrun','simctl','get_app_container',uid,info['CFBun
 rendered=container/'tmp/map-render'
 assert rendered.is_dir(),'Fixture did not produce native renders'
 for p in rendered.iterdir(): shutil.copy2(p,OUT/p.name)
-marker=(OUT/'result.log').read_text(); assert 'MAP_RENDER_PASS checks=24 png=12' in marker
-assert len(list(OUT.glob('*.png')))==12
+marker=(OUT/'result.log').read_text(); assert 'MAP_RENDER_PASS checks=1728 png=96' in marker
+assert len(list(OUT.glob('*.png')))==96
 print(marker)

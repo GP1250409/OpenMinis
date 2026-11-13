@@ -103,21 +103,14 @@ CMYK(0,75,35,45)，屏幕近似约 `#942A44`。**该色值仍待用户决定，�
 - 地图配色已在 Phase 2 单独实现（见 §10）；世界/中国轮廓、河流与争议边界尚未实现
 ## 8. 变更说明（mod-chart-fold-polish-20261113，基于 8ec8992）
 
-### 8.1 [T-chart-card-flat] 图表卡不再套第二层底
+### 8.1 [T-card-surface] 保留统一外卡，内部图表/地图透明
 
-真机截图（build 8ec8992）里，图表外面是 `MUCard` 的浅灰底 + 0.6pt 描边，
-里面又是 `MUMultiChartBody` 自己的蓝灰/米底，看起来像"盒子里再套一个盒子"。
-
-- 判定是一个**纯函数分类**（`MUCardPlane.isChartOnly`，在 `MinisUICore.swift`，
-  Linux 可编译、有测试）：只有顶层 `Card` 的**整棵子树**都是图表输出时才平面化。
-  允许的叶子：`Title` / `Text` / `Badge` / `Divider`；容器：`Card` / `Stack` / `Row`；
-  必须至少有一个 `BarChart` / `LineChart` / `MultiChart`。
-- 任何交互或数值组件（`Slider` / `Stepper` / `Segmented` / `Toggle` / `Choice` /
-  `Button`）、`Table`、`Metric`、`Callout`、以及**未知组件**都保持原样——
-  计算器卡、选择题卡、表单卡仍有原来的底色与描边，不做全局去卡片。
-- 平面化只去掉底色和描边：`padding(14)` 保留，`MinisUIEngine.estimatedHeight`
-  的高度模型不变（高度事务、真实测高都不受影响）。
-- 图表自己的 `panelFill`（system 4% / Economist 2017 米色 / recent 浅灰）**保留**。
+- `MUCard` 对所有内容保留原 `ChatColors.secondaryBg` / 嵌套 `primary.opacity(0.04)`、14pt圆角、0.6pt描边及14pt padding。废除 chart-only 外卡透明特例。
+- 折线、柱、多系列图和 BlockMap/GeoMap 不铺外围面板；无Card的图表直接透聊天底。GeoMap location 的必要海域和区域数据色仍保留，cutout 透实际底。
+- 根节点解析实际 `ChatColors.background`；Card 解析动态色到当前trait，并将半透明填色与父背景逐层合成，通过 `muSurface` 环境共享**不透明RGB承载面**。不能仅按明暗trait假定白/黑底。
+- 共享纯Foundation相对亮度/对比策略：已达标颜色保持原值；不足时沿原色向更合适的中性色最小混合。文字4.5:1、关键图形3:1。曲线/柱保持系列/强调/灰化角色；终点文字单独按文字门槛修正。网格、零线、轴、legend、source也参与。
+- 地图连续色阶原值和顺序保留，不逐档拉成同色；低阶/缺失块/图例补细轮廓，州界对区域自身取对比色；标签按填色选黑白，城市符号保留双色描边。局部点标签辅助底不是外围面板。
+- 不改布局、几何、padding、估高、思考高度事务或浏览防跳。纯RGB回归增加360项，原287项保留；UIKit图表720张，地图96张覆盖四类实际背景×light/dark trait，包括与trait相反的浅/深Card以及嵌套半透明Card。检查透明采样、真实文本/图形像素对比以及原轴中心、间距和高度门槛。
 
 ### 8.2 [T-chart-label-physical] 线末标签与右轴数值的间距改成物理保证
 
@@ -223,7 +216,7 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 - `bins:number[]` 是**内部切点**，最多9个，严格升序；区间 `[a,b)`，等于切点进入右箱；首尾箱开放。未指定默认6等宽箱；常数/空数据也生成有效分箱。发散默认域以0对称；显式发散切点必须奇数个、含0且零对称。
 - `highlight:string[]` 最多3个区域，框内直接标注区域/数值，不另加类别图例。定量的分段色阶键仍保留，说明数值分箱（不是类别图例）。高亮框使用绘图区外的专用行，采用官方单行12pt框高、7pt水平内边距，步距14pt；至多3个单行框。多行12/23/34pt整框的排版暂不提供，长注释放外部Text。
 - title/subtitle/source 固定单行，超长按原生实测截断，完整内容保留在复制、搜索、导出与无障碍文本。建议详细注释放外部 `Text`，不要依赖动态图内换行。
-- `GeoMap.mode`: `location`（默认，海/陆/白州界）或 `cutout`（无海、白地、主题强调色顶线；2017为红）。有值即 choropleth；无值可传 `[], []`，用 highlight 做 focus。
+- `GeoMap.mode`: `location`（默认，海/陆/白州界）或 `cutout`（无海、透明地、主题强调色顶线；2017为红）。有值即 choropleth；无值可传 `[], []`，用 highlight 做 focus。
 - `points:number[][]`: `[经度,纬度,是否首都0或1]`，最多30点；`pointLabels:string[]` 可省略，否则长度一致。用相同 Albers 参数映射到本土或 AK/HI 插图。城市3pt圆/首都3.5pt方，0.5pt白描边；不含道路/河流/争议边界/导航。
 
 可直接交给模型的程序（都是**示意数据**，不冒充官方统计）：
@@ -244,7 +237,7 @@ map = GeoMap("us", ["CA", "NY", "TX", "AK", "HI"], [10, 20, 30, 12, 18], "green"
 
 | 元素 | 系统（自行适配） | 近年（取样/适配） | 2017（地图PDF取样） |
 |---|---|---|---|
-| 面板 | `#FFFFFF` | `#F1EFEA` | `#FFFFFF` |
+| 外围面板 | 透明（透实际Card/chat） | 透明 | 透明 |
 | 海 | `#EAF3FC` | `#E4EDF0` | `#EBF8FE` |
 | 陆 | `#DCE5D8` | `#D5D8CB` | `#D6D9C9` |
 | 陆地文字 | `#53654F` | `#6D705F` | `#7A7D69` |
@@ -257,7 +250,7 @@ map = GeoMap("us", ["CA", "NY", "TX", "AK", "HI"], [10, 20, 30, 12, 18], "green"
 | 顶线/高亮描边 | `#007AFF` | `#E62923` | `#E3120B` |
 | focus | `#B9D3EB` | `#C8CBB8` | `#E2E4D8` |
 
-2017档完整顺序色阶是 p5 的 RED/BLUE/PURPLE/YELLOW/GREEN/STONE/YELLOW-BLUE/GREEN-PURPLE 六级屏幕取色，见 `MUMapScale.official`。系统与近年单色阶由各自端点与面板插值，三档多色/发散阶保留这套可比的地图色序。文字按 WCAG 相对亮度选择黑/白，所有色阶检查至少4.5:1对比；地图固定浅色印刷底（近年米色），不另猜一套暗色地图。
+2017档完整顺序色阶是 p5 的 RED/BLUE/PURPLE/YELLOW/GREEN/STONE/YELLOW-BLUE/GREEN-PURPLE 六级屏幕取色，见 `MUMapScale.official`。系统与近年单色阶由各自端点与面板插值，三档多色/发散阶保留这套可比的地图色序。文字按 WCAG 相对亮度选择黑/白，所有色阶检查至少4.5:1对比；外围面板透明；文字/边界按实际承载背景适配，必要海域/土地和数据填色保留。
 
 ### 9.3 布局、高度、离线数据与标签
 
@@ -276,4 +269,4 @@ python3 scripts/map_regression.py --render-simulator  # macOS，真实编译Swif
 ```
 
 Linux编译生产 `MinisUICore.swift + MinisUIMapCore.swift + MinisUIMapData.swift`，运行 `map-tests/main.swift`；不是仅字符串审计。`--source-only` 明确不会输出 `MAP_REGRESSION_PASS`。现有图表测试增加两个纯逻辑源文件依赖，不改图表断言。
-CI的“Map regression tests”还编译生产 `MinisUIMapView.swift`，启动独立模拟器fixture，检查原生 `sizeThatFits` 等于共享估高，生成系统/近年/2017 × US/CN/Geo/location-cutout 共12张原生PNG；`map-regression.log`、编译/启动日志及PNG均归档到 `mod-validation-logs`。仅在真实运行后才报告 PASS；Linux `-frontend -parse` 不等于SwiftUI编译。
+CI的“Map regression tests”还编译生产 `MinisUIMapView.swift`，启动独立模拟器fixture，检查原生 `sizeThatFits` 等于共享估高，生成系统/近年/2017 × US/CN/Geo/location-cutout × 4类承载背景 × 2种trait，共96张原生PNG；`map-regression.log`、编译/启动日志及PNG均归档到 `mod-validation-logs`。仅在真实运行后才报告 PASS；Linux `-frontend -parse` 不等于SwiftUI编译。

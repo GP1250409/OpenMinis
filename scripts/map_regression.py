@@ -31,6 +31,6 @@ if r.returncode: print(r.stdout+r.stderr); raise SystemExit('MAP_COMPILE_FAILED'
 r=subprocess.run([str(binary)],capture_output=True,text=True); print(r.stdout,flush=True)
 (out/'run.log').write_text(r.stdout+r.stderr)
 match=re.search(r'MAP_REGRESSION_PASS checks=(\d+)',r.stdout)
-if r.returncode or not match or int(match[1])<200: raise SystemExit('MAP_RUN_FAILED')
+if r.returncode or not match or int(match[1])<290: raise SystemExit('MAP_RUN_FAILED')
 if args.render_simulator:
     subprocess.run([sys.executable,str(ROOT/'scripts/map_render_regression.py')],check=True)

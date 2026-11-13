@@ -1467,50 +1467,9 @@ enum MinisUIEngine {
         return ceil(h(c, max(120, width), false))
     }
 }
-// MARK: - Card plane: chart-only cards draw flat [T-chart-card-flat]
-//
-// A top-level `Card` is drawn on the chat bubble as a filled, stroked panel
-// (`ChatColors.secondaryBg` + a hairline border). That panel is right for a
-// card the assistant hands over as an object — a calculator, a set of choices,
-// a slider form — but a chart already brings its own surface (the blue-grey /
-// beige Economist panel). Stacking the two made the device screenshot show a
-// grey card around a grey panel, with the chart's own ground floating inside
-// the card's ground.
-//
-// The decision is a pure classification of the component TREE, not of the
-// `show_ui` call: the card is flat only when the whole subtree is chart output
-// — a title, a chart, a legend/source line, dividers — and nothing else. A
-// slider, a choice, a button, a table, a metric or ANY unknown component keeps
-// the card exactly as it was: a card that does something must still read as a
-// card the user can act on.
+// MARK: - Card surface policy (independent of chart-only classification)
 enum MUCardPlane {
-    /// The chart leaves. One of them must be present, and nothing else that is
-    /// not in `plainKinds` below may be.
-    static let chartKinds: Set<String> = ["BarChart", "LineChart", "MultiChart", "BlockMap", "GeoMap"]
-    /// Text and separators: a chart's title, subtitle, explanation, source note.
-    static let plainKinds: Set<String> = ["Title", "Text", "Badge", "Divider"]
-    /// Containers that only lay their children out. Traversed, never a verdict.
-    static let wrapperKinds: Set<String> = ["Card", "Stack", "Row"]
-
-    /// Whether `card` may be drawn without the outer panel: a Card whose whole
-    /// subtree is chart output. Anything interactive, numeric or unknown — and
-    /// a subtree with no chart at all — answers false, so the default card
-    /// (choice lists, calculators, forms) is never touched.
-    static func isChartOnly(_ card: MUComp) -> Bool {
-        guard card.name == "Card" else { return false }
-        var charts = 0
-        func walk(_ c: MUComp) -> Bool {
-            if chartKinds.contains(c.name) {
-                charts += 1
-                return c.children.isEmpty
-            }
-            if plainKinds.contains(c.name) { return c.children.isEmpty }
-            if wrapperKinds.contains(c.name) { return c.children.allSatisfy(walk) }
-            return false  // Slider/Choice/Button/Table/Metric/Callout/unknown
-        }
-        guard walk(card) else { return false }
-        return charts > 0
-    }
+    static func retainsOuterSurface(_ card: MUComp) -> Bool { card.name == "Card" }
 }
 
 // MARK: - Chart layout & emphasis (pure Foundation; no SwiftUI)

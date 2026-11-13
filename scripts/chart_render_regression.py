@@ -56,7 +56,7 @@ def main():
     arch = platform.machine()
     cmd = ['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-parse-as-library','-sdk',sdk,
            '-target',arch+'-apple-ios16.0-simulator',str(core),
-           str(core.with_name('MinisUIMapCore.swift')),str(core.with_name('MinisUIMapData.swift')),str(generated),'-o',str(app/'ChartRender')]
+           str(core.with_name('MinisUIMapCore.swift')),str(core.with_name('MinisUIMapData.swift')),str(core.with_name('MinisUIMapView.swift')),str(generated),'-o',str(app/'ChartRender')]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     (out/'compile.log').write_text(result.stdout)
     print(result.stdout, flush=True)
@@ -81,7 +81,7 @@ def main():
     documents = pathlib.Path(container)/'Documents'
     if documents.exists(): shutil.copytree(documents, out/'png', dirs_exist_ok=True)
     if 'CHART_RENDER_PASS checks=' not in console: raise SystemExit('real chart bitmap regression did not pass')
-    assert len(list((out/'png').glob('*.png'))) >= 180, 'missing chart render PNGs'
-    print('CHART_RENDER_ARTIFACT_OK png=180', flush=True)
+    assert len(list((out/'png').glob('*.png'))) >= 720, 'missing chart render PNGs'
+    print('CHART_RENDER_ARTIFACT_OK png=720', flush=True)
 
 if __name__ == '__main__': main()

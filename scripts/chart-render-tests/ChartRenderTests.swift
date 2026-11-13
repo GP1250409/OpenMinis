@@ -4,6 +4,21 @@ import Charts
 
 final class ChartProbe { var geometry: MUChartRenderGeometry? }
 
+// Exercise the production Card surface modifier, including nested alpha.
+struct ChartFixtureSurface: ViewModifier {
+    let mode: Int
+    let parent: MUMapRGB
+    func body(content: Content) -> some View {
+        Group {
+            if mode == 0 { content }
+            else if mode == 1 { content.modifier(MUCardSurface(fill: Color(red:0.94,green:0.93,blue:0.90))) }
+            else if mode == 2 { content.modifier(MUCardSurface(fill: Color(red:0.07,green:0.09,blue:0.12))) }
+            else { content.modifier(MUCardSurface(fill: Color.primary.opacity(0.04)))
+                .modifier(MUCardSurface(fill: Color(red:0.35,green:0.52,blue:0.44).opacity(0.4))) }
+        }.environment(\.muSurface, parent)
+    }
+}
+
 @main
 final class ChartRenderApp: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -27,6 +42,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
         var maxPaddingDifference: CGFloat = 0
         var maxHeightDifference: CGFloat = 0
         for dark in [false, true] {
+          for surfaceCase in 0..<4 {
             for palette in ["", "economist", "economist2017"] {
                 for width: CGFloat in [280, 330, 400] {
                     let scenarios: [(kind: String, count: Int, framed: Bool)] = (1...6).map { ("line", $0, true) }
@@ -42,7 +58,23 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             if width == 330 { return values.map { -abs($0) - 1 } }
                             return values
                         }
-                        let theme = MUChartTheme.current(for: palette)
+                        let scheme: ColorScheme = dark ? .dark : .light
+                        let parent = MUMapRGB(hex: dark ? "#000000" : "#FFFFFF")
+                        var surface = parent
+                        if surfaceCase == 1 { surface = MUSurface.rgb(Color(red:0.94,green:0.93,blue:0.90), over:parent,scheme:scheme) }
+                        if surfaceCase == 2 { surface = MUSurface.rgb(Color(red:0.07,green:0.09,blue:0.12), over:parent,scheme:scheme) }
+                        if surfaceCase == 3 {
+                            surface = MUSurface.rgb(Color(red:0.35,green:0.52,blue:0.44).opacity(0.4),over:parent,scheme:scheme)
+                            surface = MUSurface.rgb(Color.primary.opacity(0.04),over:surface,scheme:scheme)
+                        }
+                        let theme = MUChartTheme.current(for: palette).adapted(to:surface,scheme:scheme)
+                        for c in [theme.title,theme.subtitle,theme.source,theme.axis] {
+                            check(MUSurface.rgb(c,over:surface,scheme:scheme).contrast(on:surface) >= 4.5, "resolved chart text contrast")
+                        }
+                        for c in theme.series + theme.accents + [theme.context,theme.grid,theme.zero] {
+                            check(MUSurface.rgb(c,over:surface,scheme:scheme).contrast(on:surface) >= 3, "resolved chart graphic contrast")
+                        }
+                        check(Set(theme.series.map { MUSurface.rgb($0,over:surface,scheme:scheme).hex }).count == theme.series.count, "series remain distinct")
                         let probe = ChartProbe()
                         let title = "中国保持增长"
                         let subtitle = "实际GDP同比增速，%，2019–24"
@@ -51,8 +83,9 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             labels: ["19", "20", "22", "24"], series: names, matrix: matrix,
                             title: title, subtitle: subtitle, source: source, unit: "%", highlight: ["中国"], framed: scenario.framed)
                             .onPreferenceChange(MUChartRenderGeometryKey.self) { probe.geometry = $0 }
+                            .modifier(ChartFixtureSurface(mode:surfaceCase,parent:parent))
                             .environment(\.colorScheme, dark ? .dark : .light)
-                        let id = "\(palette.isEmpty ? "system" : palette)-\(Int(width))-\(kind)-\(count)-\(scenario.framed)-\(dark ? "dark" : "light")"
+                        let id = "surface\(surfaceCase)-\(palette.isEmpty ? "system" : palette)-\(Int(width))-\(kind)-\(count)-\(scenario.framed)-\(dark ? "dark" : "light")"
                         let host = UIHostingController(rootView: view)
                         // This is a card snapshot, not a screen snapshot. Without
                         // this UIKit injects the phone's 62pt status safe area into
@@ -60,8 +93,8 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                         if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
                         host.overrideUserInterfaceStyle = dark ? .dark : .light
                         host.view.backgroundColor = dark ? .black : .white
-                        let parent = window!.rootViewController!
-                        parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+                        let container = window!.rootViewController!
+                        container.addChild(host); container.view.addSubview(host.view); host.didMove(toParent: container)
                         let size = host.sizeThatFits(in: CGSize(width: width, height: 1000))
                         host.view.frame = CGRect(x: 0, y: 0, width: width, height: size.height)
                         host.view.setNeedsLayout(); host.view.layoutIfNeeded()
@@ -70,6 +103,8 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                         let image = UIGraphicsImageRenderer(size: host.view.bounds.size, format: format).image { _ in
                             host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
                         }
+                        let sampled=sample(image, at:CGPoint(x:width/2,y:1))
+                        check(rgbDistance(sampled,surface) <= 2, id + " transparent chart exposes actual Card/chat/nested surface")
                         try! image.pngData()!.write(to: output.appendingPathComponent(id + ".png"))
                         if let g = probe.geometry {
                             check(abs(g.plot.minX - 10) <= 1, id + " actual plot left inset")
@@ -84,6 +119,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             for (box, gridY) in zip(g.axisBoxes, g.gridYs) {
                                 check(abs(box.midY - gridY) <= 0.01, id + " axis box center on horizontal grid")
                                 check(box.minY >= 0 && box.maxY <= size.height, id + " extreme tick not clipped by card")
+                                check(maxPixelContrast(image, box:box, surface:surface) >= 4.5, id + " actual digit bitmap contrast >= 4.5")
                                 let ink = axisInkBounds(image, box: box)
                                 check(ink != nil, id + " actual digit ink visible including extreme ticks")
                                 if let ink {
@@ -93,6 +129,7 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                                     check(ink.minY > box.minY && ink.maxY < box.maxY, id + " bitmap digit not vertically clipped")
                                 }
                             }
+                            check(maxPixelContrast(image,box:g.plot,surface:surface) >= 3, id + " actual plot bitmap contrast >= 3")
                             let pixels = measure(image, geometry: g)
                             check(pixels.left != nil && pixels.right != nil, id + " real bitmap ink detected")
                             if let left = pixels.left, let right = pixels.right {
@@ -119,12 +156,46 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                 }
             }
         }
+          }
         let report = measurements.joined(separator: "\n") + "\nCHART_RENDER_METRICS maxPaddingDifference=\(maxPaddingDifference) minLabelAxisGap=\(minGap) maxHeightDifference=\(maxHeightDifference)\n"
         try! report.write(to: output.appendingPathComponent("pixel-measurements.log"), atomically: true, encoding: .utf8)
         print(report)
         print("CHART_RENDER_\(failed == 0 ? "PASS" : "FAIL") checks=\(passed) failures=\(failed) png=\(measurements.count)")
         fflush(stdout)
         exit(failed == 0 ? 0 : 1)
+    }
+    func maxPixelContrast(_ image: UIImage, box: CGRect, surface: MUMapRGB) -> Double {
+        let rect=CGRect(x:floor(box.minX*image.scale),y:floor(box.minY*image.scale),width:ceil(box.width*image.scale),height:ceil(box.height*image.scale))
+        guard let cg=image.cgImage?.cropping(to:rect) else { return 0 }
+        let w=cg.width, h=cg.height
+        var bytes=[UInt8](repeating:0,count:w*h*4)
+        let c=CGContext(data:&bytes,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
+        c.draw(cg,in:CGRect(x:0,y:0,width:w,height:h))
+        // Native text/marks include antialiased edges. Require a genuinely
+        // painted core pixel (not an expected colour swatch) at the threshold.
+        let linear=(0..<256).map { i -> Double in
+            let c=Double(i)/255
+            return c <= 0.04045 ? c/12.92 : pow((c+0.055)/1.055,2.4)
+        }
+        let background=surface.luminance
+        var result=1.0
+        for i in stride(from:0,to:bytes.count,by:4) {
+            let l=0.2126*linear[Int(bytes[i])]+0.7152*linear[Int(bytes[i+1])]+0.0722*linear[Int(bytes[i+2])]
+            result=max(result,(max(l,background)+0.05)/(min(l,background)+0.05))
+            if result >= 4.5 { return result }
+        }
+        return result
+    }
+    func rgbDistance(_ a: MUMapRGB, _ b: MUMapRGB) -> Double {
+        let (r,g,bl)=a.rgb, (x,y,z)=b.rgb
+        return max(abs(r-x),max(abs(g-y),abs(bl-z)))*255
+    }
+    func sample(_ image: UIImage, at p: CGPoint) -> MUMapRGB {
+        let cg=image.cgImage!.cropping(to:CGRect(x:p.x*image.scale,y:p.y*image.scale,width:1,height:1))!
+        var bytes=[UInt8](repeating:0,count:4)
+        let c=CGContext(data:&bytes,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
+        c.draw(cg,in:CGRect(x:0,y:0,width:1,height:1))
+        return MUMapRGB(hex:String(format:"#%02X%02X%02X",Int(bytes[0]),Int(bytes[1]),Int(bytes[2])))
     }
     /// Detect the actual glyph bounds within its production 14pt number box.
     func axisInkBounds(_ image: UIImage, box: CGRect) -> CGRect? {

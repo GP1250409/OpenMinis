@@ -87,6 +87,29 @@ struct MUMapRGB: Equatable {
     }
 }
 
+// Shared, UI-independent sRGB policy. Preserve valid theme colours verbatim.
+// Mixing towards the better neutral retains hue, unlike replacing every series
+// with black/white. Quantized output is rechecked before it is accepted.
+extension MUMapRGB {
+    func contrast(on background: MUMapRGB) -> Double {
+        (max(luminance, background.luminance) + 0.05) / (min(luminance, background.luminance) + 0.05)
+    }
+    func composited(over background: MUMapRGB, alpha: Double) -> MUMapRGB {
+        Self.mix(background, self, alpha)
+    }
+    func readable(on background: MUMapRGB, minimum: Double = 4.5) -> MUMapRGB {
+        guard contrast(on: background) < minimum else { return self }
+        let black = Self(hex: "#000000"), white = Self(hex: "#FFFFFF")
+        let target = black.contrast(on: background) >= white.contrast(on: background) ? black : white
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<24 {
+            let mid = (lo + hi) / 2
+            if Self.mix(self, target, mid).contrast(on: background) >= min(minimum + 0.15, target.contrast(on: background)) { hi = mid } else { lo = mid }
+        }
+        return Self.mix(self, target, hi)
+    }
+}
+
 struct MUMapTheme {
     let background, sea, land, landText, waterText, river, border, coast, missing, text, muted, accent, focus: MUMapRGB
     let defaultScale: String
@@ -99,6 +122,19 @@ struct MUMapTheme {
         }
         let c = colors.map { MUMapRGB(hex: "#" + $0) }
         return MUMapTheme(background:c[0],sea:c[1],land:c[2],landText:c[3],waterText:c[4],river:c[5],border:c[6],coast:c[7],missing:c[8],text:c[9],muted:c[10],accent:c[11],focus:c[12],defaultScale:style == "economist" ? "red" : "blue")
+    }
+}
+
+extension MUMapTheme {
+    func adapted(to surface: MUMapRGB) -> MUMapTheme {
+        // Leave data ramps, land, sea and missing fills unchanged and ordered.
+        // Low-contrast regions/swatches receive a thin contrasting outline.
+        MUMapTheme(background: surface, sea: sea, land: land,
+            landText: landText.readable(on: surface), waterText: waterText.readable(on: sea),
+            river: river.readable(on: sea, minimum: 3), border: border,
+            coast: coast.readable(on: surface, minimum: 3), missing: missing,
+            text: text.readable(on: surface), muted: muted.readable(on: surface),
+            accent: accent.readable(on: surface, minimum: 3), focus: focus, defaultScale: defaultScale)
     }
 }
 

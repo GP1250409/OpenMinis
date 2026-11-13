@@ -224,11 +224,10 @@ check(zip(byValue, byValue.dropFirst()).allSatisfy { $1.centerY - $0.centerY >= 
 check(negPlaced.allSatisfy { $0.centerY >= 7.5 - 1e-6 && $0.centerY <= 180 - 7.5 + 1e-6 },
       "no label leaves the plot's vertical inset")
 
-// MARK: - 6. [T-chart-card-flat] Which card drops its own panel
+// MARK: - 6. [T-card-surface] Every Card keeps its own panel
 //
-// Chart output only (title / chart / explanation / dividers) draws flat: the
-// chart's own panel is the surface. Anything the user can touch — a choice, a
-// slider, a button, a table, a metric — keeps the card exactly as before.
+// Charts, maps, text and interactive output all share the original Card
+// plane. Only internal chart/map panels are transparent.
 func node(_ name: String, _ children: [MUComp] = [], _ extra: [String: MUValue] = [:]) -> MUComp {
     var props: [String: MUValue] = extra
     if !children.isEmpty { props["children"] = .arr(children.map { .comp($0) }) }
@@ -243,35 +242,35 @@ let chart = node("MultiChart", [], ["kind": .str("line"), "labels": .arr(series(
 let chartOnly = node("Card", [node("Title", [], ["text": .str("三国实际 GDP 增速")]), chart,
                               text("2020 年疫情冲击下三国同步失速。")],
                      ["title": .str("三国实际 GDP 增速")])
-check(MUCardPlane.isChartOnly(chartOnly), "a card of title + chart + explanation draws flat")
+check(MUCardPlane.retainsOuterSurface(chartOnly), "a card of title + chart + explanation is chart-only content, not a transparent outer Card")
 
 let nested = node("Card", [node("Stack", [chart])])
-check(MUCardPlane.isChartOnly(nested), "a chart inside Stack/Row wrappers is still chart output")
+check(MUCardPlane.retainsOuterSurface(nested), "a chart inside Stack/Row wrappers is still chart output")
 
 let withChoice = node("Card", [chart, node("Choice", [], ["value": .str("$a"),
                                                            "options": .arr(series(["是", "否"]))])])
-check(!MUCardPlane.isChartOnly(withChoice), "a chart card with a Choice keeps its panel (it is interactive)")
+check(MUCardPlane.retainsOuterSurface(withChoice), "a chart card with a Choice keeps its panel (it is interactive)")
 
 let calculator = node("Card", [node("Segmented", [], ["value": .str("$op"), "options": .arr(series(["+", "-"]))]),
                                node("Slider", [], ["label": .str("a"), "value": .str("$a"), "min": .num(0), "max": .num(10)]),
                                text("结果：0")])
-check(!MUCardPlane.isChartOnly(calculator), "the calculator / question card keeps its panel")
+check(MUCardPlane.retainsOuterSurface(calculator), "the calculator / question card keeps its panel")
 
 let withMetric = node("Card", [chart, node("Metric", [], ["label": .str("增速"), "value": .str("4.8%")])])
-check(!MUCardPlane.isChartOnly(withMetric), "a KPI next to a chart is not chart-only output")
+check(MUCardPlane.retainsOuterSurface(withMetric), "a KPI next to a chart keeps the universal Card surface")
 
 let withTable = node("Card", [chart, node("Table", [], ["headers": .arr(series(["a"])), "rows": .arr([])])])
-check(!MUCardPlane.isChartOnly(withTable), "a table next to a chart keeps the card surface")
+check(MUCardPlane.retainsOuterSurface(withTable), "a table next to a chart keeps the card surface")
 
 let chartsOnly = node("Card", [chart, node("MultiChart")])
-check(MUCardPlane.isChartOnly(chartsOnly), "two charts and nothing else still draw flat")
+check(MUCardPlane.retainsOuterSurface(chartsOnly), "two charts and nothing else retain the shared outer Card plane")
 
-check(!MUCardPlane.isChartOnly(node("Card", [text("只有文字")], ["title": .str("标题")])),
-      "a text-only card is not chart output (it keeps its panel)")
+check(MUCardPlane.retainsOuterSurface(node("Card", [text("只有文字")], ["title": .str("标题")])),
+      "a text-only card keeps its panel like every other Card")
 
-check(!MUCardPlane.isChartOnly(chart), "only a Card subtree is classified, never a bare chart")
+check(!MUCardPlane.retainsOuterSurface(chart), "a bare chart never manufactures a Card panel")
 
-check(!MUCardPlane.isChartOnly(node("Card", [chart, node("Button", [], ["label": .str("好"), "action": .str("@x")])])),
+check(MUCardPlane.retainsOuterSurface(node("Card", [chart, node("Button", [], ["label": .str("好"), "action": .str("@x")])])),
       "a chart card with a button keeps its panel")
 
 // MARK: - Phase 1 owned columns: widths, series counts, signs and collisions
@@ -321,6 +320,35 @@ for domain in [MUChartDomain(lower: 0, upper: 10), MUChartDomain(lower: -10, upp
               "bottom tick box fits existing footroom \(domain) \(value)")
     }
 }
+
+// All previous chart-only cases now explicitly retain the universal Card plane.
+
+
+for name in ["BarChart", "LineChart", "MultiChart", "BlockMap", "GeoMap", "Text", "Slider", "Button"] {
+    check(MUCardPlane.retainsOuterSurface(node("Card", [node(name)])), "outer Card retained for \(name)")
+    check(!MUCardPlane.retainsOuterSurface(node(name)), "bare \(name) adds no Card surface")
+}
+// Contrast is evaluated against actual sRGB, independently of appearance.
+for bg in ["#FFFFFF", "#000000", "#F1EFEA", "#161B1F", "#7B83A0", "#B8D8C8"] {
+    let surface=MUMapRGB(hex:bg)
+    for raw in ["#E3120B", "#E62923", "#B6B6A9", "#007AFF", "#54C6D2", "#FFFFFF", "#000000", "#888888"] {
+        let color=MUMapRGB(hex:raw)
+        for minimum in [3.0, 4.5] {
+            let result=color.readable(on:surface,minimum:minimum)
+            check(result.contrast(on:surface) >= minimum, "sRGB contrast \(raw) on \(bg) >= \(minimum)")
+            check(color.contrast(on:surface) < minimum || result == color, "valid brand/theme colour unchanged \(raw) on \(bg)")
+            check(result.readable(on:surface,minimum:minimum) == result, "contrast adjustment idempotent")
+        }
+    }
+    for style in ["", "economist", "economist2017"] {
+        let original=MUMapTheme.resolve(style), adapted=original.adapted(to:surface)
+        check(adapted.text.contrast(on:surface) >= 4.5 && adapted.muted.contrast(on:surface) >= 4.5, "map text actual surface contrast")
+        check(adapted.accent.contrast(on:surface) >= 3, "map emphasis contrast")
+        check(adapted.missing == original.missing && adapted.land == original.land && adapted.sea == original.sea, "map data/sea/missing remain distinct; outlines provide contrast")
+    }
+}
+check(MUMapRGB(hex:"#FFFFFF").composited(over:MUMapRGB(hex:"#000000"),alpha:0.5) == MUMapRGB(hex:"#808080"), "alpha is composited rather than treated as opaque")
+check(MUMapRGB(hex:"#000000").composited(over:MUMapRGB(hex:"#808080"),alpha:0.5) == MUMapRGB(hex:"#404040"), "nested surfaces compose recursively")
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")

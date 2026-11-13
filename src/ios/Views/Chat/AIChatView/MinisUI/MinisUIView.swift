@@ -152,6 +152,7 @@ enum MinisUITool {
 struct MinisUICardView: View {
     @ObservedObject var block: AssistantBlock
     @EnvironmentObject private var vm: AIChatViewModel
+    @Environment(\.colorScheme) private var surfaceScheme
 
 
     var body: some View {
@@ -173,6 +174,7 @@ struct MinisUICardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
+        .environment(\.muSurface, MUSurface.rgb(ChatColors.background, over: MUSurface.base(nil, scheme: surfaceScheme), scheme: surfaceScheme))
     }
 
     /// Parsed once per program text (shared cache).
@@ -424,16 +426,7 @@ private struct MUCard: View {
     let ctx: MUContext
     let topLevel: Bool
 
-    /// [T-chart-card-flat] A top-level card that is nothing but chart output
-    /// (title / chart / explanation / source) drops the outer panel: the
-    /// chart's own blue-grey or beige ground is the surface, and stacking a
-    /// second one around it read as a box inside a box. Every other card — a
-    /// calculator, a choice list, a slider form, anything with an input or a
-    /// button — keeps the panel exactly as before. The padding stays in both
-    /// modes: `MinisUIEngine.estimatedHeight` already models it, and the list
-    /// measures the same height either way.
-    private var flat: Bool { topLevel && MUCardPlane.isChartOnly(comp) }
-
+    // All Cards retain the same outer plane, including chart-only output.
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let t = comp.str("title") {
@@ -444,14 +437,7 @@ private struct MUCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(flat ? Color.clear : (topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(flat ? Color.clear : Color.primary.opacity(0.08), lineWidth: 0.6)
-        )
+        .modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))
     }
 }
 
@@ -828,6 +814,19 @@ struct MUChartTheme {
     ].map { $0.map { MUChartStyle.hex(UInt32($0)) } }
 }
 
+extension MUChartTheme {
+    func adapted(to surface: MUMapRGB, scheme: ColorScheme) -> Self {
+        func text(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme) }
+        func graphic(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme, minimum: 3) }
+        return Self(look: look, panel: .clear, grid: graphic(grid), gridWidth: gridWidth,
+            zero: graphic(zero), zeroWidth: zeroWidth,
+            tag: look == .system ? .clear : graphic(tag), topRule: look == .guide2017 ? graphic(topRule) : .clear,
+            title: text(title), subtitle: text(subtitle), source: text(source), axis: text(axis),
+            series: series.map(graphic), accents: accents.map(graphic), context: graphic(context),
+            scales: scales.map { $0.map(graphic) })
+    }
+}
+
 private struct MUChart: View {
     let comp: MUComp
     @AppStorage(MUChartStyle.key) private var palette: String = ""
@@ -884,9 +883,12 @@ private struct MUMultiChartBody: View {
     let highlight: [String]
     let framed: Bool
 
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
+    private var surface: MUMapRGB { MUSurface.base(inherited, scheme: scheme) }
     private var theme: MUChartTheme {
         MUChartTheme.current(for: look == .guide2017 ? MUChartStyle.economist2017
-                                  : (look == .recent ? MUChartStyle.economist : ""))
+                                  : (look == .recent ? MUChartStyle.economist : "")).adapted(to: surface, scheme: scheme)
     }
     private var rows: Int { matrix.count }
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
@@ -907,7 +909,7 @@ private struct MUMultiChartBody: View {
         let marked = hl.intersection(Set(labels))
         if rows == 1, !marked.isEmpty {
             if look == .recent { return marked.contains(labels[i]) ? theme.accents[0] : theme.context }
-            if look == .system { return marked.contains(labels[i]) ? .orange : .blue }
+            if look == .system { return marked.contains(labels[i]) ? theme.series[1] : theme.series[0] }
             return marked.contains(labels[i]) ? theme.series[1] : theme.series[0]
         }
         return color(s)
@@ -961,7 +963,7 @@ private struct MUMultiChartBody: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, framed ? 10 : 2)
-        .background(framed ? theme.panel : Color.clear)
+        // Transparent within either a Card or the chat; no theme panel fill.
         .coordinateSpace(name: "MUChartPanel")
     }
     private var legend: some View {
@@ -1073,7 +1075,7 @@ private struct MUMultiChartBody: View {
                     if p.index < gutter.labels.count {
                         Text(gutter.labels[p.index])
                             .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
-                            .foregroundStyle(color(p.index)).lineLimit(1)
+                            .foregroundStyle(MUSurface.foreground(color(p.index), on: surface, scheme: scheme)).lineLimit(1)
                             .frame(width: columns.labelWidth, height: size * 1.3, alignment: .leading)
                             .clipped()
                             .position(x: labelX + columns.labelWidth / 2, y: frame.minY + p.centerY)

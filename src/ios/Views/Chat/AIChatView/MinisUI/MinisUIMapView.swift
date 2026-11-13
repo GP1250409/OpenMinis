@@ -1,8 +1,52 @@
 // Native offline maps. Independent of MUChartStyle members except its storage key.
 import SwiftUI
+import UIKit
 
-private extension MUMapRGB {
+extension MUMapRGB {
     var color: Color { let (r,g,b)=rgb; return Color(red:r,green:g,blue:b) }
+}
+
+// This environment contains an OPAQUE composited surface, not a trait guess.
+// The root supplies ChatColors.background; each Card composites its real fill.
+private struct MUSurfaceKey: EnvironmentKey { static let defaultValue: MUMapRGB? = nil }
+extension EnvironmentValues {
+    var muSurface: MUMapRGB? {
+        get { self[MUSurfaceKey.self] }
+        set { self[MUSurfaceKey.self] = newValue }
+    }
+}
+enum MUSurface {
+    static func base(_ inherited: MUMapRGB?, scheme: ColorScheme) -> MUMapRGB {
+        inherited ?? rgb(Color(uiColor: .systemBackground), over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
+    }
+    static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        let resolved = UIColor(color).resolvedColor(with: traits)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
+        func byte(_ x: CGFloat) -> Int { Int((min(1, max(0, x)) * 255).rounded()) }
+        let foreground = MUMapRGB(hex: String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b)))
+        return foreground.composited(over: background, alpha: Double(a))
+    }
+    static func foreground(_ color: Color, on surface: MUMapRGB, scheme: ColorScheme, minimum: Double = 4.5) -> Color {
+        rgb(color, over: surface, scheme: scheme).readable(on: surface, minimum: minimum).color
+    }
+}
+// Shared by MUCard and the bitmap fixtures: no extra geometry or layout pass.
+struct MUCardSurface: ViewModifier {
+    let fill: Color
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        let parent = MUSurface.base(inherited, scheme: scheme)
+        let surface = MUSurface.rgb(fill, over: parent, scheme: scheme)
+        content
+            .foregroundStyle(surface.ink.color)
+            .environment(\.muSurface, surface)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
+    }
 }
 
 // One shared size formula drives both SwiftUI's first proposal and the list's
@@ -21,6 +65,9 @@ private struct MUMapExactLayout: Layout {
 struct MUMapView: View {
     let comp: MUComp
     @AppStorage(MUChartStyle.key) private var style = ""
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
+    private var surface: MUMapRGB { MUSurface.base(inherited, scheme: scheme) }
     var body: some View {
         MUMapExactLayout(comp:comp) {
             Canvas { context,size in
@@ -47,12 +94,11 @@ struct MUMapView: View {
     }
 
     private func draw(_ context: GraphicsContext, _ m: MUMapMetrics) {
-        let theme=MUMapTheme.resolve(style), values=MUMapCore.values(comp)
+        let theme=MUMapTheme.resolve(style).adapted(to: surface), values=MUMapCore.values(comp)
         let highlight=MUMapCore.highlights(comp)
         let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:(comp.str("scale") ?? "").hasPrefix("diverging"))
         let colors=MUMapScale.colors(comp.str("scale"),style:style,count:bins.count)
-        let cutout = comp.name == "GeoMap" && comp.str("mode") == "cutout"
-        context.fill(Path(CGRect(x:0,y:0,width:m.width,height:m.height)),with:.color(cutout ? .white : theme.background.color))
+        // No peripheral panel: the actual Card/chat surface remains visible.
         // p9 cutout convention; recent/system keep the same structural rule.
         context.fill(Path(CGRect(x:10,y:8,width:max(0,m.width-20),height:0.75)),with:.color(theme.accent.color))
         context.fill(Path(CGRect(x:10,y:8,width:18,height:4)),with:.color(theme.accent.color))
@@ -67,10 +113,14 @@ struct MUMapView: View {
             let w=max(0,(m.width-20)/Double(bins.count))
             for i in 0..<bins.count {
                 let x=10+Double(i)*w
-                context.fill(Path(CGRect(x:x,y:y,width:max(0,w-1),height:9)),with:.color(colors[i].color))
+                let swatch=Path(CGRect(x:x,y:y,width:max(0,w-1),height:9))
+                context.fill(swatch,with:.color(colors[i].color))
+                context.stroke(swatch,with:.color(theme.text.color),lineWidth:0.5)
                 text(bins.label(i),CGRect(x:x,y:y+10,width:max(0,w-1),height:14),context:context,color:theme.text,size:8,centered:true)
             }
-            context.fill(Path(CGRect(x:10,y:y+29,width:9,height:9)),with:.color(theme.missing.color))
+            let missing=Path(CGRect(x:10,y:y+29,width:9,height:9))
+            context.fill(missing,with:.color(theme.missing.color))
+            context.stroke(missing,with:.color(theme.text.color),lineWidth:0.5)
             text("无数据",CGRect(x:23,y:y+26,width:80,height:15),context:context,color:theme.muted,size:9)
             y+=44
         }
@@ -100,6 +150,7 @@ struct MUMapView: View {
         for tile in MUMapRegion.tiles(comp.str("region") ?? "us") {
             let rect=m.rect(tile), fill=values[tile.code].map { colors[bins.index($0)] } ?? theme.missing
             context.fill(Path(rect),with:.color(fill.color))
+            context.stroke(Path(rect.insetBy(dx:0.25,dy:0.25)),with:.color(theme.text.color),lineWidth:0.5)
             if highlight.contains(tile.code) {
                 context.stroke(Path(rect.insetBy(dx:1,dy:1)),with:.color(theme.accent.color),lineWidth:2)
             }
@@ -110,7 +161,7 @@ struct MUMapView: View {
     private func drawGeo(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
         let rect=CGRect(x:10,y:m.plotY,width:max(1,m.width-20),height:m.plotHeight)
         let location=(comp.str("mode") ?? "location") == "location"
-        context.fill(Path(rect),with:.color(location ? theme.sea.color : .white))
+        if location { context.fill(Path(rect),with:.color(theme.sea.color)) }
         for region in MUMapGeometry.us {
             var path=Path()
             for ring in region.rings {
@@ -122,13 +173,14 @@ struct MUMapView: View {
             let fill=values[region.code].map { colors[bins.index($0)] }
                 ?? (highlight.contains(region.code) ? theme.focus : (values.isEmpty ? theme.land : theme.missing))
             context.fill(path,with:.color(fill.color),style:FillStyle(eoFill:true))
-            context.stroke(path,with:.color(theme.border.color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
+            context.stroke(path,with:.color(theme.text.color),lineWidth:1)
+            context.stroke(path,with:.color(theme.border.readable(on:fill,minimum:3).color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
             if highlight.contains(region.code) { context.stroke(path,with:.color(theme.accent.color),lineWidth:1.25) }
         }
         // Separate inset labels make their shifted/scaled placement explicit.
         for (label,p) in [("AK",CGPoint(x:35,y:620)),("HI",CGPoint(x:300,y:620))] {
             let a=MUMapProjection.view(p,in:rect)
-            text(label,CGRect(x:a.x,y:a.y-10,width:25,height:12),context:context,color:theme.landText,size:8)
+            text(label,CGRect(x:a.x,y:a.y-10,width:25,height:12),context:context,color:theme.landText.readable(on:location ? theme.sea : surface),size:8)
         }
         var occupied: [CGRect]=[]
         let labels=comp.strings("pointLabels")
@@ -148,9 +200,10 @@ struct MUMapView: View {
                     occupied.append(box)
                     let leader=MUMapLabels.leader(anchor:a,label:box)
                     var line=Path(); line.addLines(leader)
-                    context.stroke(line,with:.color(theme.landText.color),lineWidth:0.5)
-                    context.fill(Path(box),with:.color(theme.background.color.opacity(0.92)))
-                    text(labels[i],box.insetBy(dx:2,dy:0),context:context,color:theme.landText,size:9)
+                    context.stroke(line,with:.color(theme.background.color),lineWidth:1.5)
+                    context.stroke(line,with:.color(theme.background.ink.color),lineWidth:0.5)
+                    context.fill(Path(box),with:.color(theme.background.color))
+                    text(labels[i],box.insetBy(dx:2,dy:0),context:context,color:theme.landText.readable(on:theme.background),size:9)
                 }
             }
         }

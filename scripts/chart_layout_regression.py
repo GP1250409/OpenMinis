@@ -110,15 +110,17 @@ need('.chartOverlay { proxy in' in view_text and 'proxy.plotAreaFrame' in view_t
      'the labels are drawn inside the real plot frame (ChartProxy.plotAreaFrame)')
 need('proxy.position(forY:' in view_text and 'baseY: baseY' in view_text,
      'the label y is the REAL mark position, not a recomputed pixel')
-# [T-chart-card-flat] The outer card panel is dropped for chart output only.
-need('enum MUCardPlane' in core_text and 'static func isChartOnly(_ card: MUComp) -> Bool' in core_text,
-     'the chart-only card decision is a pure classifier in the testable core file')
-need('MUCardPlane.isChartOnly(comp)' in view_text,
-     'MUCard asks the classifier whether to draw its own panel')
-need('flat ? Color.clear' in view_text,
-     'a chart-only card draws no fill (the chart keeps its own panel)')
-need('fill(topLevel ? ChatColors.secondaryBg' not in view_text,
-     'the unconditional card fill is gone (a chart card cannot fall back to it)')
+# [T-card-surface] Outer Card remains; chart/map interior receives actual surface.
+need('static func retainsOuterSurface' in core_text,
+     'all Cards retain their outer plane regardless of chart content')
+need('MUCardPlane.isChartOnly(comp)' not in view_text and 'flat ? Color.clear' not in view_text,
+     'legacy chart classifier cannot make the outer Card transparent')
+need('.modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))' in view_text,
+     'Card preserves original fill, rounded border, and nested alpha via shared modifier')
+need('.background(framed ? theme.panel' not in view_text and '.adapted(to: surface, scheme: scheme)' in view_text,
+     'chart interior is transparent and foregrounds consume the composited surface')
+need('MUSurface.rgb(ChatColors.background' in view_text,
+     'standalone output inherits the actual chat theme background')
 need('.chartYScale(domain: domain.lower...domain.upper, range: .plotDimension(startPadding: 0, endPadding: 0))' in view_text,
      'the y domain is explicit, so a value\'s pixel position is exact')
 need('plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)' not in view_text,
@@ -181,7 +183,7 @@ if run.returncode != 0 or not match:
     print('CHART_LAYOUT_RUN_FAILED')
     sys.exit(1)
 checks = int(match.group(1))
-if checks < 287:
+if checks < 647:
     print('CHART_LAYOUT_TOO_FEW_CHECKS %d' % checks)
     sys.exit(1)
 print('CHART_LAYOUT_SOURCE_PASS checks=%d' % static_passed)
