@@ -111,15 +111,41 @@ for width in [120.0,240,320,390] {
         check(v.ok,"8/10 interval long-text fixture valid")
         guard let c=v.root else { fatalError("fixture missing") }
         let m=MUMapMetrics(c,width:width), bins=MUMapBins(values:c.numbers("values"),boundaries:edges,diverging:true)
-        check(m.legendFrames.count==bins.count,"every interval has its own box")
-        for (i,r) in m.legendFrames.enumerated() {
-            check(r.maxX<=width-10+0.1 && r.minX>=10,"interval within horizontal bounds")
-            check(r.maxY<m.missingY && r.minY>=m.legendY,"interval before missing row")
-            check(Double(MUMapTypography.measure(bins.label(i),width:r.width-8,size:11).height)<=r.height-12,"full interval glyph height reserved")
+        check(m.legendFrames.count==bins.count,"every bin has a compact swatch")
+        for r in m.legendFrames {
+            check(abs(r.height-6.0)<1e-6,"swatch height is 6pt")
+            check(abs(r.minY-m.legendY)<1e-6,"single-row color strip")
+            check(r.maxX<=width-10+0.1 && r.minX>=10,"swatch within horizontal bounds")
+            check(r.maxY<m.missingY,"swatch above missing row")
+        }
+        check(!m.legendTicks.isEmpty,"at least one boundary tick placed")
+        if width >= 240 && edges.count == 7 {
+            check(m.legendTicks.count == 7,"all seven integer boundary ticks fit at \(width)pt")
+            check(m.unitY - m.legendY <= 52,"compact legend stays concise at \(width)pt")
+        }
+        var prevTickMaxX = -Double.infinity
+        for t in m.legendTicks {
+            check(t.frame.minX >= 10 - 0.1 && t.frame.maxX <= width - 10 + 0.1,"tick within horizontal bounds")
+            check(t.frame.maxY < m.missingY && t.frame.minY >= m.legendY,"tick above missing row")
+            check(t.frame.minX >= prevTickMaxX + 3.9,"boundary ticks never overlap")
+            prevTickMaxX = Double(t.frame.maxX)
+        }
+        if m.endsRect != .zero {
+            check(m.endsRect.minX >= 10 - 0.1 && m.endsRect.maxX <= width - 10 + 0.1,"endpoint summary within bounds")
+            check(m.endsRect.maxY <= m.unitY,"endpoint summary above unit/plot")
         }
         check(m.subtitleHeight>20 && m.sourceHeight>10,"long explanation wraps without ellipsis")
         check(m.plotY>=m.unitY+m.unitHeight,"unit does not cover map")
         check(MinisUIEngine.estimatedHeight(c,width:width)==m.height,"long-text estimated height equals native layout contract")
+    }
+}
+for darkBg in ["#000000","#1C1C1E","#2A2A2A","#30302E","#28292D"] {
+    let s = MUMapRGB(hex: darkBg)
+    for style in ["","economist","economist2017"] {
+        let adapted = MUMapTheme.resolve(style).adapted(to: s)
+        check(adapted.text.contrast(on: s) >= 10.0,"dark primary text high contrast on \(darkBg)")
+        check(adapted.muted.contrast(on: s) >= 6.0,"dark muted text readable on \(darkBg)")
+        check(adapted.text != adapted.muted,"dark primary and muted maintain visual hierarchy on \(darkBg)")
     }
 }
 

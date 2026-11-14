@@ -44,3 +44,8 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 3. `MUMapPackStore` 几何缓存为严格有界 LRU（最多 4 个包 且 累计 ≤ 4 MB）。
 4. 复现全部数据包：`python3 scripts/generate_map_packs.py`。
 5. 回归入口：`python3 scripts/map_regression.py`（Linux 纯 Foundation/Swift 6.2）与 `python3 scripts/map_render_regression.py`（macOS 模拟器真实位图与性能预算）。
+
+## 4. 图例与暗色模式可读性（mod-map-legend-compact-20261114）
+
+- 连续/离散分箱图例采用单行 `6pt` 色带与不重叠共享边界刻度（`9.5pt`），并在「无数据」行右侧给出首末档范围摘要；副标题采用 `11pt` 自动换行。
+- 暗色承载表面（`luminance < 0.179`）下，画布主文字与刻度采用高对比近白 `#F3F4F6`、说明与次要文字采用 `#B8C0CC`，保留原有分箱填充色与色阶顺序不变。

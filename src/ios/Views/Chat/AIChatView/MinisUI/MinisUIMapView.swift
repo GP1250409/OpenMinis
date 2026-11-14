@@ -128,11 +128,18 @@ struct MUMapView: View {
         context.draw(resolved,in:rect)
     }
 
+    private func lineText(_ string: String, at point: CGPoint, anchor: UnitPoint = .topLeading, context: GraphicsContext, color: MUMapRGB, size: Double, bold: Bool = false) {
+        var resolved=context.resolve(Text(string).font(.system(size:size,weight:bold ? .semibold : .regular)).foregroundColor(color.color))
+        resolved.shading = .color(color.color)
+        context.draw(resolved,at:point,anchor:anchor)
+    }
+
     private func draw(_ context: GraphicsContext, _ m: MUMapMetrics) {
         let theme=MUMapTheme.resolve(style).adapted(to: surface), values=MUMapCore.values(comp)
         let highlight=MUMapCore.highlights(comp)
         let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:(comp.str("scale") ?? "").hasPrefix("diverging"))
         let colors=MUMapScale.colors(comp.str("scale"),style:style,count:bins.count)
+        let hairline=surface.luminance < 0.179 ? theme.muted.color.opacity(0.65) : theme.text.color
         // No peripheral panel: the actual Card/chat surface remains visible.
         // p9 cutout convention; recent/system keep the same structural rule.
         context.fill(Path(CGRect(x:10,y:8,width:max(0,m.width-20),height:0.75)),with:.color(theme.accent.color))
@@ -142,19 +149,37 @@ struct MUMapView: View {
             paragraph(title,CGRect(x:10,y:y,width:m.width-20,height:m.titleHeight),context:context,color:theme.text,size:16,bold:true); y+=m.titleHeight+4
         }
         if let subtitle=comp.str("subtitle") {
-            paragraph(subtitle,CGRect(x:10,y:y,width:m.width-20,height:m.subtitleHeight),context:context,color:theme.muted,size:12)
+            paragraph(subtitle,CGRect(x:10,y:y,width:m.width-20,height:m.subtitleHeight),context:context,color:theme.muted,size:11)
         }
         for (i,frame) in m.legendFrames.enumerated() {
-            let swatch=Path(CGRect(x:frame.minX,y:frame.minY,width:frame.width,height:9))
+            let swatch=Path(frame)
             context.fill(swatch,with:.color(colors[i].color))
-            context.stroke(swatch,with:.color(theme.text.color),lineWidth:0.5)
-            paragraph(bins.label(i),CGRect(x:frame.minX+4,y:frame.minY+12,width:frame.width-8,height:frame.height-12),context:context,color:theme.text,size:11)
+            context.stroke(swatch,with:.color(hairline),lineWidth:0.5)
+        }
+        for ax in m.legendTickAnchors {
+            var tick=Path()
+            tick.move(to:CGPoint(x:ax,y:m.legendY+m.swatchHeight))
+            tick.addLine(to:CGPoint(x:ax,y:m.legendY+m.swatchHeight+2.5))
+            context.stroke(tick,with:.color(theme.muted.color.opacity(0.85)),lineWidth:0.75)
+        }
+        for tick in m.legendTicks {
+            lineText(tick.text,at:CGPoint(x:tick.frame.minX,y:tick.frame.minY),anchor:.topLeading,context:context,color:theme.text,size:9.5)
+        }
+        if m.legendSingleLabelRect != .zero {
+            lineText("全部",at:CGPoint(x:m.legendSingleLabelRect.minX,y:m.legendSingleLabelRect.minY),anchor:.topLeading,context:context,color:theme.text,size:9.5)
         }
         if !m.legendFrames.isEmpty {
-            let missing=Path(CGRect(x:10,y:m.missingY+2,width:9,height:9))
+            let missing=Path(CGRect(x:10,y:m.missingY+max(0,(m.missingHeight-7.0)/2.0),width:7,height:7))
             context.fill(missing,with:.color(theme.missing.color))
-            context.stroke(missing,with:.color(theme.text.color),lineWidth:0.5)
-            paragraph("无数据",CGRect(x:23,y:m.missingY,width:80,height:18),context:context,color:theme.muted,size:10)
+            context.stroke(missing,with:.color(hairline),lineWidth:0.5)
+            lineText("无数据",at:CGPoint(x:21,y:m.missingY),anchor:.topLeading,context:context,color:theme.muted,size:9.5)
+            if m.endsRect != .zero {
+                if abs(m.endsRect.minY - m.missingY) < 0.5 {
+                    lineText(m.endsText,at:CGPoint(x:m.endsRect.maxX,y:m.endsRect.minY),anchor:.topTrailing,context:context,color:theme.muted,size:9.5)
+                } else {
+                    paragraph(m.endsText,m.endsRect,context:context,color:theme.muted,size:9.5)
+                }
+            }
         }
         if let unit=comp.str("unit") {
             paragraph(unit,CGRect(x:10,y:m.unitY,width:m.width-20,height:m.unitHeight),context:context,color:theme.muted,size:10)
@@ -186,10 +211,11 @@ struct MUMapView: View {
     }
 
     private func drawBlocks(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
+        let tileBorder = surface.luminance < 0.179 ? theme.muted.color.opacity(0.55) : theme.text.color
         for tile in MUMapRegion.tiles(comp.str("region") ?? "us") {
             let rect=m.rect(tile), fill=values[tile.code].map { colors[bins.index($0)] } ?? theme.missing
             context.fill(Path(rect),with:.color(fill.color))
-            context.stroke(Path(rect.insetBy(dx:0.25,dy:0.25)),with:.color(theme.text.color),lineWidth:0.5)
+            context.stroke(Path(rect.insetBy(dx:0.25,dy:0.25)),with:.color(tileBorder),lineWidth:0.5)
             if highlight.contains(tile.code) {
                 context.stroke(Path(rect.insetBy(dx:1,dy:1)),with:.color(theme.accent.color),lineWidth:2)
             }
@@ -224,7 +250,7 @@ struct MUMapView: View {
                 ?? (highlightSet.contains(feat.code) ? theme.focus : (values.isEmpty ? theme.land : theme.missing))
             ctx.fill(path,with:.color(fill.color),style:FillStyle(eoFill:true))
             if strokeW >= 0.5 {
-                ctx.stroke(path,with:.color(theme.text.color),lineWidth:strokeW)
+                ctx.stroke(path,with:.color(MUMapRGB(hex:"#262624").color),lineWidth:strokeW)
                 ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:3).color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
             } else {
                 ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:2.2).color),lineWidth:strokeW)
@@ -232,15 +258,17 @@ struct MUMapView: View {
             if highlightSet.contains(feat.code) { highlightedIndices.append(idx) }
         }
         let ovWidth=packMeta.manifest.styleHints.overlayStrokeWidth
+        let ovInk=location ? MUMapRGB(hex:"#262624") : theme.text
+        let ovMuted=location ? MUMapRGB(hex:"#66808E") : theme.muted
         for (kind,cgPath) in packGeom.overlayPaths {
             guard let transformed=cgPath.copy(using:&xform) else { continue }
             let path=Path(transformed)
             if kind == 1 {
-                ctx.stroke(path,with:.color(theme.muted.color.opacity(0.65)),lineWidth:0.75)
+                ctx.stroke(path,with:.color(ovMuted.color.opacity(0.65)),lineWidth:0.75)
             } else if kind == 2 {
-                ctx.stroke(path,with:.color(theme.text.color),lineWidth:max(0.9,ovWidth))
+                ctx.stroke(path,with:.color(ovInk.color),lineWidth:max(0.9,ovWidth))
             } else {
-                ctx.stroke(path,with:.color(theme.text.color.opacity(0.72)),lineWidth:ovWidth)
+                ctx.stroke(path,with:.color(ovInk.color.opacity(0.72)),lineWidth:ovWidth)
             }
         }
         for idx in highlightedIndices {
@@ -252,7 +280,8 @@ struct MUMapView: View {
         for zone in packMeta.manifest.zones {
             if let lbl=zone.insetLabel {
                 let a=MUMapProjection.view(CGPoint(x:lbl.x,y:lbl.y),canvasSize:canvasSize,in:rect)
-                text(lbl.text,CGRect(x:a.x,y:a.y-10,width:72,height:12),context:context,color:theme.landText.readable(on:location ? theme.sea : surface),size:8)
+                let lblColor=location ? MUMapTheme.resolve(style).landText.readable(on:theme.sea) : theme.landText.readable(on:surface)
+                text(lbl.text,CGRect(x:a.x,y:a.y-10,width:72,height:12),context:context,color:lblColor,size:8)
             }
         }
         var occupied: [CGRect]=[]

@@ -132,12 +132,28 @@ extension MUMapTheme {
     func adapted(to surface: MUMapRGB) -> MUMapTheme {
         // Leave data ramps, land, sea and missing fills unchanged and ordered.
         // Low-contrast regions/swatches receive a thin contrasting outline.
-        MUMapTheme(background: surface, sea: sea, land: land,
-            landText: landText.readable(on: surface), waterText: waterText.readable(on: sea),
+        // On dark surfaces, jump directly to high-contrast light ink tones
+        // instead of stopping right at the 4.5:1 gray floor.
+        let isDarkSurface = surface.luminance < 0.179
+        let resolvedText = isDarkSurface
+            ? MUMapRGB(hex: "#F3F4F6").readable(on: surface, minimum: 7.0)
+            : text.readable(on: surface)
+        let resolvedMuted = isDarkSurface
+            ? MUMapRGB(hex: "#B8C0CC").readable(on: surface, minimum: 6.0)
+            : muted.readable(on: surface)
+        let resolvedLandText = isDarkSurface
+            ? MUMapRGB(hex: "#CBD5E1").readable(on: surface, minimum: 6.0)
+            : landText.readable(on: surface)
+        let resolvedCoast = isDarkSurface
+            ? MUMapRGB(hex: "#94A3B8").readable(on: surface, minimum: 3.0)
+            : coast.readable(on: surface, minimum: 3.0)
+        return MUMapTheme(background: surface, sea: sea, land: land,
+            landText: resolvedLandText, waterText: waterText.readable(on: sea),
             river: river.readable(on: sea, minimum: 3), border: border,
-            coast: coast.readable(on: surface, minimum: 3), missing: missing,
-            text: text.readable(on: surface), muted: muted.readable(on: surface),
-            accent: accent.readable(on: surface, minimum: 3), focus: focus, defaultScale: defaultScale)
+            coast: resolvedCoast, missing: missing,
+            text: resolvedText, muted: resolvedMuted,
+            accent: accent.readable(on: surface, minimum: isDarkSurface ? 3.6 : 3.0),
+            focus: focus, defaultScale: defaultScale)
     }
 }
 
@@ -193,19 +209,20 @@ struct MUMapBins {
         edges = (1...5).map { let t = Double($0)/6; return lo*(1-t) + hi*t }
     }
     func index(_ value: Double) -> Int { edges.firstIndex(where: { value < $0 }) ?? edges.count }
+    func edgeText(_ index: Int) -> String {
+        let x = edges[index]
+        // Explicit user thresholds must not collapse under %.3g rounding.
+        // Automatic equal-width bins retain their concise approximate ticks.
+        guard exactLabels else { return String(format: "%.3g", x) }
+        if x == 0 { return "0" }
+        let s = String(x)
+        return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
+    }
     func label(_ index: Int) -> String {
         if edges.isEmpty { return "全部" }
-        func n(_ x: Double) -> String {
-            // Explicit user thresholds must not collapse under %.3g rounding.
-            // Automatic equal-width bins retain their concise approximate ticks.
-            guard exactLabels else { return String(format: "%.3g", x) }
-            if x == 0 { return "0" }
-            let s=String(x)
-            return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
-        }
-        if index == 0 { return "<" + n(edges[0]) }
-        if index == edges.count { return "≥" + n(edges[index-1]) }
-        return n(edges[index-1]) + "–<" + n(edges[index])
+        if index == 0 { return "<" + edgeText(0) }
+        if index == edges.count { return "≥" + edgeText(index - 1) }
+        return edgeText(index - 1) + "–<" + edgeText(index)
     }
 }
 
@@ -228,6 +245,12 @@ enum MUMapTypography {
         Double(measure(text,width:1000000,size:size).width)
     }
 }
+struct MUMapLegendTick: Equatable {
+    let index: Int
+    let anchorX: Double
+    let text: String
+    let frame: CGRect
+}
 struct MUMapMetrics {
     let width: Double
     let columns: Int
@@ -235,10 +258,17 @@ struct MUMapMetrics {
     let cell: Double
     let gap = 2.0
     let inset = 10.0
+    let swatchHeight = 6.0
     let titleHeight, subtitleHeight, unitHeight, sourceHeight, noteHeight: Double
     let legendY: Double
     let legendFrames: [CGRect]
+    let legendTickAnchors: [Double]
+    let legendTicks: [MUMapLegendTick]
+    let legendSingleLabelRect: CGRect
     let missingY: Double
+    let missingHeight: Double
+    let endsText: String
+    let endsRect: CGRect
     let unitY: Double
     let plotY: Double
     let plotHeight: Double
@@ -251,7 +281,7 @@ struct MUMapMetrics {
             text.map { Double(MUMapTypography.measure($0,width:usable,size:size,bold:bold).height) } ?? 0
         }
         titleHeight=h(c.str("title"),16,true)
-        subtitleHeight=h(c.str("subtitle"),12)
+        subtitleHeight=h(c.str("subtitle"),11)
         unitHeight=h(c.str("unit"),10)
         sourceHeight=h(c.str("source").map { "来源："+$0 },10)
         let regionArg = c.str("region") ?? "us"
@@ -269,22 +299,120 @@ struct MUMapMetrics {
         if subtitleHeight > 0 { top += subtitleHeight+4 }
         legendY=top
         var frames:[CGRect]=[]
+        var anchors:[Double]=[]
+        var ticks:[MUMapLegendTick]=[]
+        var singleRect:CGRect = .zero
+        var resolvedMissingHeight = 0.0
+        var resolvedEndsText = ""
+        var resolvedEndsRect:CGRect = .zero
         if !c.numbers("values").isEmpty {
             let bins=MUMapBins(values:c.numbers("values"),boundaries:c.numbers("bins"),diverging:(c.str("scale") ?? "").hasPrefix("diverging"))
-            var x=10.0, y=top, rowHeight=0.0
-            for i in 0..<bins.count {
-                let w=min(usable,max(44,MUMapTypography.naturalWidth(bins.label(i),size:11)+12))
-                let labelHeight=Double(MUMapTypography.measure(bins.label(i),width:max(1,w-8),size:11).height)
-                let itemHeight=12+labelHeight
-                if x > 10 && x+w > self.width-10 { x=10; y += rowHeight+6; rowHeight=0 }
-                frames.append(CGRect(x:x,y:y,width:w,height:itemHeight))
-                x += w+6; rowHeight=max(rowHeight,itemHeight)
+            let n = max(1, bins.count)
+            let tickBottom: Double
+            if bins.edges.isEmpty {
+                let sw = min(44.0, usable)
+                frames.append(CGRect(x:10.0,y:top,width:sw,height:swatchHeight))
+                let lblSize = MUMapTypography.measure("全部",width:usable,size:9.5)
+                singleRect = CGRect(x:10.0,y:top+swatchHeight+3.0,width:Double(lblSize.width),height:Double(lblSize.height))
+                tickBottom = Double(singleRect.maxY)
+            } else {
+                let swatchGap = usable / Double(n) > 6.0 ? 1.0 : 0.0
+                let swatchW = max(1.0, (usable - swatchGap * Double(n - 1)) / Double(n))
+                for i in 0..<n {
+                    frames.append(CGRect(x:10.0+Double(i)*(swatchW+swatchGap),y:top,width:swatchW,height:swatchHeight))
+                }
+                let tickY = top + swatchHeight + 3.0
+                var candidates:[MUMapLegendTick] = []
+                for j in 0..<bins.edges.count {
+                    let ax = Double(frames[j].maxX) + swatchGap / 2.0
+                    anchors.append(ax)
+                    let t = bins.edgeText(j)
+                    let sz = MUMapTypography.measure(t, width: usable, size: 9.5)
+                    let tw = Double(sz.width)
+                    let rawX = min(max(10.0, ax - tw / 2.0), max(10.0, self.width - 10.0 - tw))
+                    candidates.append(MUMapLegendTick(index: j, anchorX: ax, text: t, frame: CGRect(x: rawX, y: tickY, width: tw, height: Double(sz.height))))
+                }
+                func fits(_ indices: [Int]) -> Bool {
+                    var prevMaxX = -Double.infinity
+                    for idx in indices.sorted() {
+                        let r = candidates[idx].frame
+                        if r.minX < prevMaxX + 4.0 { return false }
+                        prevMaxX = Double(r.maxX)
+                    }
+                    return true
+                }
+                var chosen: [Int] = []
+                let allIndices = Array(0..<candidates.count)
+                if fits(allIndices) {
+                    chosen = allIndices
+                } else {
+                    if candidates.count >= 3 {
+                        for step in 2...max(2, candidates.count - 1) {
+                            var idxs = Array(stride(from: 0, to: candidates.count, by: step))
+                            if idxs.last != candidates.count - 1 {
+                                if fits(idxs + [candidates.count - 1]) {
+                                    idxs.append(candidates.count - 1)
+                                } else if idxs.count >= 2 && (candidates.count - 1 - idxs.last!) <= step / 2 {
+                                    idxs[idxs.count - 1] = candidates.count - 1
+                                }
+                            }
+                            if idxs.count >= 2, fits(idxs) { chosen = idxs; break }
+                        }
+                    }
+                    if chosen.isEmpty {
+                        var priority: [Int] = [0]
+                        if candidates.count > 1 { priority.append(candidates.count - 1) }
+                        if let zeroIdx = bins.edges.firstIndex(of: 0), !priority.contains(zeroIdx) { priority.append(zeroIdx) }
+                        // Add evenly spread interior indices via binary bisection order.
+                        var queue: [(Int, Int)] = candidates.count > 2 ? [(0, candidates.count - 1)] : []
+                        while !queue.isEmpty {
+                            let (lo, hi) = queue.removeFirst()
+                            let mid = (lo + hi) / 2
+                            if mid > lo && mid < hi {
+                                if !priority.contains(mid) { priority.append(mid) }
+                                queue.append((lo, mid)); queue.append((mid, hi))
+                            }
+                        }
+                        for idx in priority {
+                            if fits(chosen + [idx]) { chosen.append(idx) }
+                        }
+                        chosen.sort()
+                    }
+                }
+                ticks = chosen.map { candidates[$0] }
+                tickBottom = ticks.map { Double($0.frame.maxY) }.max() ?? (top + swatchHeight)
             }
-            top=y+rowHeight+6
-            missingY=top
-            top += 20
-        } else { missingY=top }
+            missingY = tickBottom + 3.0
+            let missingTextSize = MUMapTypography.measure("无数据", width: usable, size: 9.5)
+            let missingRowH = max(9.0, Double(missingTextSize.height))
+            resolvedMissingHeight = missingRowH
+            let missingRight = 10.0 + 7.0 + 4.0 + Double(missingTextSize.width)
+            if !bins.edges.isEmpty {
+                let summary = "首档 \(bins.label(0)) · 末档 \(bins.label(bins.count - 1))"
+                resolvedEndsText = summary
+                let naturalEnds = MUMapTypography.measure(summary, width: 100000, size: 9.5)
+                if missingRight + 8.0 + Double(naturalEnds.width) <= self.width - 10.0 {
+                    let ex = max(missingRight + 8.0, self.width - 10.0 - Double(naturalEnds.width))
+                    resolvedEndsRect = CGRect(x: ex, y: missingY, width: Double(naturalEnds.width), height: Double(naturalEnds.height))
+                    top = missingY + max(missingRowH, Double(naturalEnds.height)) + 4.0
+                } else {
+                    let wrappedEnds = MUMapTypography.measure(summary, width: usable, size: 9.5)
+                    resolvedEndsRect = CGRect(x: 10.0, y: missingY + missingRowH + 2.0, width: usable, height: Double(wrappedEnds.height))
+                    top = Double(resolvedEndsRect.maxY) + 4.0
+                }
+            } else {
+                top = missingY + missingRowH + 4.0
+            }
+        } else {
+            missingY = top
+        }
         legendFrames=frames
+        legendTickAnchors=anchors
+        legendTicks=ticks
+        legendSingleLabelRect=singleRect
+        missingHeight=resolvedMissingHeight
+        endsText=resolvedEndsText
+        endsRect=resolvedEndsRect
         unitY=top
         if unitHeight > 0 { top += unitHeight+4 }
         plotY=top

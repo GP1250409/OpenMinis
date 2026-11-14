@@ -16,7 +16,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
         DispatchQueue.main.async { self.renderMaps() }
         return true
     }
-    func maxPixelContrast(_ image: UIImage, box: CGRect, surface: MUMapRGB) -> Double {
+    func maxPixelContrast(_ image: UIImage, box: CGRect, surface: MUMapRGB, minimum: Double = 4.5) -> Double {
         let rect=CGRect(x:floor(box.minX*image.scale),y:floor(box.minY*image.scale),width:ceil(box.width*image.scale),height:ceil(box.height*image.scale))
         guard let cg=image.cgImage?.cropping(to:rect) else { return 0 }
         let w=cg.width, h=cg.height
@@ -34,7 +34,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
         for i in stride(from:0,to:bytes.count,by:4) {
             let l=0.2126*linear[Int(bytes[i])]+0.7152*linear[Int(bytes[i+1])]+0.0722*linear[Int(bytes[i+2])]
             result=max(result,(max(l,background)+0.05)/(min(l,background)+0.05))
-            if result >= 4.5 { return result }
+            if result >= minimum { return result }
         }
         return result
     }
@@ -151,13 +151,22 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                   else if cardCase == 3 { MUMapView(comp:comp).modifier(MUCardSurface(fill:Color.primary.opacity(0.04))).modifier(MUCardSurface(fill:fill)) }
                   else { MUMapView(comp:comp).modifier(MUCardSurface(fill:fill)) }
                 }.modifier(MURootSurface()).background(ChatColors.background).environment(\.colorScheme,scheme)
-                // Each label's complete native glyph measurement must fit;
-                // no ellipsis, font shrinking or silent range simplification.
+                // Compact 6pt single-row color strip + non-overlapping boundary ticks.
                 let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:true)
-                for (i,box) in m.legendFrames.enumerated() {
-                    let measured=MUMapTypography.measure(bins.label(i),width:box.width-8,size:11)
-                    guard measured.height<=box.height-12, box.maxX<=width-10+0.1, box.maxY<m.missingY else { fatalError("legend clipped") }
-                    dynamicChecks+=3
+                guard m.legendFrames.count == bins.count else { fatalError("swatch count mismatch") }
+                for box in m.legendFrames {
+                    guard abs(box.height - 6.0) < 0.01, abs(box.minY - m.legendY) < 0.01, box.maxX <= width - 10 + 0.1, box.maxY < m.missingY else { fatalError("legend swatch layout error") }
+                    dynamicChecks += 3
+                }
+                guard !m.legendTicks.isEmpty else { fatalError("missing legend ticks") }
+                if width == 320 {
+                    guard m.legendTicks.count == 7, m.unitY - m.legendY <= 52 else { fatalError("standard legend not compact or incomplete ticks") }
+                }
+                var prevTickMax = -Double.infinity
+                for tick in m.legendTicks {
+                    guard tick.frame.minX >= 10 - 0.1, tick.frame.maxX <= width - 10 + 0.1, tick.frame.minX >= prevTickMax + 3.9, tick.frame.maxY < m.missingY else { fatalError("tick clipped or overlapped") }
+                    prevTickMax = Double(tick.frame.maxX)
+                    dynamicChecks += 3
                 }
                 guard m.subtitleHeight > 30, m.sourceHeight > 20, m.plotY >= m.unitY+m.unitHeight else { fatalError("long explanation not fully allocated") }
                 dynamicChecks+=3
@@ -189,13 +198,20 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                 let (sr,sg,sb)=surface.rgb
                 guard zip(sampled.prefix(3),[sr,sg,sb]).allSatisfy({ abs(Double($0.0)-$0.1*255)<=3 }) else { fatalError("dynamic rendered surface differs from resolved production surface: \(sampled) \(surface.hex)") }
                 dynamicChecks+=3
+                let isDark = surface.luminance < 0.179
+                let primaryMin = isDark ? 10.0 : 4.5
+                let mutedMin = isDark ? 6.0 : 4.5
                 let subtitleY=16+m.titleHeight+4
-                for box in [CGRect(x:10,y:16,width:width-20,height:m.titleHeight),CGRect(x:10,y:subtitleY,width:width-20,height:m.subtitleHeight),CGRect(x:10,y:m.footerY+42,width:width-20,height:m.sourceHeight)] {
-                    guard maxPixelContrast(image,box:box,surface:surface)>=4.5 else { fatalError("dynamic explanation contrast") }
+                guard maxPixelContrast(image,box:CGRect(x:10,y:16,width:width-20,height:m.titleHeight),surface:surface,minimum:primaryMin)>=primaryMin else { fatalError("dynamic title contrast") }
+                guard maxPixelContrast(image,box:CGRect(x:10,y:subtitleY,width:width-20,height:m.subtitleHeight),surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic subtitle contrast") }
+                guard maxPixelContrast(image,box:CGRect(x:10,y:m.footerY+42,width:width-20,height:m.sourceHeight),surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic source contrast") }
+                dynamicChecks+=3
+                for tick in m.legendTicks {
+                    guard maxPixelContrast(image,box:tick.frame,surface:surface,minimum:primaryMin)>=primaryMin else { fatalError("dynamic tick contrast") }
                     dynamicChecks+=1
                 }
-                for box in m.legendFrames {
-                    guard maxPixelContrast(image,box:CGRect(x:box.minX+4,y:box.minY+12,width:box.width-8,height:box.height-12),surface:surface)>=4.5 else { fatalError("dynamic interval contrast") }
+                if m.endsRect != .zero {
+                    guard maxPixelContrast(image,box:m.endsRect,surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic endpoint summary contrast") }
                     dynamicChecks+=1
                 }
                 try! image.pngData()!.write(to:out.appendingPathComponent("dynamic-\(dynamicPNGs)-\(themeID)-\(dark)-\(cardCase)-\(Int(width)).png"))
