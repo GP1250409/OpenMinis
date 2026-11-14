@@ -575,9 +575,9 @@ def build_us_admin1(cache_dir):
     feats = [f for f in raw['features'] if f['properties'].get('admin') == 'United States of America']
     assert len(feats) == 51
     zones_cfg = {
-        'main': ('albers', [29.5, 45.5, -96.0, 23.0], [20, 0, 960, 520], [-126.0, -66.0, 24.0, 50.0], False, None),
-        'AK': ('albers', [55.0, 65.0, -154.0, 50.0], [30, 445, 240, 175], [170.0, -129.0, 50.0, 72.0], True, {'text': 'AK', 'x': 35, 'y': 620}),
-        'HI': ('albers', [8.0, 18.0, -157.0, 13.0], [300, 540, 145, 80], [-161.0, -154.0, 18.0, 23.0], False, {'text': 'HI', 'x': 300, 'y': 620}),
+        'main': ('albers', [29.5, 45.5, -96.0, 23.0], [20, 12, 960, 520], [-126.0, -66.0, 24.0, 50.0], False, None),
+        'AK': ('albers', [55.0, 65.0, -154.0, 50.0], [30, 458, 240, 175], [170.0, -129.0, 50.0, 72.0], True, {'text': 'AK', 'x': 35, 'y': 634}),
+        'HI': ('albers', [8.0, 18.0, -157.0, 13.0], [300, 552, 145, 80], [-161.0, -154.0, 18.0, 23.0], False, {'text': 'HI', 'x': 300, 'y': 634}),
     }
     zh_names = {
         'AL': '亚拉巴马州', 'AK': '阿拉斯加州', 'AZ': '亚利桑那州', 'AR': '阿肯色州', 'CA': '加利福尼亚州',
@@ -634,7 +634,7 @@ def build_us_admin1(cache_dir):
         'license': {'spdx': 'CC0-1.0 / Public Domain', 'attribution': 'Natural Earth (Public Domain)', 'commercialAllowed': True},
         'boundaryYear': 2022,
         'complianceNote': 'Natural Earth · Albers · AK/HI 插图 · 非导航地图',
-        'canvas': {'width': 1000.0, 'height': 640.0, 'coordScale': 10.0},
+        'canvas': {'width': 1000.0, 'height': 656.0, 'coordScale': 10.0},
         'styleHints': {'featureStrokeWidth': 0.9, 'overlayStrokeWidth': 1.0, 'clipToCanvas': False, 'drawSeaByDefault': True},
         'zones': zones,
         'features': features,
@@ -931,9 +931,9 @@ def build_us_county(cache_dir):
     state_rows = [(r, g) for r, g in read_shapefile_zip(sp) if r['STUSPS'] not in ('PR', 'VI', 'GU', 'MP', 'AS')]
     assert len(county_rows) == 3143
     zones_cfg = {
-        'main': ('albers', [29.5, 45.5, -96.0, 23.0], [20, 0, 960, 520], [-126.0, -66.0, 24.0, 50.0], False, None),
-        'AK': ('albers', [55.0, 65.0, -154.0, 50.0], [30, 445, 240, 175], [170.0, -129.0, 50.0, 72.0], True, {'text': 'AK', 'x': 35, 'y': 620}),
-        'HI': ('albers', [8.0, 18.0, -157.0, 13.0], [300, 540, 145, 80], [-161.0, -154.0, 18.0, 23.0], False, {'text': 'HI', 'x': 300, 'y': 620}),
+        'main': ('albers', [29.5, 45.5, -96.0, 23.0], [20, 12, 960, 520], [-126.0, -66.0, 24.0, 50.0], False, None),
+        'AK': ('albers', [55.0, 65.0, -154.0, 50.0], [30, 458, 240, 175], [170.0, -129.0, 50.0, 72.0], True, {'text': 'AK', 'x': 35, 'y': 634}),
+        'HI': ('albers', [8.0, 18.0, -157.0, 13.0], [300, 552, 145, 80], [-161.0, -154.0, 18.0, 23.0], False, {'text': 'HI', 'x': 300, 'y': 634}),
     }
     zone_pts = {k: [] for k in zones_cfg}
     items = []
@@ -993,7 +993,7 @@ def build_us_county(cache_dir):
         'license': {'spdx': 'Public Domain (17 U.S.C. § 105)', 'attribution': 'U.S. Census Bureau (Public Domain)', 'commercialAllowed': True},
         'boundaryYear': 2020,
         'complianceNote': 'US Census 2020 · 3,143 县 · Albers · AK/HI 插图 · 非导航地图',
-        'canvas': {'width': 1000.0, 'height': 640.0, 'coordScale': 20.0},
+        'canvas': {'width': 1000.0, 'height': 656.0, 'coordScale': 20.0},
         'styleHints': {'featureStrokeWidth': 0.25, 'overlayStrokeWidth': 0.85, 'clipToCanvas': False, 'drawSeaByDefault': True},
         'zones': zones,
         'features': features,
@@ -1262,11 +1262,11 @@ def build_cn_pack(cache_dir=None):
     bundle = json.loads(gzip.decompress(blob))
 
     main_z = {'id': 'main', 'projection': 'albers', 'params': [25.0, 47.0, 105.0, 35.0],
-              'frame': [8.0, 6.0, 692.0, 464.0], 'll': [73.0, 135.5, 17.5, 53.8]}
+              'frame': [6.0, 6.0, 780.0, 648.0], 'll': [73.0, 135.5, 17.5, 53.8]}
     scs_z = {'id': 'SCS', 'projection': 'albers', 'params': [3.0, 20.0, 112.0, 12.5],
-             'frame': [712.0, 246.0, 280.0, 244.0], 'll': [105.0, 125.0, 2.5, 25.0],
-             'insetLabel': {'text': '南海诸岛', 'x': 714.0, 'y': 232.0},
-             'insetBox': [712.0, 246.0, 280.0, 244.0]}
+             'frame': [796.0, 372.0, 198.0, 268.0], 'll': [105.0, 125.0, 2.5, 25.0],
+             'insetLabel': {'text': '南海诸岛', 'x': 798.0, 'y': 358.0},
+             'insetBox': [796.0, 372.0, 198.0, 268.0]}
     zones_cfg = [main_z, scs_z]
     frames = {z['id']: z['frame'] for z in zones_cfg}
     zone_pts = {'main': [], 'SCS': []}
@@ -1333,7 +1333,7 @@ def build_cn_pack(cache_dir=None):
         'license': {'spdx': 'DataV-Terms', 'attribution': 'DataV.GeoAtlas (高德)', 'commercialAllowed': False},
         'boundaryYear': 2024,
         'complianceNote': '中国34个省级行政区（含台港澳）· 含南海诸岛及九段线 · 仅供个人自用；公开发布须经自然资源主管部门审核并标注审图号',
-        'canvas': {'width': 1000.0, 'height': 496.0, 'coordScale': 20.0},
+        'canvas': {'width': 1000.0, 'height': 660.0, 'coordScale': 20.0},
         'styleHints': {'featureStrokeWidth': 0.7, 'overlayStrokeWidth': 1.1,
                        'clipToCanvas': False, 'drawSeaByDefault': True},
         'zones': zones,

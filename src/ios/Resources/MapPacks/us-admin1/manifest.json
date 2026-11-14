@@ -11,7 +11,7 @@
   "level": "admin1",
   "codeSystem": "USPS 2-letter / ISO 3166-2:US",
   "source": {
-    "name": "Natural Earth 1:50m Admin-1",
+    "name": "Natural Earth 1:10m Admin-1",
     "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_1_states_provinces.geojson",
     "version": "ca96624a",
     "inputSha256": "69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9"
@@ -25,7 +25,7 @@
   "complianceNote": "Natural Earth · Albers · AK/HI 插图 · 非导航地图",
   "canvas": {
     "width": 1000.0,
-    "height": 640.0,
+    "height": 656.0,
     "coordScale": 10.0
   },
   "styleHints": {
@@ -52,7 +52,7 @@
       ],
       "frame": [
         20,
-        0,
+        12,
         960,
         520
       ],
@@ -81,7 +81,7 @@
       ],
       "frame": [
         30,
-        445,
+        458,
         240,
         175
       ],
@@ -93,7 +93,7 @@
       "insetLabel": {
         "text": "AK",
         "x": 35,
-        "y": 620
+        "y": 634
       },
       "insetBox": null
     },
@@ -114,7 +114,7 @@
       ],
       "frame": [
         300,
-        540,
+        552,
         145,
         80
       ],
@@ -126,7 +126,7 @@
       "insetLabel": {
         "text": "HI",
         "x": 300,
-        "y": 620
+        "y": 634
       },
       "insetBox": null
     }
@@ -135,7 +135,7 @@
   "codesSha256": "817403efa5e797f86ed3f8620a7b0d157a9d7c59ac65d832ee70b641815d5db0",
   "geometry": {
     "file": "geometry.mump",
-    "sha256": "33735846f6a81640238614f4287ec458c1dc36c1fd102971f37cbd6e29641b37",
+    "sha256": "1af0cdc6a460c8e508c23c83f7f5fb4d5dfd1eae95b3e6ccce7a8cbcfe56720a",
     "bytes": 16652,
     "features": 51,
     "rings": 173,

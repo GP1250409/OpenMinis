@@ -24,7 +24,7 @@
   "complianceNote": "US Census 2020 · 3,143 县 · Albers · AK/HI 插图 · 非导航地图",
   "canvas": {
     "width": 1000.0,
-    "height": 640.0,
+    "height": 656.0,
     "coordScale": 20.0
   },
   "styleHints": {
@@ -51,7 +51,7 @@
       ],
       "frame": [
         20,
-        0,
+        12,
         960,
         520
       ],
@@ -80,7 +80,7 @@
       ],
       "frame": [
         30,
-        445,
+        458,
         240,
         175
       ],
@@ -92,7 +92,7 @@
       "insetLabel": {
         "text": "AK",
         "x": 35,
-        "y": 620
+        "y": 634
       },
       "insetBox": null
     },
@@ -113,7 +113,7 @@
       ],
       "frame": [
         300,
-        540,
+        552,
         145,
         80
       ],
@@ -125,7 +125,7 @@
       "insetLabel": {
         "text": "HI",
         "x": 300,
-        "y": 620
+        "y": 634
       },
       "insetBox": null
     }
@@ -134,7 +134,7 @@
   "codesSha256": "b8929801f3d2a9fa9b36265d1e9dcb4e1bbd780cac3a876a6cdba7ca55a7013f",
   "geometry": {
     "file": "geometry.mump",
-    "sha256": "2849d4e420f07019d2794aca7d9738051aef1e4aa48bf54b5bf24f86f3373711",
+    "sha256": "8eb671d22fbb0d283c7d924cbbd03ac4ca9a44c791d80e224e7a9d774b3e1b20",
     "bytes": 217072,
     "features": 3143,
     "rings": 3242,
