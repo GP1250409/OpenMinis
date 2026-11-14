@@ -36,11 +36,22 @@ def main():
     text = view.read_text()
     chart = text[text.index('enum MUChartStyle {'):text.index('private struct MUButton: View')]
     assert 'MUChartColumns.layout' in chart and 'MUChartRenderGeometryKey' in chart
+    # Drawing tokens precede MUChartStyle (the old slice start). Include the
+    # exact production value type, NOT the settings preview between the two:
+    # that preview depends on the ordinary MUNodeView/MUContext renderer.
+    drawing = block(text, 'struct MUChartDrawing {')
+    assert 'static let weightKey' in drawing and 'static let dashKey' in drawing
+    assert 'func width(' in drawing and 'func dash(' in drawing
     style = block(text, 'enum MUStyle {')
     generated = out / 'ChartFixture.swift'
     # A single file preserves production private visibility; no function body
     # is replaced and all MUChart/MUMultiChart/Theme code is actually compiled.
-    generated.write_text('import SwiftUI\nimport UIKit\nimport Charts\n' + style + '\n' + chart + '\n' + fixture.read_text())
+    generated.write_text('import SwiftUI\nimport UIKit\nimport Charts\n' + style + '\n' + drawing + '\n' + chart + '\n' + fixture.read_text())
+    generated_text = generated.read_text()
+    assert generated_text.count('struct MUChartDrawing {') == 1
+    assert drawing in generated_text, 'drawing tokens must be byte-for-byte production code'
+    assert 'struct MUChartSettingsPreview:' not in generated_text, 'ordinary preview is outside chart-only dependency closure'
+    print('CHART_RENDER_DEPENDENCY_PASS tokens=MUChartDrawing exact=1', flush=True)
     print('CHART_RENDER_PRODUCTION_SLICE_OK', len(chart), flush=True)
     if '--source-only' in sys.argv:
         print('CHART_RENDER_SOURCE_OK (no UIKit compilation or pixel validation)')
