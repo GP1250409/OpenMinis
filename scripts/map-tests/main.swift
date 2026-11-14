@@ -88,7 +88,7 @@ for name in ["BlockMap","GeoMap"] {
     check(MinisUIEngine.fallbackText(result.root).contains("来源：示意，非官方"),"\(name) source export")
 }
 check(!MinisUIEngine.validate("root = BlockMap(\"us\", [\"ZZ\"], [1])").ok,"Lang rejects unknown code")
-check(!MinisUIEngine.validate("root = GeoMap(\"cn\", [], [])").ok,"unshipped Geo China rejected")
+check(MinisUIEngine.validate("root = GeoMap(\"cn\", [], [])").ok,"shipped Geo China accepted")
 check(Set(MUMapGeometry.us.map(\.code))==states,"offline geometry 51 regions")
 check(MUMapGeometry.us.allSatisfy { !$0.rings.isEmpty && $0.rings.allSatisfy { $0.count>=4 } },"geometry rings complete")
 check(MUMapGeometry.us.flatMap(\.rings).flatMap { $0 }.allSatisfy { CGRect(x:0,y:0,width:1001,height:641).contains($0) },"all geometry inside canvas")
