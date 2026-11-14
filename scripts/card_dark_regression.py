@@ -52,6 +52,11 @@ choices=[d for ds in devices.values() for d in ds if 'iPhone' in d['name'] and d
 d=next((d for d in choices if d['state']=='Booted'),choices[0]); uid=d['udid']
 if d['state']!='Booted': run(['xcrun','simctl','boot',uid])
 run(['xcrun','simctl','bootstatus',uid,'-b']); run(['xcrun','simctl','install',uid,str(APP)])
+container=pathlib.Path(run(['xcrun','simctl','get_app_container',uid,info['CFBundleIdentifier'],'data']).strip())
+# Only this fixture's temporary simulator output; never an installed user app/package.
+if (container/'tmp/card-dark').exists(): shutil.rmtree(container/'tmp/card-dark')
+for stale in [*OUT.glob('*.png'), OUT/'result.log']:
+    if stale.exists(): stale.unlink()
 try:
     output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=180)
 except subprocess.CalledProcessError as e:
@@ -64,6 +69,6 @@ if BASELINE:
     print('CARD_DARK_BASELINE_BODY_FAILURE_REPRODUCED='+str('HOST_FAIL' in marker),flush=True)
     # Observation, never substituted for the current-code hard gate.
     sys.exit(0)
-assert 'CARD_DARK_HOST_PASS checks=54 png=46' in marker, marker
+assert 'CARD_DARK_HOST_PASS checks=58 png=46' in marker, marker
 assert len(list(OUT.glob('*.png')))==46
 print('CARD_DARK_ARTIFACT_OK png=46',flush=True)

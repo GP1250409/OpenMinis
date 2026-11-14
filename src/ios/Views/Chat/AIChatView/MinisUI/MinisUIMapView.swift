@@ -19,9 +19,9 @@ enum MUSurface {
     static func base(_ inherited: MUMapRGB?, scheme: ColorScheme) -> MUMapRGB {
         inherited ?? rgb(UIColor.systemBackground, over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
     }
-    static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
+    static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme, environment: EnvironmentValues? = nil) -> MUMapRGB {
         if #available(iOS 17.0, *) {
-            var environment = EnvironmentValues()
+            var environment = environment ?? EnvironmentValues()
             environment.colorScheme = scheme
             let c = color.resolve(in: environment)
             return rgb(UIColor(red: CGFloat(c.red), green: CGFloat(c.green), blue: CGFloat(c.blue), alpha: CGFloat(c.opacity)), over: background, scheme: scheme)
@@ -40,8 +40,8 @@ enum MUSurface {
         let foreground = MUMapRGB(hex: String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b)))
         return foreground.composited(over: background, alpha: Double(a))
     }
-    static func foreground(_ color: Color, on surface: MUMapRGB, scheme: ColorScheme, minimum: Double = 4.5) -> Color {
-        rgb(color, over: surface, scheme: scheme).readable(on: surface, minimum: minimum).color
+    static func foreground(_ color: Color, on surface: MUMapRGB, scheme: ColorScheme, minimum: Double = 4.5, environment: EnvironmentValues? = nil) -> Color {
+        rgb(color, over: surface, scheme: scheme, environment: environment).readable(on: surface, minimum: minimum).color
     }
 }
 // The same root path is used by chat cards and the native regression fixture.
@@ -62,10 +62,11 @@ struct MUCardTitle: View {
 }
 struct MUReadableText: ViewModifier {
     let color: Color
+    @Environment(\.self) private var appearance
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
-        content.foregroundStyle(MUSurface.foreground(color,on:MUSurface.base(inherited,scheme:scheme),scheme:scheme))
+        content.foregroundStyle(MUSurface.foreground(color,on:MUSurface.base(inherited,scheme:scheme),scheme:scheme,environment:appearance))
     }
 }
 // Shared by MUCard and the bitmap fixtures: no extra geometry or layout pass.
@@ -74,12 +75,13 @@ struct MUCardSurface: ViewModifier {
     var nativeFill: UIColor? = nil
     var cornerRadius: CGFloat = 14
     var bordered = true
+    @Environment(\.self) private var appearance
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
         let parent = MUSurface.base(inherited, scheme: scheme)
         let surface = nativeFill.map { MUSurface.rgb($0, over: parent, scheme: scheme) }
-            ?? MUSurface.rgb(fill, over: parent, scheme: scheme)
+            ?? MUSurface.rgb(fill, over: parent, scheme: scheme, environment: appearance)
         // Draw exactly the same opaque composite that descendants use. Resolving
         // fill a second time in SwiftUI can disagree with the hosting cell traits.
         content

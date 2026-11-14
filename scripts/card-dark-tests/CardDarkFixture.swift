@@ -14,7 +14,7 @@ private func nativeRGB(_ color: UIColor, over parent: MUMapRGB, scheme: ColorSch
 private struct SurfaceProbe: View {
     @Environment(\.muSurface) var surface
     let report: (MUMapRGB?) -> Void
-    var body: some View { Color.clear.onAppear { report(surface) }.onChange(of: surface?.hex) { _ in report(surface) } }
+    var body: some View { Color.clear.overlay(alignment: .topLeading) { MUCardTitle(title: "Readable surface text").padding(.top, 14).padding(.leading, 14) }.onAppear { report(surface) }.onChange(of: surface?.hex) { _ in report(surface) } }
 }
 @main final class CardDarkFixture: UIResponder, UIApplicationDelegate, UICollectionViewDataSource {
     var window: UIWindow?
@@ -125,7 +125,7 @@ private struct SurfaceProbe: View {
             host.view.layoutIfNeeded()
             let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
             let cg = image.cgImage!; var rgba = [UInt8](repeating: 0, count: 4)
-            let sample = cg.cropping(to: CGRect(x: cg.width/2, y: cg.height/2, width: 1, height: 1))!
+            let sample = cg.cropping(to: CGRect(x: cg.width/2, y: Int(Double(cg.height)*0.86), width: 1, height: 1))!
             let c = CGContext(data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
             c.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             let actual = MUMapRGB(hex: String(format: "#%02X%02X%02X", rgba[0],rgba[1],rgba[2]))
@@ -133,6 +133,7 @@ private struct SurfaceProbe: View {
             let a = actual.rgb, e = expected.rgb
             self.check(abs(a.0-e.0)<0.012 && abs(a.1-e.1)<0.012 && abs(a.2-e.2)<0.012, "painted surface \(index) actual=\(actual.hex) expected=\(expected.hex)")
             self.check(expected.ink.contrast(on: expected) >= 4.5, "surface ink \(index)")
+            self.audit(image, expected, "surface-\(index)", 0)
             try! image.pngData()!.write(to: self.output.appendingPathComponent("surface-\(index).png"))
             host.willMove(toParent: nil); host.view.removeFromSuperview(); host.removeFromParent()
             self.surfaceCase(index+1)
