@@ -21,6 +21,14 @@ private struct AppIconOption: Identifiable {
     let imageName: String  // bundle image file name for preview
 }
 
+private let appIconOptions: [AppIconOption] = [
+    AppIconOption(id: 0, title: "Automatic", subtitle: "Follows system", iconName: nil, imageName: "AlternateIcons/AppIcon-Light"),
+    AppIconOption(id: 1, title: "Light", subtitle: "Always light", iconName: "AppIcon-Light", imageName: "AlternateIcons/AppIcon-Light"),
+    AppIconOption(id: 2, title: "Dark", subtitle: "Always dark", iconName: "AppIcon-Dark", imageName: "AlternateIcons/AppIcon-Dark"),
+    AppIconOption(id: 3, title: "Light (Legacy)", subtitle: "Classic light icon", iconName: "AppIcon-LegacyLight", imageName: "AlternateIcons/AppIcon-LegacyLight"),
+    AppIconOption(id: 4, title: "Dark (Legacy)", subtitle: "Classic dark icon", iconName: "AppIcon-LegacyDark", imageName: "AlternateIcons/AppIcon-LegacyDark"),
+]
+
 private struct LanguageOption: Identifiable {
     let id: String   // language code, "" = system
     let name: String  // native name
@@ -346,13 +354,24 @@ struct AppearanceSettingsView: View {
     @AppStorage("chat.foldConsecutiveTools") private var foldConsecutiveTools: Bool = false
     @ObservedObject private var fontSettings = FontSettings.shared
 
-    private let iconOptions: [AppIconOption] = [
-        AppIconOption(id: 0, title: "Automatic", subtitle: "Follows system", iconName: nil, imageName: "AlternateIcons/AppIcon-Light"),
-        AppIconOption(id: 1, title: "Light", subtitle: "Always light", iconName: "AppIcon-Light", imageName: "AlternateIcons/AppIcon-Light"),
-        AppIconOption(id: 2, title: "Dark", subtitle: "Always dark", iconName: "AppIcon-Dark", imageName: "AlternateIcons/AppIcon-Dark"),
-        AppIconOption(id: 3, title: "Light (Legacy)", subtitle: "Classic light icon", iconName: "AppIcon-LegacyLight", imageName: "AlternateIcons/AppIcon-LegacyLight"),
-        AppIconOption(id: 4, title: "Dark (Legacy)", subtitle: "Classic dark icon", iconName: "AppIcon-LegacyDark", imageName: "AlternateIcons/AppIcon-LegacyDark"),
-    ]
+    enum LanguageSummaryDisplay: Equatable {
+        case localizedKey(String)
+        case verbatim(String)
+    }
+
+    static func appIconSummaryKey(for mode: Int) -> String {
+        appIconOptions.first(where: { $0.id == mode })?.title ?? "Automatic"
+    }
+
+    static func languageSummary(for languageId: String) -> LanguageSummaryDisplay {
+        if languageId.isEmpty {
+            return .localizedKey("System")
+        }
+        if let matched = supportedLanguages.first(where: { $0.id == languageId }) {
+            return .verbatim(matched.name)
+        }
+        return .verbatim(languageId)
+    }
 
     /// Settings' choices, plus a value set from `minis-config` that is not one
     /// of them, so the picker never shows an empty selection.
@@ -403,11 +422,11 @@ struct AppearanceSettingsView: View {
             }
 
             Section {
-                Picker(AppLocalized("Return Key"), selection: $returnKeyBehavior) {
-                    Text(AppLocalized("Newline")).tag(0)
-                    Text(AppLocalized("Send")).tag(1)
+                Picker("Return Key", selection: $returnKeyBehavior) {
+                    Text("Newline").tag(0)
+                    Text("Send").tag(1)
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
             } header: {
                 Text("Return Key")
             } footer: {
@@ -514,112 +533,42 @@ struct AppearanceSettingsView: View {
                 Text("Scale fonts for chat input, message content, and general app text. Changes apply immediately.")
             }
 
-            if UIApplication.shared.supportsAlternateIcons {
-                Section {
-                    ForEach(iconOptions) { option in
-                        Button {
-                            guard appIconMode != option.id else { return }
-                            appIconMode = option.id
-                            UIApplication.shared.setAlternateIconName(option.iconName) { error in
-                                if let error = error {
-                                    print("[AppIcon] Failed to set icon: \(error.localizedDescription)")
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 14) {
-                                if let img = UIImage(named: option.imageName) {
-                                    Image(uiImage: img)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: 60, height: 60)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
-                                        )
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    // `option.title` / `option.subtitle` are fixed English
-                                    // keys ("Automatic", "Light", "Always light", etc.).
-                                    // Wrap in LocalizedStringKey so the catalog lookup kicks
-                                    // in — Text(String) would render them verbatim.
-                                    Text(LocalizedStringKey(option.title))
-                                        .foregroundStyle(.primary)
-                                    Text(LocalizedStringKey(option.subtitle))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if appIconMode == option.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.blue)
-                                        .font(.title3)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                } header: {
-                    Text("App Icon")
-                } footer: {
-                    Text("\"Automatic\" uses the system icon which adapts to Dark Mode on iOS 18+.")
-                }
-            }
-
             Section {
-                ForEach(supportedLanguages) { lang in
-                    Button {
-                        // Persist a reopen-hint BEFORE flipping appLanguage —
-                        // the @AppStorage write triggers the root
-                        // `.id(appLanguage)` rebuild in MinisApp.swift, which
-                        // drops the entire view tree including the Settings
-                        // sheet. ContentView/SettingsSheet read this flag on
-                        // re-mount and reopen the sheet + push back to the
-                        // Appearance page so the user lands where they were
-                        // with all strings rendered in the new language.
-                        UserDefaults.standard.set("appearance", forKey: "pendingSettingsReopen")
-                        // [T-ios-stacknav-transition-attributegraph-race] The
-                        // `.id(appLanguage)` re-key below is the app's only
-                        // unconditional WHOLE-TREE teardown, and a chat can be
-                        // streaming underneath this sheet while it happens —
-                        // the same hosting-subgraph race the push/pop observers
-                        // guard, with every mounted vm outgoing at once. Pin
-                        // them all across the re-mount. No-ops when nothing is
-                        // processing, which is the overwhelmingly common case.
-                        ViewModelCache.shared.suspendAllForTreeRemount()
-                        appLanguage = lang.id
-                        Bundle.setLanguage(lang.id.isEmpty ? nil : lang.id)
-                    } label: {
-                        HStack(spacing: 12) {
-                            if !lang.flag.isEmpty {
-                                Text(lang.flag).font(.title2)
-                            } else {
-                                Image(systemName: "globe")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 28)
-                            }
-                            Text(lang.name)
-                                .foregroundStyle(.primary)
+                if UIApplication.shared.supportsAlternateIcons {
+                    NavigationLink(value: SettingsDestination.appearanceAppIcon) {
+                        HStack {
+                            Text("App Icon")
                             Spacer()
-                            if appLanguage == lang.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.blue)
-                                    .fontWeight(.semibold)
-                            }
+                            Text(LocalizedStringKey(Self.appIconSummaryKey(for: appIconMode)))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
-            } header: {
-                Text("Language")
-            } footer: {
-                Text("Override the display language for this app. \"System\" follows your device language.")
+
+                NavigationLink(value: SettingsDestination.appearanceLanguage) {
+                    HStack {
+                        Text("Language")
+                        Spacer()
+                        languageSummaryView
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .background(InteractivePopGestureDisabler())
+    }
+
+    @ViewBuilder
+    private var languageSummaryView: some View {
+        switch Self.languageSummary(for: appLanguage) {
+        case .localizedKey(let key):
+            Text(LocalizedStringKey(key))
+        case .verbatim(let text):
+            Text(verbatim: text)
+        }
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at
@@ -662,5 +611,127 @@ private struct InteractivePopGestureDisabler: UIViewRepresentable {
                 responder = r.next
             }
         }
+    }
+}
+
+// MARK: - App Icon Secondary Settings
+
+struct AppIconSettingsView: View {
+    @AppStorage("appIconMode") private var appIconMode: Int = 0
+
+    var body: some View {
+        List {
+            if UIApplication.shared.supportsAlternateIcons {
+                Section {
+                    ForEach(appIconOptions) { option in
+                        Button {
+                            guard appIconMode != option.id else { return }
+                            appIconMode = option.id
+                            UIApplication.shared.setAlternateIconName(option.iconName) { error in
+                                if let error = error {
+                                    print("[AppIcon] Failed to set icon: \(error.localizedDescription)")
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 14) {
+                                if let img = UIImage(named: option.imageName) {
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 60, height: 60)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
+                                        )
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    // `option.title` / `option.subtitle` are fixed English
+                                    // keys ("Automatic", "Light", "Always light", etc.).
+                                    // Wrap in LocalizedStringKey so the catalog lookup kicks
+                                    // in — Text(String) would render them verbatim.
+                                    Text(LocalizedStringKey(option.title))
+                                        .foregroundStyle(.primary)
+                                    Text(LocalizedStringKey(option.subtitle))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if appIconMode == option.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.blue)
+                                        .font(.title3)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                } footer: {
+                    Text("\"Automatic\" uses the system icon which adapts to Dark Mode on iOS 18+.")
+                }
+            }
+        }
+        .navigationTitle("App Icon")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Language Secondary Settings
+
+struct LanguageSettingsView: View {
+    @AppStorage("appLanguage") private var appLanguage: String = ""
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(supportedLanguages) { lang in
+                    Button {
+                        // Persist a reopen-hint BEFORE flipping appLanguage —
+                        // the @AppStorage write triggers the root
+                        // `.id(appLanguage)` rebuild in MinisApp.swift, which
+                        // drops the entire view tree including the Settings
+                        // sheet. ContentView/SettingsSheet read this flag on
+                        // re-mount and reopen the sheet + push back to the
+                        // Language secondary page so the user lands where they
+                        // were with all strings rendered in the new language.
+                        UserDefaults.standard.set("appearance-language", forKey: "pendingSettingsReopen")
+                        // [T-ios-stacknav-transition-attributegraph-race] The
+                        // `.id(appLanguage)` re-key below is the app's only
+                        // unconditional WHOLE-TREE teardown, and a chat can be
+                        // streaming underneath this sheet while it happens —
+                        // the same hosting-subgraph race the push/pop observers
+                        // guard, with every mounted vm outgoing at once. Pin
+                        // them all across the re-mount. No-ops when nothing is
+                        // processing, which is the overwhelmingly common case.
+                        ViewModelCache.shared.suspendAllForTreeRemount()
+                        appLanguage = lang.id
+                        Bundle.setLanguage(lang.id.isEmpty ? nil : lang.id)
+                    } label: {
+                        HStack(spacing: 12) {
+                            if !lang.flag.isEmpty {
+                                Text(lang.flag).font(.title2)
+                            } else {
+                                Image(systemName: "globe")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28)
+                            }
+                            Text(lang.name)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if appLanguage == lang.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.blue)
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                    }
+                }
+            } footer: {
+                Text("Override the display language for this app. \"System\" follows your device language.")
+            }
+        }
+        .navigationTitle("Language")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

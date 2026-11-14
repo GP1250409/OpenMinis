@@ -12,7 +12,7 @@ import SwiftUI
 
 // MARK: - Settings Sheet
 
-private enum SettingsDestination: Hashable {
+enum SettingsDestination: Hashable {
     case providers
     case providerDetail(instanceId: String)
     case modelGroups
@@ -29,6 +29,8 @@ private enum SettingsDestination: Hashable {
     case sharedFolders
     case logs
     case appearance
+    case appearanceAppIcon
+    case appearanceLanguage
     case background
     case about
     case permissions
@@ -419,6 +421,10 @@ struct SettingsSheet: View {
                         .onAppear { deepLink.pendingLogsTab = nil }
                 case .appearance:
                     AppearanceSettingsView()
+                case .appearanceAppIcon:
+                    AppIconSettingsView()
+                case .appearanceLanguage:
+                    LanguageSettingsView()
                 case .background:
                     EnhancedBackgroundSettingsView()
                 case .about:
@@ -459,6 +465,9 @@ struct SettingsSheet: View {
                     switch dest {
                     case "appearance":
                         navPath.append(SettingsDestination.appearance)
+                    case "appearance-language":
+                        navPath.append(SettingsDestination.appearance)
+                        navPath.append(SettingsDestination.appearanceLanguage)
                     default:
                         break
                     }
