@@ -153,8 +153,8 @@ for darkBg in ["#000000","#1C1C1E","#2A2A2A","#30302E","#28292D"] {
 
 let store = MUMapPackStore.shared
 let packIds = store.availablePackIds()
-let expectedPacks = ["us-admin1","world-admin0","europe-admin0","de-admin1","jp-admin1","ca-admin1","au-admin1","br-admin1","kr-admin1","gb-admin1","fr-admin1","it-admin1","es-admin1","us-county"]
-check(Set(packIds) == Set(expectedPacks), "all 14 Phase 1 packs loaded from catalog")
+let expectedPacks = ["us-admin1","world-admin0","europe-admin0","de-admin1","jp-admin1","ca-admin1","au-admin1","br-admin1","kr-admin1","gb-admin1","fr-admin1","it-admin1","es-admin1","us-county","cn-admin1"]
+check(Set(packIds) == Set(expectedPacks), "all 15 packs loaded from catalog")
 
 // 1. Pack protocol safety & binary decoder rejection tests
 check(!MUMapPackDecoder.isSafePackId("../etc"), "reject path traversal packId")

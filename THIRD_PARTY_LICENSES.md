@@ -69,8 +69,11 @@ from pinned upstream sources via `python3 scripts/generate_map_packs.py`.
   `MinisUIMapData.swift`):
   - Upstream commit `ca96624a56bd078437bca8184e78163e5039ad19`
     (`ne_50m_admin_0_countries.geojson` SHA256 `3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb`,
+    `ne_10m_admin_0_countries.geojson` SHA256 `239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255`,
     `ne_50m_admin_1_states_provinces.geojson` SHA256 `69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9`,
     `ne_10m_admin_1_states_provinces.geojson` SHA256 `22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5`).
+  - `world-*0` and `europe-*0` are built from the **1:10m** countries file;
+    `de/jp/ca/au/br/kr-*1` from the **1:10m** states/provinces file.
   - License: **Public Domain**. First-party terms:
     https://www.naturalearthdata.com/about/terms-of-use/
     (cartographic overview boundaries, not standard national boundaries or navigation data).
@@ -86,7 +89,21 @@ from pinned upstream sources via `python3 scripts/generate_map_packs.py`.
   - `es-admin1` (19 communities/cities): `geoBoundaries-ESP-ADM1_simplified.geojson` (SHA256 `b61a1bf661b90883763f633f5e9dbc27e7356309e42cbe56b60d2ceab5112f63`) — IGN-ES, **CC BY 4.0**.
 - **China Boundaries**:
   - `BlockMap("cn", ...)` uses original project topology (34 provincial-level tiles including Taiwan, Hong Kong, and Macao; explicitly NOT a geographic boundary map or standard map).
-  - No China geographic boundary dataset (`GeoMap("cn")`) is bundled in the default repository or IPA; standard-map compliance (`GS` review approval), redistribution authorization, and South China Sea inset requirements must be supplied/verified before enabling a `cn-admin1` pack.
+  - `GeoMap("cn")` -> `cn-admin1` (34 province-level units including Taiwan, Hong Kong and
+    Macao, plus the nine-dash line as an overlay and a South China Sea inset):
+    - Source: `https://geo.datav.aliyun.com/areas_v3/bound/{adcode}_full.json`, fetched
+      2026-11-15; per-province city polygons merged to one polygon per province and
+      checked in as the reproducible bundle `scripts/data/cn_source.json.gz`
+      (SHA256 `b683eef7c21cac7967e680c7f4126e499231a83ff68d5439cc61a9b8d0697983`).
+    - Upstream: DataV.GeoAtlas (Alibaba Cloud), derived from AutoNavi/高德. Upstream
+      terms are "for learning and exchange only" and do **not** grant commercial
+      redistribution.
+    - **Compliance status: NOT map-review approved.** Enabled for personal,
+      non-published use only. Publishing or distributing any build that renders this
+      pack inside China requires review by the competent natural-resources authority and
+      a printed map approval number (审图号), e.g. through 自然资源部标准地图服务
+      (`bzdt.ch.mnr.gov.cn`). Including the South China Sea inset and the nine-dash line
+      does not by itself constitute approval.
 - Economist maps styleguide (5 May 2017, pp.3–6, 8–9,12): layout/colour references
   only, documented in `docs/minismod/CHARTS.md` and `docs/minismod/MAPS.md`; original
   PDF/artwork/fonts are NOT bundled or redistributed. Named screen palettes are sampled

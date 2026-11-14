@@ -11,10 +11,10 @@
   "level": "admin0",
   "codeSystem": "ISO 3166-1 alpha-2 (+ Natural Earth codes)",
   "source": {
-    "name": "Natural Earth 1:50m Admin-0 (excl. Antarctica)",
-    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_0_countries.geojson",
+    "name": "Natural Earth 1:10m Admin-0 (excl. Antarctica)",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin0_countries.geojson",
     "version": "ca96624a",
-    "inputSha256": "3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb"
+    "inputSha256": "239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255"
   },
   "license": {
     "spdx": "CC0-1.0 / Public Domain",
@@ -22,7 +22,7 @@
     "commercialAllowed": true
   },
   "boundaryYear": 2022,
-  "complianceNote": "Natural Earth 1:50m · Equal Earth · 制图概览边界，非标准国界或导航地图",
+  "complianceNote": "Natural Earth 1:10m · Equal Earth · 制图概览边界，非标准国界或导航地图",
   "canvas": {
     "width": 1000.0,
     "height": 510.0,
@@ -42,10 +42,10 @@
         0.0
       ],
       "bounds": [
-        -2.655438336553273,
-        -1.0677242663398996,
-        2.680663804603381,
-        1.3052585275668187
+        -2.6559893302196054,
+        -1.0811741869775782,
+        2.687860581402495,
+        1.3053873983245008
       ],
       "frame": [
         12,
@@ -63,14 +63,14 @@
     }
   ],
   "codesFile": "codes.tsv",
-  "codesSha256": "ea189d502852879e79ae3661665689a48c9e39c990681de1537d1ee233598785",
+  "codesSha256": "82b81e25e8c8ecf0bd2b92ef3ee2c2c123d6688b480548e45b84846c87b47f07",
   "geometry": {
     "file": "geometry.mump",
-    "sha256": "74193670592194c13638043efc34e191684dfde95db5d6757ae331e365ee3bc5",
-    "bytes": 55100,
-    "features": 241,
-    "rings": 678,
-    "vertices": 11929,
+    "sha256": "c961418a8f8cdf66ad82cefbf6ebf7dfe1639bc8bb1ac93e901c7dc66485964a",
+    "bytes": 299560,
+    "features": 253,
+    "rings": 1911,
+    "vertices": 70554,
     "overlays": 0
   }
 }

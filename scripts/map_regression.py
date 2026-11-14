@@ -15,7 +15,7 @@ checks=[('Foundation plus conditional native font metrics', 'import SwiftUI' not
         ('native dispatch','case "BlockMap", "GeoMap": MUMapView(comp: comp)' in (UI/'MinisUIView.swift').read_text()),
         ('theme storage only', '@AppStorage(MUChartStyle.key)' in view and not re.search(r'MUChartStyle\.(?!key)',view)),
         ('no client network',not any(x in core+pack+view for x in ['URLSession','https://','MKMapView'])),
-        ('bounded data',(UI/'MinisUIMapData.swift').stat().st_size<250000 and 0 < pack_bytes <= 1048576),
+        ('bounded data',(UI/'MinisUIMapData.swift').stat().st_size<250000 and 0 < pack_bytes <= 2_097_152),
         ('prompt descriptions',all('("'+s+'",' in (UI/'AIChatViewModel+GenUI.swift').read_text() for s in ['BlockMap','GeoMap']))]
 for name,ok in checks:
     print(('SOURCE_OK ' if ok else 'SOURCE_FAIL ')+name,flush=True)

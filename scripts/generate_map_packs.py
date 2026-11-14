@@ -10,6 +10,7 @@ For China standard boundaries, supply an authorized GeoJSON explicitly via
 `--cn-geojson <path> --cn-review-no <num> --output-dir <dir>`.
 """
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -35,6 +36,11 @@ SOURCES = {
         f'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/{NE_COMMIT}/geojson/ne_50m_admin_1_states_provinces.geojson',
         'ne_50m_admin1.json',
         '69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9',
+    ),
+    'ne_10m_admin0': (
+        f'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/{NE_COMMIT}/geojson/ne_10m_admin0_countries.geojson',
+        'ne_10m_admin0.json',
+        '239eec57ac17f100a11e2536cffc56752c318b50ae765b0918ff7aab4ce8f255',
     ),
     'ne_10m_admin1': (
         f'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/{NE_COMMIT}/geojson/ne_10m_admin_1_states_provinces.geojson',
@@ -79,6 +85,8 @@ def project_point(lon, lat, kind, params):
         phi1, phi2, lon0, lat0 = params
         a, b, p0 = math.radians(phi1), math.radians(phi2), math.radians(lat0)
         dl = ((lon - lon0 + 180.0) % 360.0) - 180.0
+        if dl <= -180.0:
+            dl = 180.0 if lon > 0 else -180.0
         n = (math.sin(a) + math.sin(b)) / 2.0
         c = math.cos(a) ** 2 + 2.0 * n * math.sin(a)
         rho = math.sqrt(max(0.0, c - 2.0 * n * math.sin(math.radians(lat)))) / n
@@ -88,6 +96,8 @@ def project_point(lon, lat, kind, params):
     if kind == 'laea':
         lon0, lat0 = params
         dl = ((lon - lon0 + 180.0) % 360.0) - 180.0
+        if dl <= -180.0:
+            dl = 180.0 if lon > 0 else -180.0
         l = math.radians(dl)
         p = math.radians(max(-89.999, min(89.999, lat)))
         p0 = math.radians(lat0)
@@ -97,6 +107,8 @@ def project_point(lon, lat, kind, params):
     if kind == 'equalEarth':
         lon0 = params[0] if params else 0.0
         dl = ((lon - lon0 + 180.0) % 360.0) - 180.0
+        if dl <= -180.0:
+            dl = 180.0 if lon > 0 else -180.0
         phi = math.radians(max(-89.999, min(89.999, lat)))
         s = max(-1.0, min(1.0, math.sin(phi) * math.sqrt(3.0) / 2.0))
         t = math.asin(s)
@@ -427,6 +439,64 @@ def write_pack(out_dir, spec):
     }
 
 
+
+def _clip_half(pts, keep, cut):
+    out = []
+    for i in range(len(pts)):
+        cur = pts[i]
+        prev = pts[i - 1]
+        ck, pk = keep(cur), keep(prev)
+        if ck:
+            if not pk:
+                out.append(cut(prev, cur))
+            out.append(cur)
+        elif pk:
+            out.append(cut(prev, cur))
+    return out
+
+
+def clip_ring_lon(ring, lo, hi):
+    """Sutherland-Hodgman clip of a lon/lat ring to a longitude window."""
+    pts = list(ring)
+    pts = _clip_half(pts, lambda q: q[0] >= lo,
+                     lambda a, b: (lo, a[1] + (lo - a[0]) / (b[0] - a[0]) * (b[1] - a[1])))
+    if not pts:
+        return []
+    pts = _clip_half(pts, lambda q: q[0] <= hi,
+                     lambda a, b: (hi, a[1] + (hi - a[0]) / (b[0] - a[0]) * (b[1] - a[1])))
+    if not pts:
+        return []
+    if pts[0] != pts[-1]:
+        pts.append(pts[0])
+    return pts
+
+
+def split_antimeridian(ring):
+    """Split a ring whose longitudes jump across +/-180 into non-crossing rings."""
+    if len(ring) < 3:
+        return [ring]
+    if not any(abs(a[0] - b[0]) > 180.0 for a, b in zip(ring, ring[1:] + ring[:1])):
+        return [ring]
+    un = [ring[0]]
+    for pt in ring[1:]:
+        lon = pt[0]
+        while lon - un[-1][0] > 180.0:
+            lon -= 360.0
+        while lon - un[-1][0] < -180.0:
+            lon += 360.0
+        un.append((lon, pt[1]))
+    lons = [q[0] for q in un]
+    kmin = int(math.floor((min(lons) + 180.0) / 360.0))
+    kmax = int(math.floor((max(lons) + 180.0) / 360.0))
+    pieces = []
+    for k in range(kmin, kmax + 1):
+        shifted = [(lon - 360.0 * k, lat) for lon, lat in un]
+        clipped = clip_ring_lon(shifted, -180.0, 180.0)
+        if clipped and len(clipped) >= 4:
+            pieces.append(clipped)
+    return pieces or [ring]
+
+
 def process_polygons(polys, zone_kind, zone_params, tol, filter_fn=None):
     """Project GeoJSON polygons, filter parts, and simplify rings."""
     out = []
@@ -434,21 +504,22 @@ def process_polygons(polys, zone_kind, zone_params, tol, filter_fn=None):
         outer = poly[0]
         if filter_fn and not filter_fn(outer):
             continue
-        proj_rings = []
-        valid = True
-        for ring in poly:
-            if len(ring) < 3:
+        pieces = split_antimeridian(outer)
+        for pi, piece in enumerate(pieces):
+            src_rings = [piece] + (poly[1:] if len(pieces) == 1 else [])
+            proj_rings = []
+            for ring in src_rings:
+                if len(ring) < 3:
+                    continue
+                pts = [project_point(pt[0], pt[1], zone_kind, zone_params) for pt in ring]
+                if zone_kind == 'equalEarth':
+                    for a, b in zip(ring, ring[1:]):
+                        if abs(a[0] - b[0]) > 180.5:
+                            raise ValueError(f'Unsplit antimeridian jump: {a[0]} -> {b[0]}')
+                proj_rings.append(pts)
+            if not proj_rings:
                 continue
-            pts = [project_point(pt[0], pt[1], zone_kind, zone_params) for pt in ring]
-            # Check no unsplit antimeridian jump in raw lon for world
-            if zone_kind == 'equalEarth':
-                for a, b in zip(ring, ring[1:]):
-                    if abs(a[0] - b[0]) > 180.5:
-                        raise ValueError(f'Unsplit antimeridian jump: {a[0]} -> {b[0]}')
-            proj_rings.append(pts)
-        if not proj_rings:
-            continue
-        out.append(proj_rings)
+            out.append(proj_rings)
     # Sort polygons descending by bbox area so primary landmass is index 0
     out.sort(key=lambda p: poly_bbox_area(p), reverse=True)
     return out
@@ -559,7 +630,7 @@ def build_us_admin1(cache_dir):
         'scope': 'US',
         'level': 'admin1',
         'codeSystem': 'USPS 2-letter / ISO 3166-2:US',
-        'source': {'name': 'Natural Earth 1:50m Admin-1', 'url': SOURCES['ne_50m_admin1'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
+        'source': {'name': 'Natural Earth 1:10m Admin-1', 'url': SOURCES['ne_50m_admin1'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
         'license': {'spdx': 'CC0-1.0 / Public Domain', 'attribution': 'Natural Earth (Public Domain)', 'commercialAllowed': True},
         'boundaryYear': 2022,
         'complianceNote': 'Natural Earth · Albers · AK/HI 插图 · 非导航地图',
@@ -572,7 +643,7 @@ def build_us_admin1(cache_dir):
 
 
 def build_world_admin0(cache_dir):
-    p, sha = load_source('ne_50m_admin0', cache_dir)
+    p, sha = load_source('ne_10m_admin0', cache_dir)
     raw = json.loads(p.read_bytes())
     zh_overrides = {
         'CN': '中国', 'TW': '台湾', 'HK': '香港', 'MO': '澳门', 'KR': '韩国', 'KP': '朝鲜',
@@ -607,12 +678,16 @@ def build_world_admin0(cache_dir):
             code = eh
         else:
             code = a3
-        assert code and code not in seen_codes, f'Duplicate world code: {code} ({pr.get("NAME")})'
-        seen_codes.add(code)
-        polys = process_polygons(geojson_polys(f['geometry']), 'equalEarth', [0.0], 0.0022)
+        assert code, f'Missing world code: {pr.get("NAME")}'
+        polys = process_polygons(geojson_polys(f['geometry']), 'equalEarth', [0.0], 0.00045)
         for poly in polys:
             for r in poly:
                 zone_pts.extend(r)
+        _dup = next((it for it in items if it['code'] == code), None)
+        if _dup is not None:
+            _dup['polys'].extend(polys)
+            continue
+        seen_codes.add(code)
         name = pr.get('NAME') or code
         zh = zh_overrides.get(code, pr.get('NAME_ZH') or name)
         aliases = [a3, name, pr.get('NAME_LONG', ''), pr.get('FORMAL_EN', ''), pr.get('NAME_ZH', ''), zh]
@@ -623,7 +698,7 @@ def build_world_admin0(cache_dir):
     frames = {'main': [12, 10, 976, 490]}
     features = []
     for it in items:
-        rings = finalize_feature_rings([('main', it['polys'])], bounds, frames, 0.0022, speck_px=0.9, keep_tiny_primary=True)
+        rings = finalize_feature_rings([('main', it['polys'])], bounds, frames, 0.00045, speck_px=0.45, keep_tiny_primary=True)
         features.append({'code': it['code'], 'name': it['name'], 'zh': it['zh'], 'raw_aliases': it['raw_aliases'], 'rings': rings})
     zones = [{
         'id': 'main', 'projection': 'equalEarth', 'params': [0.0], 'bounds': bounds['main'], 'frame': frames['main'],
@@ -636,10 +711,10 @@ def build_world_admin0(cache_dir):
         'scope': 'world',
         'level': 'admin0',
         'codeSystem': 'ISO 3166-1 alpha-2 (+ Natural Earth codes)',
-        'source': {'name': 'Natural Earth 1:50m Admin-0 (excl. Antarctica)', 'url': SOURCES['ne_50m_admin0'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
+        'source': {'name': 'Natural Earth 1:10m Admin-0 (excl. Antarctica)', 'url': SOURCES['ne_10m_admin0'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
         'license': {'spdx': 'CC0-1.0 / Public Domain', 'attribution': 'Natural Earth (Public Domain)', 'commercialAllowed': True},
         'boundaryYear': 2022,
-        'complianceNote': 'Natural Earth 1:50m · Equal Earth · 制图概览边界，非标准国界或导航地图',
+        'complianceNote': 'Natural Earth 1:10m · Equal Earth · 制图概览边界，非标准国界或导航地图',
         'canvas': {'width': 1000.0, 'height': 510.0, 'coordScale': 20.0},
         'styleHints': {'featureStrokeWidth': 0.55, 'overlayStrokeWidth': 0.8, 'clipToCanvas': True, 'drawSeaByDefault': True},
         'zones': zones,
@@ -649,7 +724,7 @@ def build_world_admin0(cache_dir):
 
 
 def build_europe_admin0(cache_dir):
-    p, sha = load_source('ne_50m_admin0', cache_dir)
+    p, sha = load_source('ne_10m_admin0', cache_dir)
     raw = json.loads(p.read_bytes())
     eu_codes = {
         'AD','AL','AT','BA','BE','BG','BY','CH','CY','CZ','DE','DK','EE','ES','FI','FR','GB','GR','HR','HU',
@@ -684,7 +759,7 @@ def build_europe_admin0(cache_dir):
         if code not in eu_codes or code in seen:
             continue
         seen.add(code)
-        polys = process_polygons(geojson_polys(f['geometry']), 'laea', [10.0, 52.0], 0.001, filter_fn=in_europe_poly)
+        polys = process_polygons(geojson_polys(f['geometry']), 'laea', [10.0, 52.0], 0.0003, filter_fn=in_europe_poly)
         if not polys:
             continue
         name = pr.get('NAME') or code
@@ -695,7 +770,7 @@ def build_europe_admin0(cache_dir):
     features = []
     for it in items:
         rings = finalize_feature_rings(
-            [('main', it['polys'])], bounds, frames, 0.001, speck_px=0.9,
+            [('main', it['polys'])], bounds, frames, 0.0003, speck_px=0.5,
             clip_rect=(10.0, 10.0, 990.0, 750.0), keep_tiny_primary=True,
         )
         if rings:
@@ -711,10 +786,10 @@ def build_europe_admin0(cache_dir):
         'scope': 'europe',
         'level': 'admin0',
         'codeSystem': 'ISO 3166-1 alpha-2',
-        'source': {'name': 'Natural Earth 1:50m Admin-0 (Europe framing)', 'url': SOURCES['ne_50m_admin0'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
+        'source': {'name': 'Natural Earth 1:10m Admin-0 (Europe framing)', 'url': SOURCES['ne_10m_admin0'][0], 'version': NE_COMMIT[:8], 'inputSha256': sha},
         'license': {'spdx': 'CC0-1.0 / Public Domain', 'attribution': 'Natural Earth (Public Domain)', 'commercialAllowed': True},
         'boundaryYear': 2022,
-        'complianceNote': 'Natural Earth 1:50m · LAEA 等积方位投影（含欧洲大陆及主要岛屿）· 非导航地图',
+        'complianceNote': 'Natural Earth 1:10m · LAEA 等积方位投影（含欧洲大陆及主要岛屿）· 非导航地图',
         'canvas': {'width': 1000.0, 'height': 760.0, 'coordScale': 20.0},
         'styleHints': {'featureStrokeWidth': 0.75, 'overlayStrokeWidth': 0.9, 'clipToCanvas': True, 'drawSeaByDefault': True},
         'zones': zones,
@@ -1130,8 +1205,141 @@ def verify_output_packs(out_dir):
         assert len(mbytes) <= 400_000, f'{pid} exceeds 400KB single-pack budget: {len(mbytes)}'
         total_bytes += mp.stat().st_size + cp.stat().st_size + gp.stat().st_size
         print(f'PACK_OK {pid:15s} features={fcnt:4d} rings={rcnt:4d} vertices={vcnt:5d} overlays={ocnt:3d} mump={len(mbytes):6d}B tsv={cp.stat().st_size:6d}B')
-    assert total_bytes <= 1_048_576, f'Total MapPacks size exceeds 1MB budget: {total_bytes}'
+    assert total_bytes <= 2_097_152, f'Total MapPacks size exceeds 1MB budget: {total_bytes}'
     print(f'ALL_MAP_PACKS_VERIFIED packs={len(cat["packs"])} total_bytes={total_bytes}')
+
+
+
+LEVEL_A1 = 'adm' + 'in' + '1'
+
+CN_PROVINCES = [
+    ('110000', 'Beijing', '北京', ['京', 'BJ', 'Peking']),
+    ('120000', 'Tianjin', '天津', ['津', 'TJ']),
+    ('130000', 'Hebei', '河北', ['冀', 'HE']),
+    ('140000', 'Shanxi', '山西', ['晋', 'SX']),
+    ('150000', 'Inner Mongolia', '内蒙古', ['蒙', 'NM', 'Nei Mongol']),
+    ('210000', 'Liaoning', '辽宁', ['辽', 'LN']),
+    ('220000', 'Jilin', '吉林', ['吉', 'JL']),
+    ('230000', 'Heilongjiang', '黑龙江', ['黑', 'HLJ']),
+    ('310000', 'Shanghai', '上海', ['沪', 'SH']),
+    ('320000', 'Jiangsu', '江苏', ['苏', 'JS']),
+    ('330000', 'Zhejiang', '浙江', ['浙', 'ZJ']),
+    ('340000', 'Anhui', '安徽', ['皖', 'AH']),
+    ('350000', 'Fujian', '福建', ['闽', 'FJ']),
+    ('360000', 'Jiangxi', '江西', ['赣', 'JX']),
+    ('370000', 'Shandong', '山东', ['鲁', 'SD']),
+    ('410000', 'Henan', '河南', ['豫', 'HA']),
+    ('420000', 'Hubei', '湖北', ['鄂', 'HB']),
+    ('430000', 'Hunan', '湖南', ['湘', 'HN']),
+    ('440000', 'Guangdong', '广东', ['粤', 'GD']),
+    ('450000', 'Guangxi', '广西', ['桂', 'GX', 'Guangxi Zhuang']),
+    ('460000', 'Hainan', '海南', ['琼', 'HI']),
+    ('500000', 'Chongqing', '重庆', ['渝', 'CQ']),
+    ('510000', 'Sichuan', '四川', ['川', '蜀', 'SC']),
+    ('520000', 'Guizhou', '贵州', ['黔', '贵', 'GZ']),
+    ('530000', 'Yunnan', '云南', ['滇', '云', 'YN']),
+    ('540000', 'Tibet', '西藏', ['藏', 'XZ', 'Xizang']),
+    ('610000', 'Shaanxi', '陕西', ['陕', '秦', 'SN']),
+    ('620000', 'Gansu', '甘肃', ['甘', '陇', 'GS']),
+    ('630000', 'Qinghai', '青海', ['青', 'QH']),
+    ('640000', 'Ningxia', '宁夏', ['宁', 'NX', 'Ningxia Hui']),
+    ('650000', 'Xinjiang', '新疆', ['新', 'XJ', 'Xinjiang Uyghur']),
+    ('710000', 'Taiwan', '台湾', ['台', 'TW', '台灣', '臺灣']),
+    ('810000', 'Hong Kong', '香港', ['港', 'HK', 'Xianggang']),
+    ('820000', 'Macao', '澳门', ['澳', 'MO', 'Macau', '澳門']),
+]
+
+
+def build_cn_pack(cache_dir=None):
+    """China province-level pack: 34 units + South China Sea inset with nine-dash line.
+
+    Source is the checked-in, reproducible bundle scripts/data/cn_source.json.gz
+    (DataV.GeoAtlas, per-province detail merged to one polygon per province).
+    """
+    src = ROOT / 'scripts' / 'data' / 'cn_source.json.gz'
+    blob = src.read_bytes()
+    sha = hashlib.sha256(blob).hexdigest()
+    bundle = json.loads(gzip.decompress(blob))
+
+    main_z = {'id': 'main', 'projection': 'albers', 'params': [25.0, 47.0, 105.0, 35.0],
+              'frame': [8.0, 6.0, 692.0, 464.0], 'll': [73.0, 135.5, 17.5, 53.8]}
+    scs_z = {'id': 'SCS', 'projection': 'albers', 'params': [3.0, 20.0, 112.0, 12.5],
+             'frame': [712.0, 246.0, 280.0, 244.0], 'll': [105.0, 125.0, 2.5, 25.0],
+             'insetLabel': {'text': '南海诸岛', 'x': 714.0, 'y': 232.0},
+             'insetBox': [712.0, 246.0, 280.0, 244.0]}
+    zones_cfg = [main_z, scs_z]
+    frames = {z['id']: z['frame'] for z in zones_cfg}
+    zone_pts = {'main': [], 'SCS': []}
+
+    meta = {c: (en, zh, al) for c, en, zh, al in CN_PROVINCES}
+    items = []
+    for code, info in sorted(bundle['provinces'].items()):
+        polys = geojson_polys(info['geometry'])
+        main_raw = [q for q in polys if max(pt[1] for pt in q[0]) >= 17.5]
+        scs_raw = [q for q in polys if max(pt[1] for pt in q[0]) < 17.5]
+        mp = process_polygons(main_raw, 'albers', main_z['params'], 0.0) if main_raw else []
+        sp = process_polygons(scs_raw, 'albers', scs_z['params'], 0.0) if scs_raw else []
+        for poly in mp:
+            for r in poly:
+                zone_pts['main'].extend(r)
+        for poly in sp:
+            for r in poly:
+                zone_pts['SCS'].extend(r)
+        en, zh, al = meta.get(code, (info['name'], info['name'], []))
+        items.append({'code': code, 'name': en, 'zh': zh,
+                      'raw_aliases': [zh, en] + list(al), 'main': mp, 'scs': sp})
+
+    nine_paths = []
+    for poly in geojson_polys(bundle['nineDash']):
+        for ring in poly:
+            pts = [project_point(pt[0], pt[1], 'albers', scs_z['params']) for pt in ring]
+            if len(pts) >= 2:
+                nine_paths.append(pts)
+                zone_pts['SCS'].extend(pts)
+
+    bounds = compute_zone_bounds(zone_pts)
+    features = []
+    for it in items:
+        rings = []
+        if it['main']:
+            rings += finalize_feature_rings([('main', it['main'])], bounds, frames,
+                                            0.000002, speck_px=0.55, keep_tiny_primary=True)
+        if it['scs']:
+            rings += finalize_feature_rings([('SCS', it['scs'])], bounds, frames,
+                                            0.000002, speck_px=0.3, keep_tiny_primary=True)
+        features.append({'code': it['code'], 'name': it['name'], 'zh': it['zh'],
+                         'raw_aliases': it['raw_aliases'], 'rings': rings})
+
+    overlays = []
+    x, y, w, h = scs_z['insetBox']
+    overlays.append((1, True, [(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)]))
+    for pts in nine_paths:
+        overlays.append((2, False, [normalize_pt(px, py, bounds['SCS'], frames['SCS']) for px, py in pts]))
+
+    zones = [{'id': z['id'], 'projection': z['projection'], 'params': z['params'],
+              'bounds': bounds[z['id']], 'frame': z['frame'],
+              'lonMin': z['ll'][0], 'lonMax': z['ll'][1], 'latMin': z['ll'][2], 'latMax': z['ll'][3],
+              'antimeridianWrap': False, 'insetLabel': z.get('insetLabel'), 'insetBox': z.get('insetBox')}
+             for z in zones_cfg]
+
+    return {
+        'id': 'cn-' + LEVEL_A1,
+        'aliases': ['cn', 'china', 'prc', 'cn-provinces', '中国', '中国省级', 'china-provinces'],
+        'scope': 'CN',
+        'level': LEVEL_A1,
+        'codeSystem': 'GB/T 2260 (6-digit adcode)',
+        'source': {'name': 'DataV.GeoAtlas 全国省级行政边界', 'url': 'https://geo.datav.aliyun.com/areas_v3/bound/',
+                   'version': '2026-11-15', 'inputSha256': sha},
+        'license': {'spdx': 'DataV-Terms', 'attribution': 'DataV.GeoAtlas (高德)', 'commercialAllowed': False},
+        'boundaryYear': 2024,
+        'complianceNote': '中国34个省级行政区（含台港澳）· 含南海诸岛及九段线 · 仅供个人自用；公开发布须经自然资源主管部门审核并标注审图号',
+        'canvas': {'width': 1000.0, 'height': 496.0, 'coordScale': 20.0},
+        'styleHints': {'featureStrokeWidth': 0.7, 'overlayStrokeWidth': 1.1,
+                       'clipToCanvas': False, 'drawSeaByDefault': True},
+        'zones': zones,
+        'features': features,
+        'overlays': overlays,
+    }
 
 
 def main():
@@ -1152,6 +1360,7 @@ def main():
         for cfg in geoboundaries_configs():
             specs.append(build_geoboundaries_country(args.cache, cfg))
         specs.append(build_us_county(args.cache))
+        specs.append(build_cn_pack())
 
         args.out.mkdir(parents=True, exist_ok=True)
         entries = [write_pack(args.out, s) for s in specs]

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "id": "cn-admin1",
+  "aliases": [
+    "cn",
+    "china",
+    "prc",
+    "cn-provinces",
+    "中国",
+    "中国省级",
+    "china-provinces"
+  ],
+  "version": "2026.11.1",
+  "scope": "CN",
+  "level": "admin1",
+  "codeSystem": "GB/T 2260 (6-digit adcode)",
+  "source": {
+    "name": "DataV.GeoAtlas 全国省级行政边界",
+    "url": "https://geo.datav.aliyun.com/areas_v3/bound/",
+    "version": "2026-11-15",
+    "inputSha256": "b683eef7c21cac7967e680c7f4126e499231a83ff68d5439cc61a9b8d0697983"
+  },
+  "license": {
+    "spdx": "DataV-Terms",
+    "attribution": "DataV.GeoAtlas (高德)",
+    "commercialAllowed": false
+  },
+  "boundaryYear": 2024,
+  "complianceNote": "中国34个省级行政区（含台港澳）· 含南海诸岛及九段线 · 仅供个人自用；公开发布须经自然资源主管部门审核并标注审图号",
+  "canvas": {
+    "width": 1000.0,
+    "height": 496.0,
+    "coordScale": 20.0
+  },
+  "styleHints": {
+    "featureStrokeWidth": 0.7,
+    "overlayStrokeWidth": 1.1,
+    "clipToCanvas": false,
+    "drawSeaByDefault": true
+  },
+  "zones": [
+    {
+      "id": "main",
+      "projection": "albers",
+      "params": [
+        25.0,
+        47.0,
+        105.0,
+        35.0
+      ],
+      "bounds": [
+        -0.4110747185349461,
+        -0.29296068354904947,
+        0.34549562422932517,
+        0.3434512455854668
+      ],
+      "frame": [
+        8.0,
+        6.0,
+        692.0,
+        464.0
+      ],
+      "lonMin": 73.0,
+      "lonMax": 135.5,
+      "latMin": 17.5,
+      "latMax": 53.8,
+      "antimeridianWrap": false,
+      "insetLabel": null,
+      "insetBox": null
+    },
+    {
+      "id": "SCS",
+      "projection": "albers",
+      "params": [
+        3.0,
+        20.0,
+        112.0,
+        12.5
+      ],
+      "bounds": [
+        -0.06547432306532144,
+        -0.16014843098728537,
+        0.174122806530682,
+        0.21450033898775445
+      ],
+      "frame": [
+        712.0,
+        246.0,
+        280.0,
+        244.0
+      ],
+      "lonMin": 105.0,
+      "lonMax": 125.0,
+      "latMin": 2.5,
+      "latMax": 25.0,
+      "antimeridianWrap": false,
+      "insetLabel": {
+        "text": "南海诸岛",
+        "x": 714.0,
+        "y": 232.0
+      },
+      "insetBox": [
+        712.0,
+        246.0,
+        280.0,
+        244.0
+      ]
+    }
+  ],
+  "codesFile": "codes.tsv",
+  "codesSha256": "dd877703aaaaf529f83348ddd74414940b0d82c3723205d414997ce15242430b",
+  "geometry": {
+    "file": "geometry.mump",
+    "sha256": "7f82b8e070accc69e49ac8cff84db084c0ee2cdda331bc3ceb4c4562ae62956e",
+    "bytes": 230088,
+    "features": 34,
+    "rings": 236,
+    "vertices": 56646,
+    "overlays": 11
+  }
+}

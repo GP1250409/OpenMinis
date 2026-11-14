@@ -30,16 +30,16 @@
       ],
       "level": "admin0",
       "manifestFile": "world-admin0/manifest.json",
-      "manifestSha256": "276eb5d41bb7b1bf4c337dd4beccef8eefeaee5a9f26b859b976ee97c054aafe",
+      "manifestSha256": "81438fa0daa521fe1d167ad760505502db6737c492d34881fb43804d79c69ec2",
       "codesFile": "world-admin0/codes.tsv",
-      "codesSha256": "ea189d502852879e79ae3661665689a48c9e39c990681de1537d1ee233598785",
+      "codesSha256": "82b81e25e8c8ecf0bd2b92ef3ee2c2c123d6688b480548e45b84846c87b47f07",
       "geometryFile": "world-admin0/geometry.mump",
-      "geometrySha256": "74193670592194c13638043efc34e191684dfde95db5d6757ae331e365ee3bc5",
-      "featureCount": 241,
-      "ringCount": 678,
-      "vertexCount": 11929,
-      "geometryBytes": 55100,
-      "codesBytes": 17915
+      "geometrySha256": "c961418a8f8cdf66ad82cefbf6ebf7dfe1639bc8bb1ac93e901c7dc66485964a",
+      "featureCount": 253,
+      "ringCount": 1911,
+      "vertexCount": 70554,
+      "geometryBytes": 299560,
+      "codesBytes": 18996
     },
     {
       "id": "europe-admin0",
@@ -50,16 +50,16 @@
       ],
       "level": "admin0",
       "manifestFile": "europe-admin0/manifest.json",
-      "manifestSha256": "80bfe40badec253f6879d367186fd49cbe9775231d50e4b6ea6fa2ed8b8cfac3",
+      "manifestSha256": "e6583c7a4357a2b8ae9a1291d48d8ff9cc95564e84e24e65d964c81416ac00e6",
       "codesFile": "europe-admin0/codes.tsv",
-      "codesSha256": "e80aaff05efb8262c4b95eeea4578aba5de2a6353c9a044d44691e5d4afb877f",
+      "codesSha256": "25f20578c2aecb39c66bd7bb3ea3dfbe9ee53d509c803344c823ace06b7f369c",
       "geometryFile": "europe-admin0/geometry.mump",
-      "geometrySha256": "ed20ae581ea3042745f2323c91ba707053ad13944e3d9893c936f01df6f0123f",
-      "featureCount": 47,
-      "ringCount": 201,
-      "vertexCount": 3778,
-      "geometryBytes": 17128,
-      "codesBytes": 2143
+      "geometrySha256": "0fd859d34721d52995dab6aaaadaa1c11789b25e31691f792f55bcb2c3231005",
+      "featureCount": 46,
+      "ringCount": 485,
+      "vertexCount": 16933,
+      "geometryBytes": 72012,
+      "codesBytes": 2100
     },
     {
       "id": "de-admin1",
@@ -270,6 +270,30 @@
       "vertexCount": 37159,
       "geometryBytes": 217072,
       "codesBytes": 355213
+    },
+    {
+      "id": "cn-admin1",
+      "aliases": [
+        "cn",
+        "china",
+        "prc",
+        "cn-provinces",
+        "中国",
+        "中国省级",
+        "china-provinces"
+      ],
+      "level": "admin1",
+      "manifestFile": "cn-admin1/manifest.json",
+      "manifestSha256": "7fee2ccf4134563f749dd6543b56071a87bca26b5255ea04dcc871d5ca1ad6f1",
+      "codesFile": "cn-admin1/codes.tsv",
+      "codesSha256": "dd877703aaaaf529f83348ddd74414940b0d82c3723205d414997ce15242430b",
+      "geometryFile": "cn-admin1/geometry.mump",
+      "geometrySha256": "7f82b8e070accc69e49ac8cff84db084c0ee2cdda331bc3ceb4c4562ae62956e",
+      "featureCount": 34,
+      "ringCount": 236,
+      "vertexCount": 56646,
+      "geometryBytes": 230088,
+      "codesBytes": 1634
     }
   ]
 }
