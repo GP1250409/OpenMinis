@@ -189,16 +189,133 @@ private struct SteppedSlider: View {
     }
 }
 
-struct AppearanceSettingsView: View {
+// MARK: - AppearanceMenuSettingsSections
+
+struct AppearanceMenuSettingsSections: View {
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
-    @AppStorage("appIconMode") private var appIconMode: Int = 0
-    @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("chatThemeId") private var chatThemeId: String = ""
     /// [MOD genui] show_ui chart colour style ("" = system, "economist").
     @AppStorage(MUChartStyle.key) private var genuiChartPalette: String = ""
     @AppStorage(MUChartDrawing.weightKey) private var genuiChartWeight = "standard"
     @AppStorage(MUChartDrawing.dashKey) private var genuiChartPattern = "solid"
     @State private var isPreviewExpanded = false
+    private let onPreviewToggleReady: ((@escaping () -> Void) -> Void)?
+
+    init(onPreviewToggleReady: ((@escaping () -> Void) -> Void)? = nil) {
+        self.onPreviewToggleReady = onPreviewToggleReady
+    }
+
+    var body: some View {
+        Section {
+            Picker("Theme", selection: $appearanceMode) {
+                Text("System").tag(0)
+                Text("Light").tag(1)
+                Text("Dark").tag(2)
+            }
+            .pickerStyle(.menu)
+        } header: {
+            Text("Theme")
+        } footer: {
+            Text("Override the system appearance for this app.")
+        }
+        .onChange(of: appearanceMode) { _ in
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+            windowScene.windows.forEach { window in
+                window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
+            }
+        }
+
+        Section {
+            Picker("Chat Theme", selection: chatThemeBinding) {
+                Text("Default Theme").tag("")
+                ForEach(ChatTheme.custom) { t in
+                    Text(LocalizedStringKey(t.name)).tag(t.id)
+                }
+            }
+            .pickerStyle(.menu)
+        } header: {
+            Text("Chat Theme")
+        } footer: {
+            Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
+        }
+
+        Section {
+            Picker("Chart Colours", selection: $genuiChartPalette) {
+                Text("System").tag("")
+                Text("The Economist").tag(MUChartStyle.economist)
+                Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
+            }
+            .pickerStyle(.menu)
+            Picker("Chart stroke weight", selection: $genuiChartWeight) {
+                Text("Fine").tag("fine")
+                Text("Standard").tag("standard")
+                Text("Bold").tag("bold")
+            }
+            .pickerStyle(.menu)
+            Picker("Chart line pattern", selection: $genuiChartPattern) {
+                Text("Solid").tag("solid")
+                Text("Dashed context series").tag("context")
+                Text("All lines dashed").tag("dashed")
+            }
+            .pickerStyle(.menu)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPreviewExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Preview")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isPreviewExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings_preview_toggle")
+            if isPreviewExpanded {
+                MUChartSettingsPreview()
+            }
+        } header: {
+            Text("Interactive Cards · Charts & Maps")
+        } footer: {
+            Text("Cards follow Chat Theme; charts and maps keep independent colours. Line weight adjusts chart lines, axes and grid; dashed styles apply only to line charts, not maps. Chart settings are saved separately.")
+        }
+        .onAppear {
+            onPreviewToggleReady? {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPreviewExpanded.toggle()
+                }
+            }
+        }
+    }
+
+    /// Keeps Menu selection synchronized with `ChatThemeStore.select` so cache
+    /// and `.chatThemeChanged` observers update immediately.
+    private var chatThemeBinding: Binding<String> {
+        Binding(
+            get: {
+                if chatThemeId.isEmpty || ChatTheme.custom.contains(where: { $0.id == chatThemeId }) {
+                    return chatThemeId
+                }
+                return ""
+            },
+            set: { newId in
+                guard chatThemeId != newId else { return }
+                ChatThemeStore.select(newId)
+            }
+        )
+    }
+}
+
+// MARK: - End AppearanceMenuSettingsSections
+
+struct AppearanceSettingsView: View {
+    @AppStorage("appIconMode") private var appIconMode: Int = 0
+    @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -257,82 +374,7 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                Picker("Theme", selection: $appearanceMode) {
-                    Text("System").tag(0)
-                    Text("Light").tag(1)
-                    Text("Dark").tag(2)
-                }
-                .pickerStyle(.menu)
-            } header: {
-                Text("Theme")
-            } footer: {
-                Text("Override the system appearance for this app.")
-            }
-            .onChange(of: appearanceMode) { _ in
-                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                windowScene.windows.forEach { window in
-                    window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
-                }
-            }
-
-            Section {
-                Picker("Chat Theme", selection: chatThemeBinding) {
-                    Text("Default Theme").tag("")
-                    ForEach(ChatTheme.custom) { t in
-                        Text(LocalizedStringKey(t.name)).tag(t.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            } header: {
-                Text("Chat Theme")
-            } footer: {
-                Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
-            }
-            Section {
-                Picker("Chart Colours", selection: $genuiChartPalette) {
-                    Text("System").tag("")
-                    Text("The Economist").tag(MUChartStyle.economist)
-                    Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
-                }
-                .pickerStyle(.menu)
-                Picker("Chart stroke weight", selection: $genuiChartWeight) {
-                    Text("Fine").tag("fine")
-                    Text("Standard").tag("standard")
-                    Text("Bold").tag("bold")
-                }
-                .pickerStyle(.menu)
-                Picker("Chart line pattern", selection: $genuiChartPattern) {
-                    Text("Solid").tag("solid")
-                    Text("Dashed context series").tag("context")
-                    Text("All lines dashed").tag("dashed")
-                }
-                .pickerStyle(.menu)
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isPreviewExpanded.toggle()
-                    }
-                } label: {
-                    HStack {
-                        Text("Preview")
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(isPreviewExpanded ? 90 : 0))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if isPreviewExpanded {
-                    MUChartSettingsPreview()
-                }
-            } header: {
-                Text("Interactive Cards · Charts & Maps")
-            } footer: {
-                Text("Cards follow Chat Theme; charts and maps keep independent colours. Line weight adjusts chart lines, axes and grid; dashed styles apply only to line charts, not maps. Chart settings are saved separately.")
-            }
+            AppearanceMenuSettingsSections()
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
                     Text("Auto").tag(0)
@@ -578,23 +620,6 @@ struct AppearanceSettingsView: View {
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .background(InteractivePopGestureDisabler())
-    }
-
-    /// Keeps Menu selection synchronized with `ChatThemeStore.select` so cache
-    /// and `.chatThemeChanged` observers update immediately.
-    private var chatThemeBinding: Binding<String> {
-        Binding(
-            get: {
-                if chatThemeId.isEmpty || ChatTheme.custom.contains(where: { $0.id == chatThemeId }) {
-                    return chatThemeId
-                }
-                return ""
-            },
-            set: { newId in
-                guard chatThemeId != newId else { return }
-                ChatThemeStore.select(newId)
-            }
-        )
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at

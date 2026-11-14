@@ -1001,7 +1001,10 @@ private struct MUMultiChartBody: View {
         return color(s)
     }
     @Environment(\.muChartPlotHeight) private var envChartPlotHeight
-    private var chartHeight: CGFloat { 180 }
+    private var chartHeight: CGFloat {
+        if let h = envChartPlotHeight, h.isFinite, h > 0 { return h }
+        return 180
+    }
     private var lastValues: [Double] { matrix.map { $0.last ?? 0 } }
     private var domain: MUChartDomain {
         kind == "stacked" ? MUChartAxis.stackedDomain(matrix: matrix)

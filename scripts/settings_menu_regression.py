@@ -56,6 +56,7 @@ def main():
     minis_ui = (UI / 'MinisUIView.swift').read_text()
     catalog = json.loads((ROOT / 'src/ios/Localizable.xcstrings').read_text())['strings']
 
+    assert 'AppearanceMenuSettingsSections()' in appearance
     assert appearance.count('.pickerStyle(.menu)') >= 5, 'Expected unified .menu pickers in AppearanceSettingsView'
     assert 'Picker("Theme", selection: $appearanceMode)' in appearance
     assert '.pickerStyle(.segmented)' not in appearance[:appearance.index('Picker("Chat Theme"')]
@@ -63,13 +64,13 @@ def main():
     assert 'ChatThemeStore.select(newId)' in appearance
     assert '@State private var isPreviewExpanded = false' in appearance
     assert r'.environment(\.muChartPlotHeight, 104)' in minis_ui
-    assert 'private var chartHeight: CGFloat { 180 }' in minis_ui
+    assert 'envChartPlotHeight' in minis_ui and 'h.isFinite, h > 0' in minis_ui and 'return 180' in minis_ui
     assert 'enum MUMapL10n {' in (UI / 'MinisUIMapCore.swift').read_text()
     assert 'private struct MUChartPlotHeightKey: EnvironmentKey' in (UI / 'MinisUIMapView.swift').read_text()
     for k in REQUIRED_KEYS:
         assert k in catalog, f'Missing key in Localizable.xcstrings: {k}'
         assert REQUIRED_18_LANGS.issubset(set(catalog[k].get('localizations', {}).keys())), f'Incomplete 18-lang coverage: {k}'
-    print('SETTINGS_MENU_SOURCE_PASS checks=9 keys=29 langs=18', flush=True)
+    print('SETTINGS_MENU_SOURCE_PASS checks=11 keys=29 langs=18', flush=True)
 
     if '--source-only' in sys.argv:
         print('SETTINGS_MENU_SOURCE_ONLY UIKit runtime NOT run')
@@ -78,9 +79,12 @@ def main():
         raise SystemExit('SETTINGS_MENU_REQUIRES_MACOS')
 
     renderer = minis_ui[minis_ui.index('struct MUContext {'):]
+    start_marker = '// MARK: - AppearanceMenuSettingsSections'
+    end_marker = '// MARK: - End AppearanceMenuSettingsSections'
+    sections_src = appearance[appearance.index(start_marker):appearance.index(end_marker)]
     fixture = (ROOT / 'scripts/settings-menu-tests/SettingsMenuFixture.swift').read_text()
     (OUT / 'ProductionRenderer.swift').write_text(
-        'import SwiftUI\nimport UIKit\nimport Charts\n' + renderer + '\n' + fixture
+        'import SwiftUI\nimport UIKit\nimport Charts\n' + renderer + '\n' + sections_src + '\n' + fixture
     )
 
     APP.mkdir(exist_ok=True)
@@ -141,7 +145,7 @@ def main():
         shutil.copy2(p, OUT / p.name)
     marker = (OUT / 'result.log').read_text()
     print(marker, flush=True)
-    assert 'SETTINGS_MENU_PASS checks=31 png=6' in marker, marker
+    assert 'SETTINGS_MENU_PASS checks=46 png=6' in marker, marker
     assert len(list(OUT.glob('*.png'))) == 6
     print('SETTINGS_MENU_ARTIFACT_OK png=6', flush=True)
 

@@ -39,6 +39,7 @@ jobs:
           set -o pipefail
           python3 scripts/image_geometry_regression.py 2>&1 | tee image-geometry-regression.log
           python3 scripts/theme_matrix_regression.py 2>&1 | tee theme-matrix-regression.log
+          python3 scripts/settings_menu_regression.py 2>&1 | tee settings-menu-regression.log
       - name: Map regression tests
         run: |
           set -o pipefail
