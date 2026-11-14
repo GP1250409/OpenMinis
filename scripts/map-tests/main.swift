@@ -310,9 +310,11 @@ for pid in expectedPacks {
     }
 }
 
-// 5. Unshipped China GeoMap error clarity + synthetic cn-admin1 protocol test
-let cnErr = MinisUIEngine.validate("root = GeoMap(\"cn\", [\"BJ\"], [10])")
-check(!cnErr.ok && cnErr.errors.contains { $0.code == "map-region" && $0.msg.contains("BlockMap") }, "GeoMap(\"cn\") explains requirement and BlockMap fallback")
+// 5. Shipped China GeoMap + synthetic cn-admin1 protocol test
+let cnOk = MinisUIEngine.validate("root = GeoMap(\"cn\", [\"BJ\"], [10])")
+check(cnOk.ok, "GeoMap(\"cn\") validates against the shipped province pack with GB aliases")
+let cnBadCode = MinisUIEngine.validate("root = GeoMap(\"cn\", [\"ZZ\"], [10])")
+check(!cnBadCode.ok, "GeoMap(\"cn\") still rejects unknown GB codes")
 
 let synthRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("minis-synth-cn-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
 let synthPack = synthRoot.appendingPathComponent("cn-admin1", isDirectory: true)
