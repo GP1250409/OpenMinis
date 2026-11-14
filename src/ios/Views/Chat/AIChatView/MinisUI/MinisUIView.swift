@@ -694,7 +694,7 @@ struct MUChartSettingsPreview: View {
         )
         let ctx = MUContext(state: [:], program: MUProgram(), defaults: [:],
                             set: { _, _, _ in }, commit: {}, run: { _ in })
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Self.l("Sample trend"))
@@ -715,7 +715,8 @@ struct MUChartSettingsPreview: View {
             MUNodeView(comp: chart, ctx: ctx)
                 .environment(\.muChartPlotHeight, 104)
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .modifier(MUCardSurface(fill: ChatColors.secondaryBg, nativeFill: ChatColors.secondaryBgUIColor, cornerRadius: 10, bordered: true))
         .modifier(MURootSurface())
     }

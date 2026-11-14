@@ -145,7 +145,7 @@ def main():
         shutil.copy2(p, OUT / p.name)
     marker = (OUT / 'result.log').read_text()
     print(marker, flush=True)
-    assert 'SETTINGS_MENU_PASS checks=53 png=6' in marker, marker
+    assert 'SETTINGS_MENU_PASS checks=62 png=6' in marker, marker
     assert len(list(OUT.glob('*.png'))) == 6
     print('SETTINGS_MENU_ARTIFACT_OK png=6', flush=True)
 

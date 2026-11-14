@@ -214,6 +214,7 @@ final class SettingsMenuFixture: UIResponder, UIApplicationDelegate {
         check(MUMapL10n.sourcePrefix == expectedMapSource[lang], "map source localized \(lang)")
 
         let previewSize = measureSize(MUChartSettingsPreview(), style: style)
+        print(String(format: "SETTINGS_MENU_CASE %@-%@ previewCard=(%.2f, %.2f)", lang, sname, previewSize.width, previewSize.height))
         check(previewSize.width <= 358 && previewSize.height < defaultChartH && previewSize.height >= 165 && previewSize.height <= 220,
               "compact preview card size \(lang)-\(sname): \(previewSize)")
 
