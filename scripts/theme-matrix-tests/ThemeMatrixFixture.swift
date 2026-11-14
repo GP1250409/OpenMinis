@@ -18,6 +18,9 @@ import UIKit
         try! FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         host = UIHostingController(rootView: AnyView(EmptyView()))
+        // Card coordinates, not a full-screen page: use the same safe-area
+        // contract as the existing 720-PNG production chart regression.
+        if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
         w.rootViewController = host; w.makeKeyAndVisible(); window = w
         let sources = [
             "root = Card([Title(\"Readable node title\"), Text(\"Readable body text\"), Badge(\"Accent\", \"info\"), Button(\"App theme button\", @Copy(\"preview\"))], \"Readable card title\")",
