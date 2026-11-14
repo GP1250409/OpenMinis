@@ -15,7 +15,7 @@ def source(root):
     reuse_start=views.index('                reusedIds.insert(attachId)')
     reuse=views[reuse_start:views.index('            } else if let codeBlock',reuse_start)]
     assert 'size: view.frame.size' in reuse
-    return geometry+r'''
+    return 'import CoreFoundation\n'+geometry+r'''
 private struct AppLogger { init(category: String) {} ; func info(_ text: String) {} }
 private final class ImageTapGesture: UITapGestureRecognizer {
     var attachedImage: UIImage?; var sourceURL = ""; var messageId: UUID?
@@ -52,8 +52,13 @@ private final class ImageReflowHarness {
 }
 enum ImageReflowFixture {
     static func run(check: (Bool, String) -> Void) {
-        var checks = 0
-        func require(_ ok: Bool, _ label: String) { checks += 1; check(ok, "image reflow: "+label) }
+        var checks = 0, failures = 0
+        var caseLabel = ""
+        func require(_ ok: Bool, _ label: String) {
+            checks += 1
+            if !ok { failures += 1 }
+            check(ok, "image reflow: "+caseLabel+" "+label)
+        }
         for size in [CGSize(width:1200,height:600),CGSize(width:600,height:6000),CGSize(width:1200,height:80)] {
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
             let bitmap = UIGraphicsImageRenderer(size:size,format:format).image { c in UIColor.blue.setFill(); c.fill(CGRect(origin:.zero,size:size)) }
@@ -61,6 +66,7 @@ enum ImageReflowFixture {
             let harness = ImageReflowHarness()
             var old = attachment.makeView(width:400)
             for width: CGFloat in [360,180,320] {
+                caseLabel = "source=\(size.width)x\(size.height) available=\(width)"
                 let box = ImageAttachmentGeometry.bounds(size,availableWidth:width,maxHeight:UIScreen.main.bounds.height/2)
                 let shouldChange = abs(old.bounds.width-box.width)>0.5 || abs(old.bounds.height-box.height)>0.5
                 let view = harness.update(attachment,existingView:old,boundingRect:box)
@@ -68,17 +74,30 @@ enum ImageReflowFixture {
                 require((view !== old)==shouldChange,"only mismatched overlay rebuilt")
                 require(abs(view.bounds.width-box.width)<0.001 && abs(view.bounds.height-box.height)<0.001,"TextKit box equals actual container")
                 let shadow = view.subviews[0], image = shadow.subviews[0] as! UIImageView
-                require(shadow.frame.origin==CGPoint(x:6,y:6),"shadow inset")
+                // UIView.frame is reconstructed from center/bounds; subtracting
+                // fractional half-heights need not reproduce the literal 6 bitwise.
+                // Assert the exact position that init(frame:) must store instead.
+                let expectedCenter = CGPoint(x:6+shadow.bounds.midX,y:6+shadow.bounds.midY)
+                let expectedPath = UIBezierPath(roundedRect:shadow.bounds,cornerRadius:8).cgPath
+                let pathBox = shadow.layer.shadowPath!.boundingBoxOfPath
+                func rectText(_ r: CGRect) -> String {
+                    String(format:"[%.17g,%.17g,%.17g,%.17g]",Double(r.origin.x),Double(r.origin.y),Double(r.width),Double(r.height))
+                }
+                print("IMAGE_REFLOW_GEOMETRY \(caseLabel) frame=\(rectText(shadow.frame)) bounds=\(rectText(shadow.bounds)) pathBox=\(rectText(pathBox)) expectedCenter=\(rectText(CGRect(origin:expectedCenter,size:.zero))) actualCenter=\(rectText(CGRect(origin:shadow.center,size:.zero))) exactPath=\(CFEqual(shadow.layer.shadowPath!,expectedPath))")
+                require(shadow.center==expectedCenter,"shadow inset (exact center/bounds invariant)")
                 require(abs(shadow.bounds.width+12-box.width)<0.001 && abs(shadow.bounds.height+12-box.height)<0.001,"shadow size")
                 require(image.frame==shadow.bounds,"bitmap fills shadow wrapper")
-                require(shadow.layer.shadowPath!.boundingBoxOfPath==shadow.bounds,"shadow path follows resized image")
+                // CGPath's computed tight bounding box can acquire extrema
+                // roundoff. Exact full-path equality is stronger than bbox equality.
+                require(CFEqual(shadow.layer.shadowPath!,expectedPath),"shadow path follows resized image (exact complete CGPath)")
                 require(abs(image.bounds.width/image.bounds.height-size.width/size.height)<0.00001,"aspect preserved")
                 require(harness.update(attachment,existingView:view,boundingRect:box) === view,"stable geometry really reused")
                 require(image.image === bitmap,"same decoded bitmap")
                 old = view
             }
         }
-        print("IMAGE_REFLOW_UIKIT_PASS checks=\(checks) cases=9 exact_creation=1 exact_reuse=1")
+        let marker = failures == 0 ? "IMAGE_REFLOW_UIKIT_PASS" : "IMAGE_REFLOW_UIKIT_FAIL"
+        print("\(marker) checks=\(checks) cases=9 exact_creation=1 exact_reuse=1")
     }
 }
 '''
