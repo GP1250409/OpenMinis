@@ -64,6 +64,8 @@ def main():
     assert '@State private var isPreviewExpanded = false' in appearance
     assert r'.environment(\.muChartPlotHeight, 104)' in minis_ui
     assert 'private var chartHeight: CGFloat { 180 }' in minis_ui
+    assert 'enum MUMapL10n {' in (UI / 'MinisUIMapCore.swift').read_text()
+    assert 'private struct MUChartPlotHeightKey: EnvironmentKey' in (UI / 'MinisUIMapView.swift').read_text()
     for k in REQUIRED_KEYS:
         assert k in catalog, f'Missing key in Localizable.xcstrings: {k}'
         assert REQUIRED_18_LANGS.issubset(set(catalog[k].get('localizations', {}).keys())), f'Incomplete 18-lang coverage: {k}'

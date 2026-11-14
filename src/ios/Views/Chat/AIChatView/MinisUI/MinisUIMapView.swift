@@ -9,10 +9,15 @@ extension MUMapRGB {
 // This environment contains an OPAQUE composited surface, not a trait guess.
 // The root supplies ChatColors.background; each Card composites its real fill.
 private struct MUSurfaceKey: EnvironmentKey { static let defaultValue: MUMapRGB? = nil }
+private struct MUChartPlotHeightKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
 extension EnvironmentValues {
     var muSurface: MUMapRGB? {
         get { self[MUSurfaceKey.self] }
         set { self[MUSurfaceKey.self] = newValue }
+    }
+    var muChartPlotHeight: CGFloat? {
+        get { self[MUChartPlotHeightKey.self] }
+        set { self[MUChartPlotHeightKey.self] = newValue }
     }
 }
 enum MUSurface {
