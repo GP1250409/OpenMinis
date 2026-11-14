@@ -394,7 +394,7 @@ struct MUNodeView: View {
         case "Metric": MUMetric(comp: comp)
         case "Badge":
             let tone = comp.str("tone") ?? "neutral"
-            let c = tone == "neutral" ? Color.secondary : MUStyle.tone(tone)
+            let c = tone == "neutral" ? ChatColors.secondaryText : MUStyle.tone(tone)
             Text(comp.str("text") ?? "")
                 .font(.system(size: 11, weight: .semibold))
                 .padding(.horizontal, 8).padding(.vertical, 3)
@@ -468,7 +468,7 @@ private struct MUList: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(comp.strings("items").enumerated()), id: \.offset) { i, item in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14)).modifier(MUReadableText(color: .secondary))
+                    Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14)).modifier(MUReadableText(color: ChatColors.secondaryText))
                     Text(MUStyle.inline(item)).font(.system(size: 14)).modifier(MUReadableText(color: ChatColors.primaryText)).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -569,7 +569,7 @@ private struct MUSegmented: View {
                 } label: {
                     Text(opt)
                         .font(.system(size: 13, weight: on ? .semibold : .regular))
-                        .foregroundStyle(.primary)
+                        .modifier(MUReadableText(color: ChatColors.primaryText))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity, minHeight: 28)
@@ -603,8 +603,8 @@ private struct MUChoice: View {
                     HStack(spacing: 10) {
                         Image(systemName: on ? "largecircle.fill.circle" : "circle")
                             .font(.system(size: 16))
-                            .foregroundStyle(on ? ChatColors.tint : .secondary)
-                        Text(MUStyle.inline(opt)).font(.system(size: 14)).foregroundStyle(.primary)
+                            .foregroundStyle(on ? ChatColors.tint : ChatColors.secondaryText)
+                        Text(MUStyle.inline(opt)).font(.system(size: 14)).modifier(MUReadableText(color: ChatColors.primaryText))
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -1192,7 +1192,7 @@ private struct MUSquareButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .bold))
             .frame(width: 30, height: 30)
-            .foregroundStyle(enabled ? ChatColors.tint : .secondary)
+            .foregroundStyle(enabled ? ChatColors.tint : ChatColors.secondaryText)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06)))
     }
@@ -1204,10 +1204,10 @@ private struct MUCheckToggleStyle: ToggleStyle {
             HStack(spacing: 10) {
                 Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(configuration.isOn ? ChatColors.tint : .secondary)
+                    .foregroundStyle(configuration.isOn ? ChatColors.tint : ChatColors.secondaryText)
                 configuration.label
                     .strikethrough(false)
-                    .foregroundStyle(.primary)
+                    .modifier(MUReadableText(color: ChatColors.primaryText))
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())

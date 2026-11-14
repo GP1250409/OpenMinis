@@ -43,7 +43,7 @@ check(abs(long.width-42.2)<0.00001 && abs(long.height-422)<0.00001,"reported bla
 print("IMAGE_GEOMETRY_PASS checks=\(checks) wiring=9")
 '''
 with tempfile.TemporaryDirectory() as d:
-    source=pathlib.Path(d)/'main.swift'; source.write_text('import Foundation\n'+helper+swift)
+    source=pathlib.Path(d)/'main.swift'; source.write_text('import Foundation\n#if canImport(CoreGraphics)\nimport CoreGraphics\n#endif\n'+helper+swift)
     binary=pathlib.Path(d)/'geometry'
     subprocess.run([shutil.which('swiftc') or 'swiftc',str(source),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
