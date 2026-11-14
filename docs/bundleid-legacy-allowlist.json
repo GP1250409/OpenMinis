@@ -1,143 +1,63 @@
 [
   {
-    "path": "src/ios/Shared/EnvVarStore.swift",
-    "line": "nonisolated private static let keychainService = \"com.gonepaul.minismod.envvar\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Shared/DeviceIdentity.swift",
-    "line": "private static let keychainService = \"com.gonepaul.minismod.device\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderInstance.swift",
-    "line": "\"com.gonepaul.minismod.provider.\\(id)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "private static let migrationKey = \"com.gonepaul.minismod.provider-migration-v1-done\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "private static let oauthMigrationKey = \"com.gonepaul.minismod.provider-migration-oauth-v2-done\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "if let key = readLegacyKeychain(service: \"com.gonepaul.minismod.anthropic-api-key\") {",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "if let key = readLegacyKeychain(service: \"com.gonepaul.minismod.gemini-api-key\") {",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "if let key = readLegacyKeychain(service: \"com.gonepaul.minismod.openai-api-key\") {",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "let key = \"com.gonepaul.minismod.agent-model-settings\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/ProviderMigration.swift",
     "line": "kSecAttrService as String: \"com.gonepaul.minismod.active-provider\",",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Providers/ProviderConfigStore.swift",
-    "line": "let service = \"com.gonepaul.minismod.provider.\\(instanceId)\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Agent/Session/MCPOAuthController.swift",
-    "line": "nonisolated private static let keychainService = \"com.gonepaul.minismod.mcp-oauth\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
-  },
-  {
-    "path": "src/ios/Agent/Backup/Remote/RcloneRemoteStore.swift",
-    "line": "private static let keychainService = \"com.gonepaul.minismod.rclone\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/Anthropic/OAuth/ClaudeOAuthManager.swift",
     "line": "static let legacyKeychainService = \"com.gonepaul.minismod.claude-oauth\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/OpenAI/OAuth/CodexOAuthManager.swift",
     "line": "static let legacyKeychainService = \"com.gonepaul.minismod.openai-oauth\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/Gemini/OAuth/GeminiOAuthManager.swift",
     "line": "static let legacyKeychainService = \"com.gonepaul.minismod.gemini-oauth\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/Gemini/OAuth/GeminiOAuthManager.swift",
     "line": "static let legacyEmailKey = \"com.gonepaul.minismod.gemini-email\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Providers/Gemini/OAuth/GeminiOAuthManager.swift",
     "line": "static let legacyProjectIDKey = \"com.gonepaul.minismod.gemini-gcp-project\"",
-    "reason": "stable persistent service/schema; legacy readers only in migration/OAuth; not an access-group grant"
+    "reason": "existing legacy reader or historical preference/migration key; unchanged behavior, not an active new service"
   },
   {
     "path": "src/ios/Info.plist",

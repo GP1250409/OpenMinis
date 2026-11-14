@@ -10,9 +10,11 @@
 
 ## 有意保留的旧名称
 精确逐行白名单：bundleid-legacy-allowlist.json；由 scripts/bundle_identity_check.py 强制检查，新增任何未经审阅的旧名称即失败。
-- provider.<instanceId>、envvar、device、rclone、mcp-oauth 为稳定 Keychain 数据模式名称，当前读与写均刻意保留；它们不是 Bundle ID 或 entitlement access-group。避免在正式迁移尚未完成前同时改变服务命名，令已恢复的条目无法被生产读写/删除逻辑找到。不添加旧 keychain access-group；相同 service 字符串不会绕过系统权限。
+- 活跃 Keychain 服务 provider.<instanceId>、envvar、device、rclone、mcp-oauth 的读写/删除统一改为 com.minismod 前缀；不增加旧服务 fallback，不添加旧 keychain access-group。
 - ProviderMigration 中旧迁移完成标记、agent-model-settings、active-provider 与旧 API key 服务读取保留。三家 OAuth legacy 服务及 Gemini 旧邮箱/project ID 仅用于既有旧模式读取。绝不把旧迁移标记改成新名字后误重跑覆盖现有 provider。
-- DeviceIdentity 的持久服务名不改；不代表新应用自动继承设备身份。后续恢复前必须决定是否保留 DeviceIdentity，以免 CloudKit 同步身份碰撞。
+- DeviceIdentity 使用 com.minismod.device。新身份不自动继承旧身份。
+
+最新范围：用户自行处理迁移；以下原有计划仅保留为历史记录，不再开发或执行迁移功能，也不作为交付门槛。
 
 ## 本轮安全边界
 仅源码、GitHub Actions 构建及隔离暂存目录 ad-hoc 签名；不安装、不卸载、不运行新应用、不访问或写入旧 App/Group 数据，不导出秘密、不合并、不删除旧包。签名通过不等于普通开发者签名/provisioning，也不等于 iCloud/APNs 可用。
