@@ -190,6 +190,9 @@ enum ChatThemeStore {
 }
 
 enum ChatColors {
+    // Native tokens for surfaces: never round-trip a dynamic UIColor through Color.
+    static var backgroundUIColor: UIColor { ChatThemeStore.current?.background.uiColor ?? .systemBackground }
+    static var secondaryBgUIColor: UIColor { ChatThemeStore.current?.secondaryBg.uiColor ?? .secondarySystemBackground }
     private static func pick(_ f: (ChatTheme) -> ChatThemePair, _ fallback: Color) -> Color {
         ChatThemeStore.current.map { f($0).color } ?? fallback
     }

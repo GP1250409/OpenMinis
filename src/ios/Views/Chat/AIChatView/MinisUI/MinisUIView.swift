@@ -383,6 +383,7 @@ struct MUNodeView: View {
             let size: CGFloat = comp.str("size") == "l" ? 20 : (comp.str("size") == "s" ? 15 : 17)
             Text(MUStyle.inline(comp.str("text") ?? ""))
                 .font(.system(size: size, weight: .semibold))
+                .modifier(MUReadableText(color: .primary))
                 .fixedSize(horizontal: false, vertical: true)
         case "Text":
             Text(MUStyle.inline(comp.str("text") ?? ""))
@@ -436,7 +437,8 @@ private struct MUCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))
+        .modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04),
+                                nativeFill: topLevel ? ChatColors.secondaryBgUIColor : UIColor.label.withAlphaComponent(0.04)))
     }
 }
 
@@ -466,8 +468,8 @@ private struct MUList: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(comp.strings("items").enumerated()), id: \.offset) { i, item in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14)).foregroundStyle(.secondary)
-                    Text(MUStyle.inline(item)).font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
+                    Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14)).modifier(MUReadableText(color: .secondary))
+                    Text(MUStyle.inline(item)).font(.system(size: 14)).modifier(MUReadableText(color: .primary)).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -484,11 +486,12 @@ private struct MUCallout: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon).font(.system(size: 14)).foregroundStyle(c).padding(.top, 1)
             Text(MUStyle.inline(comp.str("text") ?? "")).font(.system(size: 14))
+                .modifier(MUReadableText(color: .primary))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.opacity(0.10)))
+        .modifier(MUCardSurface(fill: c.opacity(0.10), cornerRadius: 10, bordered: false))
     }
 }
 

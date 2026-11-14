@@ -17,14 +17,23 @@ extension EnvironmentValues {
 }
 enum MUSurface {
     static func base(_ inherited: MUMapRGB?, scheme: ColorScheme) -> MUMapRGB {
-        inherited ?? rgb(Color(uiColor: .systemBackground), over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
+        inherited ?? rgb(UIColor.systemBackground, over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
     }
     static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
+        if #available(iOS 17.0, *) {
+            var environment = EnvironmentValues()
+            environment.colorScheme = scheme
+            let c = color.resolve(in: environment)
+            return rgb(UIColor(red: CGFloat(c.red), green: CGFloat(c.green), blue: CGFloat(c.blue), alpha: CGFloat(c.opacity)), over: background, scheme: scheme)
+        }
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
-        // Bridge INSIDE the requested traits: on iOS 16 UIColor(Color) may
-        // eagerly flatten a dynamic SwiftUI colour using UITraitCollection.current.
-        var resolved = UIColor.clear
-        traits.performAsCurrent { resolved = UIColor(color).resolvedColor(with: traits) }
+        var native = UIColor.clear
+        traits.performAsCurrent { native = UIColor(color) }
+        return rgb(native, over: background, scheme: scheme)
+    }
+    static func rgb(_ color: UIColor, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        let resolved = color.resolvedColor(with: traits)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
         func byte(_ x: CGFloat) -> Int { Int((min(1, max(0, x)) * 255).rounded()) }
@@ -39,7 +48,7 @@ enum MUSurface {
 struct MURootSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
-        let surface = MUSurface.rgb(ChatColors.background, over: MUSurface.base(nil, scheme: scheme), scheme: scheme)
+        let surface = MUSurface.rgb(ChatColors.backgroundUIColor, over: MUSurface.base(nil, scheme: scheme), scheme: scheme)
         content.environment(\.muSurface, surface).foregroundStyle(surface.ink.color)
     }
 }
@@ -47,6 +56,7 @@ struct MUCardTitle: View {
     let title: String
     var body: some View {
         Text(title).font(.system(size:16,weight:.semibold))
+            .modifier(MUReadableText(color: .primary))
             .fixedSize(horizontal:false,vertical:true)
     }
 }
@@ -61,17 +71,23 @@ struct MUReadableText: ViewModifier {
 // Shared by MUCard and the bitmap fixtures: no extra geometry or layout pass.
 struct MUCardSurface: ViewModifier {
     let fill: Color
+    var nativeFill: UIColor? = nil
+    var cornerRadius: CGFloat = 14
+    var bordered = true
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
         let parent = MUSurface.base(inherited, scheme: scheme)
-        let surface = MUSurface.rgb(fill, over: parent, scheme: scheme)
+        let surface = nativeFill.map { MUSurface.rgb($0, over: parent, scheme: scheme) }
+            ?? MUSurface.rgb(fill, over: parent, scheme: scheme)
+        // Draw exactly the same opaque composite that descendants use. Resolving
+        // fill a second time in SwiftUI can disagree with the hosting cell traits.
         content
             .foregroundStyle(surface.ink.color)
             .environment(\.muSurface, surface)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
+            .background(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(surface.color))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.primary.opacity(bordered ? 0.08 : 0), lineWidth: 0.6))
     }
 }
 
