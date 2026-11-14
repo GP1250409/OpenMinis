@@ -227,6 +227,9 @@ final class SettingsMenuFixture: UIResponder, UIApplicationDelegate {
             AppearanceMenuSettingsSections { togglePreview = $0 }
         }
         .listStyle(.insetGrouped)
+        // Match MinisApp's language environment: bundle swizzling alone covers
+        // NSLocalizedString, but SwiftUI localized keys also resolve via locale.
+        .environment(\.locale, Locale(identifier: lang))
 
         let host = UIHostingController(rootView: root)
         if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
