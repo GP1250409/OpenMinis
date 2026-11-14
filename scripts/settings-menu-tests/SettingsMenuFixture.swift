@@ -179,12 +179,16 @@ final class SettingsMenuFixture: UIResponder, UIApplicationDelegate {
         defaultChartH = defaultSize.height
         let defaultPlotH = defaultGeo?.plot.height ?? -1
         let previewPlotH = previewGeo?.plot.height ?? -1
+        let winSafe = window?.safeAreaInsets ?? .zero
+        print(String(format: "SETTINGS_MENU_DIAG formalPlot=%.2f formalCard=%.2f previewPlot=%.2f previewCard=%.2f safeTop=%.2f safeBottom=%.2f",
+                     defaultPlotH, defaultSize.height, previewPlotH, previewSize.height, winSafe.top, winSafe.bottom))
 
+        // Framed MultiChart structural chrome = topRule(6) + vstackSpacing(4) + xAxis(22) + plotTop(16) + verticalPadding(20) = 68pt
         check(abs(defaultPlotH - 180) <= 0.5, "default formal chat plot height 180: \(defaultPlotH)")
         check(abs(previewPlotH - 104) <= 0.5, "preview plot height 104: \(previewPlotH)")
         check(abs((defaultPlotH - previewPlotH) - 76.0) <= 0.5, "exact 76pt plot delta between 180 and 104: \(defaultPlotH - previewPlotH)")
-        check(abs(defaultSize.height - 222) <= 1.0, "default formal chat chart height 180+42: \(defaultSize.height)")
-        check(abs(previewSize.height - 146) <= 1.0, "preview plot chart height 104+42: \(previewSize.height)")
+        check(abs(defaultSize.height - 248) <= 1.0, "default formal chat chart height 180+68(framed): \(defaultSize.height)")
+        check(abs(previewSize.height - 172) <= 1.0, "preview plot chart height 104+68(framed): \(previewSize.height)")
         check(abs((defaultSize.height - previewSize.height) - 76.0) <= 0.5, "exact 76pt card delta between 180 and 104")
 
         for (label, invalidH) in [("zero", CGFloat(0)), ("negative", CGFloat(-10)), ("nan", CGFloat.nan), ("infinity", CGFloat.infinity)] {
