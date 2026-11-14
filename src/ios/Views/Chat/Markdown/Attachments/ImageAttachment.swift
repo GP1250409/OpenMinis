@@ -21,6 +21,28 @@ import UIKit
 
 // MARK: - Image Attachment
 
+/// Pure geometry shared by loaded, cached-size and UIKit view paths. The 40pt
+/// width is a preferred minimum BEFORE fitting; a height cap may shrink it
+/// below 40pt for a panorama rotated into a very tall image. Never distort it.
+enum ImageAttachmentGeometry {
+    static let shadowInset: CGFloat = 6
+    static func imageSize(_ source: CGSize, availableWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        let valid = source.width.isFinite && source.height.isFinite && source.width > 0 && source.height > 0
+        let size = valid ? source : CGSize(width: 40, height: 40)
+        let width = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 400
+        let limit = maxHeight.isFinite && maxHeight > 0 ? maxHeight : 40
+        let preferred = max(40, min(min(width, size.width + shadowInset * 2), 400) - shadowInset * 2)
+        // Multiplying a bounded width by an untrusted aspect can overflow.
+        // Fit by scale instead, with both axes participating in the same scale.
+        let scale = min(preferred / size.width, limit / size.height)
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+    static func bounds(_ source: CGSize, availableWidth: CGFloat, maxHeight: CGFloat) -> CGRect {
+        let size = imageSize(source, availableWidth: availableWidth, maxHeight: maxHeight)
+        return CGRect(x: 0, y: 0, width: size.width + shadowInset * 2, height: size.height + shadowInset * 2)
+    }
+}
+
 final class ImageAttachment: NSTextAttachment {
     let source: String
     let theme: SelectableMarkdownTheme
@@ -160,7 +182,7 @@ final class ImageAttachment: NSTextAttachment {
     /// (radius 4, y-offset 2) draws fully instead of being clipped by the
     /// text view's clipsToBounds at full-width images. attachmentBounds and
     /// makeImageView MUST use the same value or the cell height drifts.
-    private static let imageShadowInset: CGFloat = 6
+    private static let imageShadowInset = ImageAttachmentGeometry.shadowInset
 
     override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: CGRect, glyphPosition position: CGPoint, characterIndex charIndex: Int) -> CGRect {
         // Quantize the line-fragment width to a 4pt bucket. TextKit can call
@@ -190,44 +212,8 @@ final class ImageAttachment: NSTextAttachment {
         }
 
         if let img = loadedImage {
-            // [T-md-image-shadow-clip] Inset the displayed image by
-            // shadowInset per side so the drop shadow renders INSIDE the
-            // attachment box. Previously the image filled the full box width;
-            // for full-width images the shadow spilled past the text view's
-            // bounds (clipsToBounds=true) and was visibly cut off left/right.
-            let boxWidth = min(min(width, img.size.width + Self.imageShadowInset * 2), Self.maxImageWidth)
-            let imgWidth = max(boxWidth - Self.imageShadowInset * 2, 40)
-            let aspect = img.size.height / max(img.size.width, 1)
-            let maxH = UIScreen.main.bounds.height / 2
-            let h = min(imgWidth * aspect, maxH)
-
-            // [T-ios-image-single-writer] attachmentBounds is PURE now — it
-            // measures and returns, nothing else. The bounds-time re-downsample
-            // that used to live here (fire a detached decode task from inside a
-            // TextKit measurement callback, replacing `loadedImage` when it
-            // landed) was the root of the placeholder-stuck family: measurement
-            // runs many times per layout pass at oscillating widths, so the
-            // side effect fired repeatedly and concurrently, completions landed
-            // out of order, and a silently-failed task left a
-            // never-rolled-back marker that blocked all retries. Display-size
-            // decoding now happens exactly once, in the load pipeline
-            // (`displayTargetPixels`), where the aspect ratio is known and
-            // there is a single completion path.
-
-            // Return the attachment box as `imgWidth` (already clamped by
-            // `maxImageWidth` and the image's own intrinsic width), NOT the
-            // raw `width`. TextKit can pass `lineFrag.width = 10_000_000.0`
-            // as an "unconstrained" probe during intermediate layout passes;
-            // returning that value unchanged gave TextKit an attachment box
-            // 10M points wide, which invalidates line-fragment geometry and
-            // causes neighbouring passes (at the real container width) to
-            // compute a different bounds, feeding a layout loop that can walk
-            // past the 5s watchdog budget. [AttachHang fix]
-            // Box = image + shadow breathing room on ALL sides (geometry must
-            // match makeImageView's container exactly, or the cell height
-            // drifts — the historical attachment-clip class of bugs).
-            return CGRect(x: 0, y: 0, width: imgWidth + Self.imageShadowInset * 2,
-                          height: h + Self.imageShadowInset * 2)
+            return ImageAttachmentGeometry.bounds(img.size, availableWidth: width,
+                                                  maxHeight: UIScreen.main.bounds.height / 2)
         }
         // No `loadedImage` yet — but if we've ever loaded this source before
         // we have its pixel size recorded globally. Use that to compute the
@@ -247,14 +233,8 @@ final class ImageAttachment: NSTextAttachment {
         // [AttachHang preload-bounds fix]
         let canonicalSrc = Self.canonicalizeMarkdownImageSource(source)
         if let knownSize = NativeMediaImageCache.shared.size(forSource: canonicalSrc) {
-            // [T-md-image-shadow-clip] Same inset geometry as the loaded path.
-            let boxWidth = min(min(width, knownSize.width + Self.imageShadowInset * 2), Self.maxImageWidth)
-            let imgWidth = max(boxWidth - Self.imageShadowInset * 2, 40)
-            let aspect = knownSize.height / max(knownSize.width, 1)
-            let maxH = UIScreen.main.bounds.height / 2
-            let h = min(imgWidth * aspect, maxH)
-            return CGRect(x: 0, y: 0, width: imgWidth + Self.imageShadowInset * 2,
-                          height: h + Self.imageShadowInset * 2)
+            return ImageAttachmentGeometry.bounds(knownSize, availableWidth: width,
+                                                  maxHeight: UIScreen.main.bounds.height / 2)
         }
         // [T-attach-bounds-probe-kick] First time we see this source. Ask for a
         // header probe before returning the 200pt box, so the NEXT layout pass
@@ -588,12 +568,9 @@ final class ImageAttachment: NSTextAttachment {
         // the image is inset by imageShadowInset per side inside the
         // attachment box so the shadow renders fully within the text view's
         // clip bounds (it used to be cut off left/right on full-width images).
-        let boxWidth = min(min(width, img.size.width + Self.imageShadowInset * 2), Self.maxImageWidth)
-        let imgWidth = max(boxWidth - Self.imageShadowInset * 2, 40)
-        let aspect = img.size.height / max(img.size.width, 1)
-        let maxH = UIScreen.main.bounds.height / 2
-        let h = min(imgWidth * aspect, maxH)
-        imgLogger.info("[MinisImage][MakeView] layout src=\(self.source) displayWidth=\(imgWidth) displayHeight=\(h) aspect=\(aspect) maxImageWidth=\(Self.maxImageWidth)")
+        let display = ImageAttachmentGeometry.imageSize(img.size, availableWidth: width,
+                                                        maxHeight: UIScreen.main.bounds.height / 2)
+        let imgWidth = display.width, h = display.height
 
         let shadowInset: CGFloat = Self.imageShadowInset
         // Container == the attachment box (image + shadow room on all sides).
@@ -611,10 +588,10 @@ final class ImageAttachment: NSTextAttachment {
         shadowView.layer.shadowOffset = CGSize(width: 0, height: 2)
         shadowView.layer.shadowPath = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: imgWidth, height: h), cornerRadius: 8).cgPath
 
-        // Image view — clipped to rounded corners, black background for transparent/white images
+        // Image view — its bounds now match the bitmap aspect, with no letterboxing.
         let imageView = UIImageView(image: img)
         imageView.contentMode = .scaleAspectFit
-        imageView.backgroundColor = .black
+        imageView.backgroundColor = .clear
         imageView.frame = shadowView.bounds
         imageView.layer.cornerRadius = 8
         imageView.clipsToBounds = true

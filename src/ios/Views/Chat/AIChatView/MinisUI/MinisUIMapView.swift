@@ -46,17 +46,23 @@ enum MUSurface {
 }
 // The same root path is used by chat cards and the native regression fixture.
 struct MURootSurface: ViewModifier {
+    @AppStorage(ChatThemeStore.key) private var appThemeId = ""
     @Environment(\.colorScheme) private var scheme
     func body(content: Content) -> some View {
         let surface = MUSurface.rgb(ChatColors.backgroundUIColor, over: MUSurface.base(nil, scheme: scheme), scheme: scheme)
-        content.environment(\.muSurface, surface).foregroundStyle(surface.ink.color)
+        // AppStorage invalidates this root even outside the chat coordinator.
+        // Surface keys already segregate the chart contrast cache by true RGB.
+        let _ = appThemeId
+        content.environment(\.muSurface, surface)
+            .foregroundStyle(MUSurface.foreground(ChatColors.primaryText, on: surface, scheme: scheme))
+            .tint(ChatColors.tint)
     }
 }
 struct MUCardTitle: View {
     let title: String
     var body: some View {
         Text(title).font(.system(size:16,weight:.semibold))
-            .modifier(MUReadableText(color: .primary))
+            .modifier(MUReadableText(color: ChatColors.primaryText))
             .fixedSize(horizontal:false,vertical:true)
     }
 }

@@ -132,9 +132,14 @@ enum MinisUIPrompt {
         - Keep charts quiet and readable: one message per chart, a headline that
           states the point, at most 4 series where possible, context greyed via
           `highlight` instead of extra colours. Phone screens are narrow.
-        - Forecast/estimate points: there is no dashed-line or shaded-forecast
-          style, so put it in the series name ("中国（预测）") or in `subtitle`;
-          do not claim styling the chart cannot draw.
+        - Basic cards, text and controls follow the user's App chat theme. Charts
+          and maps use the user's independent System / Economist / Economist 2017
+          palette on the real card background. Chart stroke weight and line-series
+          patterns are user appearance settings; they are not model parameters.
+        - Forecast/estimate points: there is no per-point dashed-line or shaded-
+          forecast parameter. The user may apply a global line-series pattern,
+          which is not a semantic forecast marker. Put estimates in the series
+          name ("中国（预测）") or in `subtitle`; do not promise forecast styling.
 
         Maps
         - Prefer BlockMap for regional numeric comparisons; use GeoMap only when the

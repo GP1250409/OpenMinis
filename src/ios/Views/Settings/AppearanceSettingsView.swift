@@ -196,6 +196,8 @@ struct AppearanceSettingsView: View {
     @AppStorage("chatThemeId") private var chatThemeId: String = ""
     /// [MOD genui] show_ui chart colour style ("" = system, "economist").
     @AppStorage(MUChartStyle.key) private var genuiChartPalette: String = ""
+    @AppStorage(MUChartDrawing.weightKey) private var genuiChartWeight = "standard"
+    @AppStorage(MUChartDrawing.dashKey) private var genuiChartPattern = "solid"
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -289,10 +291,21 @@ struct AppearanceSettingsView: View {
                     Text("The Economist").tag(MUChartStyle.economist)
                     Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
                 }
+                Picker("Chart stroke weight", selection: $genuiChartWeight) {
+                    Text("Fine").tag("fine")
+                    Text("Standard").tag("standard")
+                    Text("Bold").tag("bold")
+                }
+                Picker("Chart line pattern", selection: $genuiChartPattern) {
+                    Text("Solid").tag("solid")
+                    Text("Dashed context series").tag("context")
+                    Text("All lines dashed").tag("dashed")
+                }
+                MUChartSettingsPreview()
             } header: {
-                Text("Interactive Cards")
+                Text("Interactive Cards · Charts & Maps")
             } footer: {
-                Text("Colour style for bar and line charts in interactive cards (show_ui). The Economist: red on grey with a black baseline, as in recent charts. The Economist (2017 guide): the official blue, cyan and gold series on a light blue-grey panel.")
+                Text("Cards, text and controls follow Chat Theme. Charts and maps keep their own professional colours, independent of the app accent. Their canvas stays transparent on the real card surface. Stroke weight adjusts chart lines, axes and grid; line patterns apply to line series. These settings are saved separately and are not reset by changing Chat Theme.")
             }
             Section {
                 Picker("Launch Session", selection: $launchScreen) {

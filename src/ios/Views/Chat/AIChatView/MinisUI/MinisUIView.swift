@@ -169,7 +169,7 @@ struct MinisUICardView: View {
             } else {
                 Text(AppLocalized("This card could not be displayed."))
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .modifier(MUReadableText(color: ChatColors.secondaryText))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -330,12 +330,12 @@ enum MUStyle {
 
     static func tone(_ t: String?) -> Color {
         switch t {
-        case "accent", "info": return .accentColor
-        case "success": return .green
-        case "warning": return .orange
-        case "danger": return .red
-        case "secondary": return .secondary
-        default: return .primary
+        case "accent", "info": return ChatColors.tint
+        case "success": return ChatColors.success
+        case "warning": return ChatColors.warning
+        case "danger": return ChatColors.danger
+        case "secondary": return ChatColors.secondaryText
+        default: return ChatColors.primaryText
         }
     }
 
@@ -383,7 +383,7 @@ struct MUNodeView: View {
             let size: CGFloat = comp.str("size") == "l" ? 20 : (comp.str("size") == "s" ? 15 : 17)
             Text(MUStyle.inline(comp.str("text") ?? ""))
                 .font(.system(size: size, weight: .semibold))
-                .modifier(MUReadableText(color: .primary))
+                .modifier(MUReadableText(color: ChatColors.primaryText))
                 .fixedSize(horizontal: false, vertical: true)
         case "Text":
             Text(MUStyle.inline(comp.str("text") ?? ""))
@@ -446,7 +446,7 @@ private struct MUMetric: View {
     let comp: MUComp
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(comp.str("label") ?? "").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(comp.str("label") ?? "").font(.system(size: 12)).modifier(MUReadableText(color: ChatColors.secondaryText))
             Text(comp.str("value") ?? "")
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .monospacedDigit()
@@ -454,7 +454,7 @@ private struct MUMetric: View {
                 .minimumScaleFactor(0.5)
                 .contentTransition(.numericText())
             if let n = comp.str("note") {
-                Text(n).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(n).font(.system(size: 12)).modifier(MUReadableText(color: ChatColors.secondaryText))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -469,7 +469,7 @@ private struct MUList: View {
             ForEach(Array(comp.strings("items").enumerated()), id: \.offset) { i, item in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(ordered ? "\(i + 1)." : "•").font(.system(size: 14)).modifier(MUReadableText(color: .secondary))
-                    Text(MUStyle.inline(item)).font(.system(size: 14)).modifier(MUReadableText(color: .primary)).fixedSize(horizontal: false, vertical: true)
+                    Text(MUStyle.inline(item)).font(.system(size: 14)).modifier(MUReadableText(color: ChatColors.primaryText)).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -486,7 +486,7 @@ private struct MUCallout: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon).font(.system(size: 14)).foregroundStyle(c).padding(.top, 1)
             Text(MUStyle.inline(comp.str("text") ?? "")).font(.system(size: 14))
-                .modifier(MUReadableText(color: .primary))
+                .modifier(MUReadableText(color: ChatColors.primaryText))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -506,7 +506,7 @@ private struct MUSlider: View {
         let value = min(max(ctx.num(name), lo), hi)
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(comp.str("label") ?? "").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(comp.str("label") ?? "").font(.system(size: 13)).modifier(MUReadableText(color: ChatColors.secondaryText))
                 Spacer()
                 Text(MUStyle.numText(value) + (comp.str("unit") ?? ""))
                     .font(.system(size: 13, weight: .semibold)).monospacedDigit()
@@ -575,7 +575,7 @@ private struct MUSegmented: View {
                         .frame(maxWidth: .infinity, minHeight: 28)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(on ? Color(uiColor: .systemBackground) : .clear)
+                                .fill(on ? ChatColors.inputBg : .clear)
                                 .shadow(color: .black.opacity(on ? 0.12 : 0), radius: 2, y: 1)
                         )
                         .contentShape(Rectangle())
@@ -603,7 +603,7 @@ private struct MUChoice: View {
                     HStack(spacing: 10) {
                         Image(systemName: on ? "largecircle.fill.circle" : "circle")
                             .font(.system(size: 16))
-                            .foregroundStyle(on ? Color.accentColor : .secondary)
+                            .foregroundStyle(on ? ChatColors.tint : .secondary)
                         Text(MUStyle.inline(opt)).font(.system(size: 14)).foregroundStyle(.primary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
@@ -611,9 +611,9 @@ private struct MUChoice: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 11)
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(on ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05)))
+                        .fill(on ? ChatColors.tint.opacity(0.12) : Color.primary.opacity(0.05)))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(on ? Color.accentColor.opacity(0.6) : .clear, lineWidth: 1))
+                        .stroke(on ? ChatColors.tint.opacity(0.6) : .clear, lineWidth: 1))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -656,6 +656,32 @@ private struct MUTable: View {
 /// Chart colour style for `show_ui` charts. Stored in UserDefaults (settings
 /// page: Appearance > Chart Colours). "" = system look (Swift Charts default),
 /// "economist" = The Economist house style: one red series on a quiet grid.
+struct MUChartDrawing {
+    static let weightKey = "genuiChartStrokeWeight"
+    static let dashKey = "genuiChartLinePattern"
+    let weight: String
+    let pattern: String
+    var multiplier: CGFloat { weight == "fine" ? 0.8 : (weight == "bold" ? 1.4 : 1) }
+    func width(_ base: CGFloat) -> CGFloat { base * multiplier }
+    func dash(context: Bool = false) -> [CGFloat] {
+        pattern == "dashed" || (pattern == "context" && context) ? [5, 3] : []
+    }
+}
+
+/// A real production card, not an illustration: appearance controls update the
+/// same AppStorage readers used by existing conversations, without changing data.
+struct MUChartSettingsPreview: View {
+    var body: some View {
+        let p = MUProgram.parse("root = Card([Text(\"App theme text\"), LineChart([\"Jan\", \"Feb\", \"Mar\"], [2, 5, 3])], \"Chart preview\")")
+        let defaults = p.defaultState().0
+        if let root = p.render(defaults).0 {
+            MUNodeView(comp: root, ctx: MUContext(state: defaults, program: p, defaults: defaults,
+                set: { _, _, _ in }, commit: {}, run: { _ in }), topLevel: true)
+                .modifier(MURootSurface())
+        }
+    }
+}
+
 enum MUChartStyle {
     static let key = "genuiChartPalette"
     static let economist = "economist"
@@ -900,6 +926,10 @@ private struct MUMultiChartBody: View {
     let highlight: [String]
     let framed: Bool
 
+    @AppStorage(MUChartDrawing.weightKey) private var strokeWeight = "standard"
+    @AppStorage(MUChartDrawing.dashKey) private var linePattern = "solid"
+    private var drawing: MUChartDrawing { MUChartDrawing(weight: strokeWeight, pattern: linePattern) }
+
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
     private var surface: MUMapRGB { MUSurface.base(inherited, scheme: scheme) }
@@ -1015,7 +1045,7 @@ private struct MUMultiChartBody: View {
                     case "line":
                         LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
                             .foregroundStyle(color(s))
-                            .lineStyle(StrokeStyle(lineWidth: isGreyed(s) ? 2 : 2.5, lineCap: .round, lineJoin: .round))
+                            .lineStyle(StrokeStyle(lineWidth: drawing.width(isGreyed(s) ? 2 : 2.5), lineCap: .round, lineJoin: .round, dash: drawing.dash(context: isGreyed(s))))
                     case "stacked":
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i])).foregroundStyle(color(s))
                     default:
@@ -1101,14 +1131,14 @@ private struct MUMultiChartBody: View {
                 Path { path in
                     path.move(to: CGPoint(x: frame.minX, y: frame.maxY))
                     path.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY))
-                }.stroke(theme.axis, lineWidth: 0.5)
+                }.stroke(theme.axis, lineWidth: drawing.width(0.5))
                 ForEach(Array(labels.prefix(cols).enumerated()), id: \.offset) { i, text in
                     if i % max(1, Int(ceil(Double(cols) / 5))) == 0 || i == cols - 1 {
                         let x = frame.minX + (proxy.position(forX: text) ?? 0)
                         Path { path in
                             path.move(to: CGPoint(x: x, y: frame.maxY))
                             path.addLine(to: CGPoint(x: x, y: frame.maxY + 5))
-                        }.stroke(theme.axis, lineWidth: 0.5)
+                        }.stroke(theme.axis, lineWidth: drawing.width(0.5))
                         Text(text).font(.system(size: theme.fonts.tick)).monospacedDigit()
                             .foregroundStyle(theme.axis).lineLimit(1)
                             .frame(width: min(44, frame.width / 3), height: 14)
@@ -1130,7 +1160,7 @@ private struct MUMultiChartBody: View {
                     path.move(to: CGPoint(x: frame.minX, y: y))
                     path.addLine(to: CGPoint(x: frame.maxX, y: y))
                 }.stroke(value == 0 && crossesZero ? theme.zero : theme.grid,
-                         lineWidth: value == 0 && crossesZero ? theme.zeroWidth : theme.gridWidth)
+                         lineWidth: drawing.width(value == 0 && crossesZero ? theme.zeroWidth : theme.gridWidth))
             }
         }.allowsHitTesting(false)
     }
@@ -1148,9 +1178,9 @@ private struct MUButton: View {
                 .font(.system(size: 14, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(primary ? Color.white : Color.accentColor)
+                .foregroundStyle(primary ? ChatColors.onTint : ChatColors.tint)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(primary ? Color.accentColor : Color.accentColor.opacity(0.12)))
+                    .fill(primary ? ChatColors.tint : ChatColors.tint.opacity(0.12)))
         }
         .buttonStyle(.plain)
     }
@@ -1162,7 +1192,7 @@ private struct MUSquareButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .bold))
             .frame(width: 30, height: 30)
-            .foregroundStyle(enabled ? Color.accentColor : .secondary)
+            .foregroundStyle(enabled ? ChatColors.tint : .secondary)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06)))
     }
@@ -1174,7 +1204,7 @@ private struct MUCheckToggleStyle: ToggleStyle {
             HStack(spacing: 10) {
                 Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(configuration.isOn ? Color.accentColor : .secondary)
+                    .foregroundStyle(configuration.isOn ? ChatColors.tint : .secondary)
                 configuration.label
                     .strikethrough(false)
                     .foregroundStyle(.primary)
