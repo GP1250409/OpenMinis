@@ -243,7 +243,7 @@ check(store.canonical("Somaliland", region: "world") == "SOL", "world Somaliland
 let worldGeom = store.geometry(for: "world")!
 let worldMeta = store.metadata(for: "world")!
 if let zaIdx = worldMeta.byCode["ZA"]?.index {
-    check(worldGeom.features[zaIdx].count == 2, "world South Africa preserves Lesotho interior hole")
+    check(worldGeom.features[zaIdx].count >= 2, "world South Africa preserves Lesotho interior hole (1:10m also carries Prince Edward Is.)")
 }
 
 check(store.canonical("MT", region: "eu") == "MT", "eu includes Malta")
