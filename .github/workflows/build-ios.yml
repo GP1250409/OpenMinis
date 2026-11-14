@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive }
+        with: { submodules: recursive, fetch-depth: 0 }
       - name: Check prebuilt native deps
         id: prebuilt_deps
         env:
