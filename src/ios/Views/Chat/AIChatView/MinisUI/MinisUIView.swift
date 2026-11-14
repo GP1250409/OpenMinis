@@ -672,7 +672,7 @@ struct MUChartDrawing {
 /// same AppStorage readers used by existing conversations, without changing data.
 struct MUChartSettingsPreview: View {
     var body: some View {
-        let p = MUProgram.parse("root = Card([Text(\"App theme text\"), LineChart([\"Jan\", \"Feb\", \"Mar\"], [2, 5, 3])], \"Chart preview\")")
+        let p = MUProgram.parse("root = Card([Text(\"App theme text\"), MultiChart(\"line\", [\"Jan\", \"Feb\", \"Mar\"], [\"Focus\", \"Context\"], [[2, 5, 3], [1, 2, 4]], null, null, null, null, [\"Focus\"])], \"Chart preview\")")
         let defaults = p.defaultState().0
         if let root = p.render(defaults).0 {
             MUNodeView(comp: root, ctx: MUContext(state: defaults, program: p, defaults: defaults,
