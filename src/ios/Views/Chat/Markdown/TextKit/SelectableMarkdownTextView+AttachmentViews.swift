@@ -239,6 +239,13 @@ extension SelectableMarkdownTextView {
                 if let imageAttach = attachment as? ImageAttachment {
                     // File was rewritten since last load — force a rebuild
                     // so the new bitmap reaches the UIImageView inside.
+                    // Reflow may keep this attachment identity while changing its
+                    // measured bounds. Its bitmap/shadow subviews have fixed frames;
+                    // rebuild rather than moving an old-sized overlay into new layout.
+                    if abs(existingView.bounds.width - boundingRect.width) > 0.5
+                        || abs(existingView.bounds.height - boundingRect.height) > 0.5 {
+                        stale = true
+                    }
                     if imageAttach.needsViewRebuild {
                         AppLogger(category: "AttachHotPath").info("[IMG][UAV] STALE-needsRebuild src=\(ImageAttachment.shortSrc(imageAttach.source)) ptr=\(attachId.hashValue & 0xFFFFFF)")
                         stale = true

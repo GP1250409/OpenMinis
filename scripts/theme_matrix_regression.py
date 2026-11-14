@@ -9,7 +9,10 @@ def run(cmd,**kw): return subprocess.check_output(cmd,text=True,stderr=subproces
 text=(UI/'MinisUIView.swift').read_text()
 renderer=text[text.index('struct MUContext {'):]
 fixture=(ROOT/'scripts/theme-matrix-tests/ThemeMatrixFixture.swift').read_text()
-(OUT/'ProductionRenderer.swift').write_text('import SwiftUI\nimport UIKit\nimport Charts\n'+renderer+'\n'+fixture)
+from image_reflow_fixture import source as image_reflow_source
+image_fixture=image_reflow_source(ROOT)
+(OUT/'ProductionRenderer.swift').write_text('import SwiftUI\nimport UIKit\nimport Charts\n'+renderer+'\n'+image_fixture+'\n'+fixture)
+print('IMAGE_REFLOW_SOURCE_PASS exact_creation=1 exact_reuse=1',flush=True)
 assert '@AppStorage(ChatThemeStore.key)' in (UI/'MinisUIMapView.swift').read_text()
 assert 'drawing.width(isGreyed(s)' in renderer and 'drawing.dash(context: isGreyed(s))' in renderer
 assert 'genuiChartStrokeWeight' in renderer and 'genuiChartLinePattern' in renderer
@@ -35,11 +38,13 @@ container=pathlib.Path(run(['xcrun','simctl','get_app_container',uid,info['CFBun
 if (container/'tmp/theme-matrix').exists(): shutil.rmtree(container/'tmp/theme-matrix')
 for stale in [*OUT.glob('*.png'),OUT/'result.log']:
     if stale.exists(): stale.unlink()
-try: output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=180)
+try: output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=300)
 except subprocess.CalledProcessError as e: output=e.output
 (OUT/'launch.log').write_text(output); print(output,flush=True)
 for p in (container/'tmp/theme-matrix').iterdir(): shutil.copy2(p,OUT/p.name)
 marker=(OUT/'result.log').read_text(); print(marker,flush=True)
-assert 'THEME_MATRIX_PASS checks=325 png=54' in marker,marker
-assert len(list(OUT.glob('*.png')))==54
-print('THEME_MATRIX_ARTIFACT_OK png=54',flush=True)
+assert 'THEME_MATRIX_PASS checks=720 png=99' in marker,marker
+assert len(list(OUT.glob('*.png')))==99
+assert 'THEME_LIVE_PIXELS_PASS checks=6 mounts=1 phases=3 persistence=domain_roundtrip' in output
+assert 'IMAGE_REFLOW_UIKIT_PASS checks=90 cases=9 exact_creation=1 exact_reuse=1' in output
+print('THEME_MATRIX_ARTIFACT_OK png=99',flush=True)

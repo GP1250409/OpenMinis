@@ -91,7 +91,7 @@ struct MUCardSurface: ViewModifier {
         // Draw exactly the same opaque composite that descendants use. Resolving
         // fill a second time in SwiftUI can disagree with the hosting cell traits.
         content
-            .foregroundStyle(surface.ink.color)
+            .foregroundStyle(MUSurface.foreground(ChatColors.primaryText, on: surface, scheme: scheme, environment: appearance))
             .environment(\.muSurface, surface)
             .background(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(surface.color))
             .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
