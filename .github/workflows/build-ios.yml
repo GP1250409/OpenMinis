@@ -144,6 +144,10 @@ jobs:
             build/theme-matrix/*.png
             build/theme-matrix/*.log
             build/theme-matrix/ProductionRenderer.swift
+            settings-menu-regression.log
+            build/settings-menu/*.png
+            build/settings-menu/*.log
+            build/settings-menu/ProductionRenderer.swift
             card-dark-regression.log
             build/card-dark/*.png
             build/card-dark/*.log

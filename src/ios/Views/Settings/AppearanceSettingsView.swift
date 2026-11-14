@@ -198,6 +198,7 @@ struct AppearanceSettingsView: View {
     @AppStorage(MUChartStyle.key) private var genuiChartPalette: String = ""
     @AppStorage(MUChartDrawing.weightKey) private var genuiChartWeight = "standard"
     @AppStorage(MUChartDrawing.dashKey) private var genuiChartPattern = "solid"
+    @State private var isPreviewExpanded = false
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -262,7 +263,7 @@ struct AppearanceSettingsView: View {
                     Text("Light").tag(1)
                     Text("Dark").tag(2)
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
             } header: {
                 Text("Theme")
             } footer: {
@@ -276,10 +277,13 @@ struct AppearanceSettingsView: View {
             }
 
             Section {
-                chatThemeRow(id: "", name: "Default Theme", theme: nil)
-                ForEach(ChatTheme.custom) { t in
-                    chatThemeRow(id: t.id, name: t.name, theme: t)
+                Picker("Chat Theme", selection: chatThemeBinding) {
+                    Text("Default Theme").tag("")
+                    ForEach(ChatTheme.custom) { t in
+                        Text(LocalizedStringKey(t.name)).tag(t.id)
+                    }
                 }
+                .pickerStyle(.menu)
             } header: {
                 Text("Chat Theme")
             } footer: {
@@ -291,21 +295,43 @@ struct AppearanceSettingsView: View {
                     Text("The Economist").tag(MUChartStyle.economist)
                     Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
                 }
+                .pickerStyle(.menu)
                 Picker("Chart stroke weight", selection: $genuiChartWeight) {
                     Text("Fine").tag("fine")
                     Text("Standard").tag("standard")
                     Text("Bold").tag("bold")
                 }
+                .pickerStyle(.menu)
                 Picker("Chart line pattern", selection: $genuiChartPattern) {
                     Text("Solid").tag("solid")
                     Text("Dashed context series").tag("context")
                     Text("All lines dashed").tag("dashed")
                 }
-                MUChartSettingsPreview()
+                .pickerStyle(.menu)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPreviewExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Text("Preview")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isPreviewExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if isPreviewExpanded {
+                    MUChartSettingsPreview()
+                }
             } header: {
                 Text("Interactive Cards · Charts & Maps")
             } footer: {
-                Text("Cards, text and controls follow Chat Theme. Charts and maps keep their own professional colours, independent of the app accent. Their canvas stays transparent on the real card surface. Stroke weight adjusts chart lines, axes and grid; line patterns apply to line series. These settings are saved separately and are not reset by changing Chat Theme.")
+                Text("Cards follow Chat Theme; charts and maps keep independent colours. Line weight adjusts chart lines, axes and grid; dashed styles apply only to line charts, not maps. Chart settings are saved separately.")
             }
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
@@ -554,45 +580,21 @@ struct AppearanceSettingsView: View {
         .background(InteractivePopGestureDisabler())
     }
 
-    /// Same structure as the standard Settings rows ("Manage Providers" etc.):
-    /// a `Label` whose icon is the mini preview, so `List` supplies the 44pt row
-    /// height and starts the separator at the title's leading edge by itself.
-    @ViewBuilder
-    private func chatThemeRow(id: String, name: String, theme: ChatTheme?) -> some View {
-        Button {
-            guard chatThemeId != id else { return }
-            ChatThemeStore.select(id)
-        } label: {
-            HStack {
-                Label {
-                    Text(LocalizedStringKey(name)).foregroundStyle(.primary)
-                } icon: {
-                    chatThemePreview(theme)
+    /// Keeps Menu selection synchronized with `ChatThemeStore.select` so cache
+    /// and `.chatThemeChanged` observers update immediately.
+    private var chatThemeBinding: Binding<String> {
+        Binding(
+            get: {
+                if chatThemeId.isEmpty || ChatTheme.custom.contains(where: { $0.id == chatThemeId }) {
+                    return chatThemeId
                 }
-                Spacer()
-                if chatThemeId == id {
-                    Image(systemName: "checkmark").foregroundStyle(.blue).fontWeight(.semibold)
-                }
+                return ""
+            },
+            set: { newId in
+                guard chatThemeId != newId else { return }
+                ChatThemeStore.select(newId)
             }
-        }
-    }
-
-    /// Mini chat mock sized to sit in the Label icon slot of a 44pt row.
-    private func chatThemePreview(_ t: ChatTheme?) -> some View {
-        let bg = t?.background.color ?? Color(UIColor.systemBackground)
-        let bubble = t?.userBubble.color ?? Color(UIColor.tertiarySystemFill)
-        let text = t?.secondaryText.color ?? Color(UIColor.secondaryLabel)
-        let send = t?.sendButton.color ?? Color(UIColor.label)
-        return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(bg)
-            VStack(alignment: .leading, spacing: 3) {
-                Capsule().fill(text).frame(width: 14, height: 2.5)
-                HStack { Spacer(); RoundedRectangle(cornerRadius: 2).fill(bubble).frame(width: 14, height: 6) }
-                HStack { Capsule().fill(text.opacity(0.6)).frame(width: 9, height: 2.5); Spacer(); Circle().fill(send).frame(width: 6, height: 6) }
-            }.padding(5)
-        }
-        .frame(width: 36, height: 30)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
+        )
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at
@@ -616,6 +618,67 @@ private struct InteractivePopGestureDisabler: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 
     private class GestureDisablerView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            setPopGesture(enabled: false)
+        }
+        override func willMove(toWindow newWindow: UIWindow?) {
+            super.willMove(toWindow: newWindow)
+            if newWindow == nil { setPopGesture(enabled: true) }
+        }
+        private func setPopGesture(enabled: Bool) {
+            // Walk the responder chain to find the UINavigationController
+            var responder: UIResponder? = self
+            while let r = responder {
+                if let nav = r as? UINavigationController {
+                    nav.interactivePopGestureRecognizer?.isEnabled = enabled
+                    return
+                }
+                responder = r.next
+            }
+        }
+    }
+}
+ool> {
+        Binding(
+            get: { UserDefaults.standard.bool(forKey: "autoGroupingEnabled") },
+            set: { UserDefaults.standard.set($0, forKey: "autoGroupingEnabled") }
+        )
+    }
+}
+
+/// Disables the navigation controller's interactive pop gesture on the hosting page
+/// to prevent conflict with horizontal Slider drag.
+private struct InteractivePopGestureDisabler: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = GestureDisablerView()
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    private class GestureDisablerView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            setPopGesture(enabled: false)
+        }
+        override func willMove(toWindow newWindow: UIWindow?) {
+            super.willMove(toWindow: newWindow)
+            if newWindow == nil { setPopGesture(enabled: true) }
+        }
+        private func setPopGesture(enabled: Bool) {
+            // Walk the responder chain to find the UINavigationController
+            var responder: UIResponder? = self
+            while let r = responder {
+                if let nav = r as? UINavigationController {
+                    nav.interactivePopGestureRecognizer?.isEnabled = enabled
+                    return
+                }
+                responder = r.next
+            }
+        }
+    }
+}
+stureDisablerView: UIView {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             setPopGesture(enabled: false)

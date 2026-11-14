@@ -671,14 +671,53 @@ struct MUChartDrawing {
 /// A real production card, not an illustration: appearance controls update the
 /// same AppStorage readers used by existing conversations, without changing data.
 struct MUChartSettingsPreview: View {
+    private static func l(_ key: String) -> String {
+        NSLocalizedString(key, value: key, comment: "")
+    }
+
     var body: some View {
-        let p = MUProgram.parse("root = Card([Text(\"App theme text\"), MultiChart(\"line\", [\"Jan\", \"Feb\", \"Mar\"], [\"Focus\", \"Context\"], [[2, 5, 3], [1, 2, 4]], null, null, null, null, [\"Focus\"])], \"Chart preview\")")
-        let defaults = p.defaultState().0
-        if let root = p.render(defaults).0 {
-            MUNodeView(comp: root, ctx: MUContext(state: defaults, program: p, defaults: defaults,
-                set: { _, _, _ in }, commit: {}, run: { _ in }), topLevel: true)
-                .modifier(MURootSurface())
+        let jan = Self.l("Jan"), feb = Self.l("Feb"), mar = Self.l("Mar"), apr = Self.l("Apr")
+        let focus = Self.l("Main"), context = Self.l("Comparison")
+        let chart = MUComp(
+            name: "MultiChart",
+            props: [
+                "kind": .str("line"),
+                "labels": .arr([.str(jan), .str(feb), .str(mar), .str(apr)]),
+                "series": .arr([.str(focus), .str(context)]),
+                "values": .arr([
+                    .arr([.num(2.1), .num(4.8), .num(3.2), .num(5.4)]),
+                    .arr([.num(1.4), .num(2.3), .num(4.1), .num(2.9)])
+                ]),
+                "highlight": .arr([.str(focus)]),
+            ],
+            line: 0
+        )
+        let ctx = MUContext(state: [:], program: MUProgram(), defaults: [:],
+                            set: { _, _, _ in }, commit: {}, run: { _ in })
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Self.l("Sample trend"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .modifier(MUReadableText(color: ChatColors.primaryText))
+                    Text(Self.l("Text follows Chat Theme"))
+                        .font(.system(size: 11.5))
+                        .modifier(MUReadableText(color: ChatColors.secondaryText))
+                }
+                Spacer(minLength: 8)
+                Text(Self.l("Sample"))
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(ChatColors.onTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(ChatColors.tint))
+            }
+            MUNodeView(comp: chart, ctx: ctx)
+                .environment(\.muChartPlotHeight, 104)
         }
+        .padding(10)
+        .modifier(MUCardSurface(fill: ChatColors.secondaryBg, nativeFill: ChatColors.secondaryBgUIColor, cornerRadius: 10, bordered: true))
+        .modifier(MURootSurface())
     }
 }
 
@@ -961,6 +1000,7 @@ private struct MUMultiChartBody: View {
         }
         return color(s)
     }
+    @Environment(\.muChartPlotHeight) private var envChartPlotHeight
     private var chartHeight: CGFloat { 180 }
     private var lastValues: [Double] { matrix.map { $0.last ?? 0 } }
     private var domain: MUChartDomain {

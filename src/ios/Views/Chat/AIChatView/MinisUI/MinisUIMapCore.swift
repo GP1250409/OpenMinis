@@ -540,29 +540,29 @@ enum MUMapCore {
             if packMeta.features.count <= 80 {
                 for f in packMeta.features {
                     let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
-                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
                 }
             } else {
                 let hi = Set(highlights(c))
                 var shown = 0
                 for f in packMeta.features where values[f.code] != nil || hi.contains(f.code) {
                     let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
-                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
                     shown += 1
                 }
                 let omitted = packMeta.features.count - shown
-                if omitted > 0 { lines.append("其余 \(omitted) 个区域无数据") }
+                if omitted > 0 { lines.append(MUMapL10n.omittedCount(omitted)) }
             }
         } else {
             for tile in MUMapRegion.tiles(region) {
-                lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
             }
         }
         for (i,p) in c.matrix("points").enumerated() where p.count == 3 {
             let labels = c.strings("pointLabels")
             lines.append("\(i < labels.count ? labels[i] : "城市")：\(p[0]), \(p[1])\(p[2] == 1 ? " 首都" : "")")
         }
-        if let s = c.str("source") { lines.append("来源："+s) }
+        if let s = c.str("source") { lines.append(MUMapL10n.sourcePrefix+s) }
         if c.name == "BlockMap" && region == "cn" { lines.append("中国34个省级行政区（含台湾、香港、澳门）；方块拓扑示意，非地理边界图") }
         if c.name == "GeoMap" {
             if let packMeta = MUMapPackStore.shared.metadata(for: region) {

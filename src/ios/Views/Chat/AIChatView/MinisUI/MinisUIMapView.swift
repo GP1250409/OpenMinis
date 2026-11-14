@@ -190,13 +190,13 @@ struct MUMapView: View {
             lineText(tick.text,at:CGPoint(x:tick.frame.minX,y:tick.frame.minY),anchor:.topLeading,context:context,color:theme.text,size:9.5)
         }
         if m.legendSingleLabelRect != .zero {
-            lineText("全部",at:CGPoint(x:m.legendSingleLabelRect.minX,y:m.legendSingleLabelRect.minY),anchor:.topLeading,context:context,color:theme.text,size:9.5)
+            lineText(MUMapL10n.all,at:CGPoint(x:m.legendSingleLabelRect.minX,y:m.legendSingleLabelRect.minY),anchor:.topLeading,context:context,color:theme.text,size:9.5)
         }
         if !m.legendFrames.isEmpty {
             let missing=Path(CGRect(x:10,y:m.missingY+max(0,(m.missingHeight-7.0)/2.0),width:7,height:7))
             context.fill(missing,with:.color(theme.missing.color))
             context.stroke(missing,with:.color(hairline),lineWidth:0.5)
-            lineText("无数据",at:CGPoint(x:21,y:m.missingY),anchor:.topLeading,context:context,color:theme.muted,size:9.5)
+            lineText(MUMapL10n.noData,at:CGPoint(x:21,y:m.missingY),anchor:.topLeading,context:context,color:theme.muted,size:9.5)
             if m.endsRect != .zero {
                 if abs(m.endsRect.minY - m.missingY) < 0.5 {
                     lineText(m.endsText,at:CGPoint(x:m.endsRect.maxX,y:m.endsRect.minY),anchor:.topTrailing,context:context,color:theme.muted,size:9.5)
@@ -217,14 +217,14 @@ struct MUMapView: View {
             let label=comp.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
                 : MUMapPackStore.shared.displayName(for:code,region:region)
-            let value=values[code].map { String(format:"%.4g",$0)+(comp.str("unit") ?? "") } ?? "无数据"
+            let value=values[code].map { String(format:"%.4g",$0)+(comp.str("unit") ?? "") } ?? MUMapL10n.noData
             // A dedicated one-line box (<=3 lines total), never over the plot.
             context.fill(Path(CGRect(x:10,y:footer,width:max(0,m.width-20),height:12)),with:.color(theme.accent.color))
             text(label+"  "+value,CGRect(x:17,y:footer,width:m.width-34,height:12),context:context,color:theme.accent.ink,size:9,bold:true)
             footer+=14
         }
         if let source=comp.str("source") {
-            paragraph("来源："+source,CGRect(x:10,y:footer,width:m.width-20,height:m.sourceHeight),context:context,color:theme.muted,size:10); footer+=m.sourceHeight
+            paragraph(MUMapL10n.sourcePrefix+source,CGRect(x:10,y:footer,width:m.width-20,height:m.sourceHeight),context:context,color:theme.muted,size:10); footer+=m.sourceHeight
         }
         if comp.name == "GeoMap" {
             let note=packMeta?.manifest.complianceNote ?? "Natural Earth · Albers · AK/HI 插图 · 非导航地图"
