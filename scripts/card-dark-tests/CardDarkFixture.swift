@@ -140,7 +140,8 @@ private struct SurfaceProbe: View {
         }
     }
     func finish() {
-        let marker = failures.isEmpty ? "CARD_DARK_HOST_PASS checks=\(checks) png=46" : "CARD_DARK_HOST_FAIL checks=\(checks) failures=\(failures.joined(separator: "; "))"
+        let pngCount = try! FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil).filter { $0.pathExtension == "png" }.count
+        let marker = failures.isEmpty ? "CARD_DARK_HOST_PASS checks=\(checks) png=\(pngCount)" : "CARD_DARK_HOST_FAIL checks=\(checks) failures=\(failures.joined(separator: "; "))"
         try! marker.write(to: output.appendingPathComponent("result.log"), atomically: true, encoding: .utf8)
         print(marker); fflush(stdout); exit(failures.isEmpty ? 0 : 1)
     }

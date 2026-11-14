@@ -115,8 +115,17 @@ need('static func retainsOuterSurface' in core_text,
      'all Cards retain their outer plane regardless of chart content')
 need('MUCardPlane.isChartOnly(comp)' not in view_text and 'flat ? Color.clear' not in view_text,
      'legacy chart classifier cannot make the outer Card transparent')
-need('.modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04)))' in view_text,
-     'Card preserves original fill, rounded border, and nested alpha via shared modifier')
+map_view_text = (view.parent / 'MinisUIMapView.swift').read_text()
+need('.modifier(MUCardSurface(fill: topLevel ? ChatColors.secondaryBg : Color.primary.opacity(0.04),' in view_text
+     and 'nativeFill: topLevel ? ChatColors.secondaryBgUIColor : UIColor.label.withAlphaComponent(0.04)' in view_text,
+     'Card preserves theme fill and nested 4% alpha through explicit native tokens')
+need('MUSurface.rgb($0, over: parent, scheme: scheme)' in map_view_text
+     and '.environment(\\.muSurface, surface)' in map_view_text
+     and '.fill(surface.color)' in map_view_text,
+     'painted Card fill and descendant surface consume the same opaque composite')
+need('RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)' in map_view_text
+     and 'Color.primary.opacity(bordered ? 0.08 : 0)' in map_view_text,
+     'shared Card surface preserves configurable rounded corners and border')
 need('.background(framed ? theme.panel' not in view_text and 'on: surface, scheme: scheme)' in view_text,
      'chart interior is transparent and foregrounds consume the composited surface')
 need('.modifier(MURootSurface())' in view_text and 'MUSurface.rgb(ChatColors.background' in (view.parent / 'MinisUIMapView.swift').read_text(),
@@ -152,10 +161,14 @@ for phrase, why in [
     else:
         need(phrase in prompt_text, why)
 
+if failures:
+    print('CHART_LAYOUT_STATIC_FAILED checks=%d failures=%d' % (static_passed, len(failures)), flush=True)
+    sys.exit(1)
+
 if source_only:
     print('CHART_LAYOUT_SOURCE_PASS checks=%d' % static_passed)
     print('NOTE: --source-only audited the sources; the Swift suite did NOT run.')
-    sys.exit(1 if failures else 0)
+    sys.exit(0)
 
 if not swiftc:
     print('CHART_LAYOUT_NO_SWIFTC')
