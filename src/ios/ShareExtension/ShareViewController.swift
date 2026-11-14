@@ -86,7 +86,7 @@ class ShareViewController: UIViewController {
         case .cancel:
             NSLog("[ShareExt] nothing to hand over — cancelling request")
             extensionContext?.cancelRequest(withError: NSError(
-                domain: "com.gonepaul.minismod.ShareExtension", code: 1,
+                domain: "com.minismod.ShareExtension", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Nothing in this share could be read."]))
         case .openAppThenComplete:
             NSLog("[ShareExt] completing request")

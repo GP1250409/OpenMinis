@@ -4052,7 +4052,7 @@
 					"$(ISH_LIBS_DIR)/libish_aot.a",
 				);
 				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MinisApp-Bridging-Header.h";
@@ -4111,7 +4111,7 @@
 					"$(ISH_LIBS_DIR)/libish_aot.a",
 				);
 				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MinisApp-Bridging-Header.h";
@@ -4138,7 +4138,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -4165,7 +4165,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.ShareExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -4192,7 +4192,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.FileProvider;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.FileProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -4219,7 +4219,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.FileProvider;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.FileProvider;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -4246,7 +4246,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.AgentWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.AgentWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -4273,7 +4273,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gonepaul.minismod.AgentWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minismod.AgentWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

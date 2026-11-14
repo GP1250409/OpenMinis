@@ -10,6 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive, fetch-depth: 0 }
+      - name: Bundle identity source gate
+        run: |
+          set -o pipefail
+          python3 scripts/bundle_identity_check.py 2>&1 | tee bundle-identity-source.log
       - name: Check prebuilt native deps
         id: prebuilt_deps
         env:
@@ -114,6 +118,10 @@ jobs:
           mkdir -p out/Payload && cp -R "$APP" out/Payload/
           (cd out && zip -qry Minis-mod-unsigned.ipa Payload)
           ls -la out
+      - name: Bundle identity IPA gate
+        run: |
+          set -o pipefail
+          python3 scripts/bundle_identity_check.py --ipa out/Minis-mod-unsigned.ipa 2>&1 | tee bundle-identity-ipa.log
       - uses: actions/upload-artifact@v4
         with: { name: Minis-mod-unsigned, path: out/Minis-mod-unsigned.ipa }
       - uses: actions/upload-artifact@v4
@@ -121,6 +129,8 @@ jobs:
         with:
           name: mod-validation-logs
           path: |
+            bundle-identity-source.log
+            bundle-identity-ipa.log
             card-dark-baseline.log
             build/card-dark-baseline/*.png
             build/card-dark-baseline/*.log

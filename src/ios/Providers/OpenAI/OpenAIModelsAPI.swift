@@ -488,7 +488,7 @@ private enum OpenAIModelsCache {
 
     private static var cacheDir: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("com.gonepaul.minismod.openai-models-cache", isDirectory: true)
+            .appendingPathComponent("com.minismod.openai-models-cache", isDirectory: true)
     }
 
     private static func cacheKey(for credential: String) -> String {

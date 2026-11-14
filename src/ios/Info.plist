@@ -4,8 +4,8 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.gonepaul.minismod.liveactivity-refresh</string>
-		<string>com.gonepaul.minismod.continued.*</string>
+		<string>com.minismod.liveactivity-refresh</string>
+		<string>com.minismod.continued.*</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -30,6 +30,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
+				<string>com.minismod.minisbak</string>
 				<string>com.gonepaul.minismod.minisbak</string>
 			</array>
 		</dict>
@@ -164,7 +165,7 @@
 			<string>Claude OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.gonepaul.minismod</string>
+				<string>com.minismod</string>
 			</array>
 		</dict>
 		<dict>
@@ -257,7 +258,7 @@
 			<key>UTTypeDescription</key>
 			<string>Minis Backup</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.gonepaul.minismod.minisbak</string>
+			<string>com.minismod.minisbak</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -377,6 +378,31 @@
 		<string>A0000008580102</string>
 		<string>A0000008580201</string>
 		<string>00000000000000</string>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.archive</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Minis Backup</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.gonepaul.minismod.minisbak</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>minisbak</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-minisbak</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>
