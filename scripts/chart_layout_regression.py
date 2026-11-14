@@ -134,8 +134,11 @@ need('.chartYScale(domain: domain.lower...domain.upper, range: .plotDimension(st
      'the y domain is explicit, so a value\'s pixel position is exact')
 need('plot.padding(.trailing, kind == "line" && hasSeriesHighlight ? 22 : 0)' not in view_text,
      'the old hard-coded 22pt trailing padding is gone')
-need('private var chartHeight: CGFloat { 180 }' in view_text,
-     'the plot keeps a fixed 180pt height (height transaction unchanged)')
+need('private var chartHeight: CGFloat' in view_text
+     and 'envChartPlotHeight' in view_text
+     and 'h.isFinite, h > 0' in view_text
+     and 'return 180' in view_text,
+     'the plot defaults to 180pt height with finite positive environment override')
 need(view_text.count('palette[s % palette.count]') == 1,
      'the palette is indexed in exactly one place (behind the role switch)')
 need('GeometryReader' in view_text and '.frame(height: chartHeight + MUChartTypography.xAxisHeight + MUChartTypography.plotTop)' in view_text,

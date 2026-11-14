@@ -219,10 +219,22 @@ struct MUMapBins {
         return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
     }
     func label(_ index: Int) -> String {
-        if edges.isEmpty { return "全部" }
+        if edges.isEmpty { return MUMapL10n.all }
         if index == 0 { return "<" + edgeText(0) }
         if index == edges.count { return "≥" + edgeText(index - 1) }
         return edgeText(index - 1) + "–<" + edgeText(index)
+    }
+}
+
+enum MUMapL10n {
+    static var all: String { NSLocalizedString("All", value: "全部", comment: "Map legend label for all regions") }
+    static var noData: String { NSLocalizedString("No data", value: "无数据", comment: "Map legend label for missing data") }
+    static var sourcePrefix: String { NSLocalizedString("Source: ", value: "来源：", comment: "Map source prefix") }
+    static func endsSummary(_ first: String, _ last: String) -> String {
+        String(format: NSLocalizedString("First %@ · Last %@", value: "首档 %@ · 末档 %@", comment: "Map legend endpoints summary"), first, last)
+    }
+    static func omittedCount(_ count: Int) -> String {
+        String(format: NSLocalizedString("%d other regions have no data", value: "其余 %d 个区域无数据", comment: "Map fallback omitted regions count"), count)
     }
 }
 
@@ -283,7 +295,7 @@ struct MUMapMetrics {
         titleHeight=h(c.str("title"),16,true)
         subtitleHeight=h(c.str("subtitle"),11)
         unitHeight=h(c.str("unit"),10)
-        sourceHeight=h(c.str("source").map { "来源："+$0 },10)
+        sourceHeight=h(c.str("source").map { MUMapL10n.sourcePrefix+$0 },10)
         let regionArg = c.str("region") ?? "us"
         let packMeta = c.name == "GeoMap" ? MUMapPackStore.shared.metadata(for: regionArg) : nil
         let noteText: String? = c.name == "GeoMap"
@@ -312,7 +324,7 @@ struct MUMapMetrics {
             if bins.edges.isEmpty {
                 let sw = min(44.0, usable)
                 frames.append(CGRect(x:10.0,y:top,width:sw,height:swatchHeight))
-                let lblSize = MUMapTypography.measure("全部",width:usable,size:9.5)
+                let lblSize = MUMapTypography.measure(MUMapL10n.all,width:usable,size:9.5)
                 singleRect = CGRect(x:10.0,y:top+swatchHeight+3.0,width:Double(lblSize.width),height:Double(lblSize.height))
                 tickBottom = Double(singleRect.maxY)
             } else {
@@ -383,12 +395,12 @@ struct MUMapMetrics {
                 tickBottom = ticks.map { Double($0.frame.maxY) }.max() ?? (top + swatchHeight)
             }
             missingY = tickBottom + 3.0
-            let missingTextSize = MUMapTypography.measure("无数据", width: usable, size: 9.5)
+            let missingTextSize = MUMapTypography.measure(MUMapL10n.noData, width: usable, size: 9.5)
             let missingRowH = max(9.0, Double(missingTextSize.height))
             resolvedMissingHeight = missingRowH
             let missingRight = 10.0 + 7.0 + 4.0 + Double(missingTextSize.width)
             if !bins.edges.isEmpty {
-                let summary = "首档 \(bins.label(0)) · 末档 \(bins.label(bins.count - 1))"
+                let summary = MUMapL10n.endsSummary(bins.label(0), bins.label(bins.count - 1))
                 resolvedEndsText = summary
                 let naturalEnds = MUMapTypography.measure(summary, width: 100000, size: 9.5)
                 if missingRight + 8.0 + Double(naturalEnds.width) <= self.width - 10.0 {
@@ -540,29 +552,29 @@ enum MUMapCore {
             if packMeta.features.count <= 80 {
                 for f in packMeta.features {
                     let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
-                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
                 }
             } else {
                 let hi = Set(highlights(c))
                 var shown = 0
                 for f in packMeta.features where values[f.code] != nil || hi.contains(f.code) {
                     let label = f.zh.isEmpty || f.zh == f.code ? f.code : "\(f.zh) (\(f.code))"
-                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                    lines.append("\(label): " + (values[f.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
                     shown += 1
                 }
                 let omitted = packMeta.features.count - shown
-                if omitted > 0 { lines.append("其余 \(omitted) 个区域无数据") }
+                if omitted > 0 { lines.append(MUMapL10n.omittedCount(omitted)) }
             }
         } else {
             for tile in MUMapRegion.tiles(region) {
-                lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? "无数据"))
+                lines.append("\(tile.label) (\(tile.code)): " + (values[tile.code].map { String(format:"%.6g",$0)+unit } ?? MUMapL10n.noData))
             }
         }
         for (i,p) in c.matrix("points").enumerated() where p.count == 3 {
             let labels = c.strings("pointLabels")
             lines.append("\(i < labels.count ? labels[i] : "城市")：\(p[0]), \(p[1])\(p[2] == 1 ? " 首都" : "")")
         }
-        if let s = c.str("source") { lines.append("来源："+s) }
+        if let s = c.str("source") { lines.append(MUMapL10n.sourcePrefix+s) }
         if c.name == "BlockMap" && region == "cn" { lines.append("中国34个省级行政区（含台湾、香港、澳门）；方块拓扑示意，非地理边界图") }
         if c.name == "GeoMap" {
             if let packMeta = MUMapPackStore.shared.metadata(for: region) {

@@ -189,15 +189,133 @@ private struct SteppedSlider: View {
     }
 }
 
-struct AppearanceSettingsView: View {
+// MARK: - AppearanceMenuSettingsSections
+
+struct AppearanceMenuSettingsSections: View {
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
-    @AppStorage("appIconMode") private var appIconMode: Int = 0
-    @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("chatThemeId") private var chatThemeId: String = ""
     /// [MOD genui] show_ui chart colour style ("" = system, "economist").
     @AppStorage(MUChartStyle.key) private var genuiChartPalette: String = ""
     @AppStorage(MUChartDrawing.weightKey) private var genuiChartWeight = "standard"
     @AppStorage(MUChartDrawing.dashKey) private var genuiChartPattern = "solid"
+    @State private var isPreviewExpanded = false
+    private let onPreviewToggleReady: ((@escaping () -> Void) -> Void)?
+
+    init(onPreviewToggleReady: ((@escaping () -> Void) -> Void)? = nil) {
+        self.onPreviewToggleReady = onPreviewToggleReady
+    }
+
+    var body: some View {
+        Section {
+            Picker("Theme", selection: $appearanceMode) {
+                Text("System").tag(0)
+                Text("Light").tag(1)
+                Text("Dark").tag(2)
+            }
+            .pickerStyle(.menu)
+        } header: {
+            Text("Theme")
+        } footer: {
+            Text("Override the system appearance for this app.")
+        }
+        .onChange(of: appearanceMode) { _ in
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+            windowScene.windows.forEach { window in
+                window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
+            }
+        }
+
+        Section {
+            Picker("Chat Theme", selection: chatThemeBinding) {
+                Text("Default Theme").tag("")
+                ForEach(ChatTheme.custom) { t in
+                    Text(LocalizedStringKey(t.name)).tag(t.id)
+                }
+            }
+            .pickerStyle(.menu)
+        } header: {
+            Text("Chat Theme")
+        } footer: {
+            Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
+        }
+
+        Section {
+            Picker("Chart Colours", selection: $genuiChartPalette) {
+                Text("System").tag("")
+                Text("The Economist").tag(MUChartStyle.economist)
+                Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
+            }
+            .pickerStyle(.menu)
+            Picker("Chart stroke weight", selection: $genuiChartWeight) {
+                Text("Fine").tag("fine")
+                Text("Standard").tag("standard")
+                Text("Bold").tag("bold")
+            }
+            .pickerStyle(.menu)
+            Picker("Chart line pattern", selection: $genuiChartPattern) {
+                Text("Solid").tag("solid")
+                Text("Dashed context series").tag("context")
+                Text("All lines dashed").tag("dashed")
+            }
+            .pickerStyle(.menu)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPreviewExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Preview")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isPreviewExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings_preview_toggle")
+            if isPreviewExpanded {
+                MUChartSettingsPreview()
+            }
+        } header: {
+            Text("Interactive Cards · Charts & Maps")
+        } footer: {
+            Text("Cards follow Chat Theme; charts and maps keep independent colours. Line weight adjusts chart lines, axes and grid; dashed styles apply only to line charts, not maps. Chart settings are saved separately.")
+        }
+        .onAppear {
+            onPreviewToggleReady? {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPreviewExpanded.toggle()
+                }
+            }
+        }
+    }
+
+    /// Keeps Menu selection synchronized with `ChatThemeStore.select` so cache
+    /// and `.chatThemeChanged` observers update immediately.
+    private var chatThemeBinding: Binding<String> {
+        Binding(
+            get: {
+                if chatThemeId.isEmpty || ChatTheme.custom.contains(where: { $0.id == chatThemeId }) {
+                    return chatThemeId
+                }
+                return ""
+            },
+            set: { newId in
+                guard chatThemeId != newId else { return }
+                ChatThemeStore.select(newId)
+            }
+        )
+    }
+}
+
+// MARK: - End AppearanceMenuSettingsSections
+
+struct AppearanceSettingsView: View {
+    @AppStorage("appIconMode") private var appIconMode: Int = 0
+    @AppStorage("appLanguage") private var appLanguage: String = ""
     @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
@@ -256,57 +374,7 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                Picker("Theme", selection: $appearanceMode) {
-                    Text("System").tag(0)
-                    Text("Light").tag(1)
-                    Text("Dark").tag(2)
-                }
-                .pickerStyle(.segmented)
-            } header: {
-                Text("Theme")
-            } footer: {
-                Text("Override the system appearance for this app.")
-            }
-            .onChange(of: appearanceMode) { _ in
-                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                windowScene.windows.forEach { window in
-                    window.overrideUserInterfaceStyle = appearanceMode == 1 ? .light : appearanceMode == 2 ? .dark : .unspecified
-                }
-            }
-
-            Section {
-                chatThemeRow(id: "", name: "Default Theme", theme: nil)
-                ForEach(ChatTheme.custom) { t in
-                    chatThemeRow(id: t.id, name: t.name, theme: t)
-                }
-            } header: {
-                Text("Chat Theme")
-            } footer: {
-                Text("Colours for chat background, bubbles, text and the send button. Light / Dark above still applies.")
-            }
-            Section {
-                Picker("Chart Colours", selection: $genuiChartPalette) {
-                    Text("System").tag("")
-                    Text("The Economist").tag(MUChartStyle.economist)
-                    Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
-                }
-                Picker("Chart stroke weight", selection: $genuiChartWeight) {
-                    Text("Fine").tag("fine")
-                    Text("Standard").tag("standard")
-                    Text("Bold").tag("bold")
-                }
-                Picker("Chart line pattern", selection: $genuiChartPattern) {
-                    Text("Solid").tag("solid")
-                    Text("Dashed context series").tag("context")
-                    Text("All lines dashed").tag("dashed")
-                }
-                MUChartSettingsPreview()
-            } header: {
-                Text("Interactive Cards · Charts & Maps")
-            } footer: {
-                Text("Cards, text and controls follow Chat Theme. Charts and maps keep their own professional colours, independent of the app accent. Their canvas stays transparent on the real card surface. Stroke weight adjusts chart lines, axes and grid; line patterns apply to line series. These settings are saved separately and are not reset by changing Chat Theme.")
-            }
+            AppearanceMenuSettingsSections()
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
                     Text("Auto").tag(0)
@@ -552,47 +620,6 @@ struct AppearanceSettingsView: View {
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .background(InteractivePopGestureDisabler())
-    }
-
-    /// Same structure as the standard Settings rows ("Manage Providers" etc.):
-    /// a `Label` whose icon is the mini preview, so `List` supplies the 44pt row
-    /// height and starts the separator at the title's leading edge by itself.
-    @ViewBuilder
-    private func chatThemeRow(id: String, name: String, theme: ChatTheme?) -> some View {
-        Button {
-            guard chatThemeId != id else { return }
-            ChatThemeStore.select(id)
-        } label: {
-            HStack {
-                Label {
-                    Text(LocalizedStringKey(name)).foregroundStyle(.primary)
-                } icon: {
-                    chatThemePreview(theme)
-                }
-                Spacer()
-                if chatThemeId == id {
-                    Image(systemName: "checkmark").foregroundStyle(.blue).fontWeight(.semibold)
-                }
-            }
-        }
-    }
-
-    /// Mini chat mock sized to sit in the Label icon slot of a 44pt row.
-    private func chatThemePreview(_ t: ChatTheme?) -> some View {
-        let bg = t?.background.color ?? Color(UIColor.systemBackground)
-        let bubble = t?.userBubble.color ?? Color(UIColor.tertiarySystemFill)
-        let text = t?.secondaryText.color ?? Color(UIColor.secondaryLabel)
-        let send = t?.sendButton.color ?? Color(UIColor.label)
-        return ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(bg)
-            VStack(alignment: .leading, spacing: 3) {
-                Capsule().fill(text).frame(width: 14, height: 2.5)
-                HStack { Spacer(); RoundedRectangle(cornerRadius: 2).fill(bubble).frame(width: 14, height: 6) }
-                HStack { Capsule().fill(text.opacity(0.6)).frame(width: 9, height: 2.5); Spacer(); Circle().fill(send).frame(width: 6, height: 6) }
-            }.padding(5)
-        }
-        .frame(width: 36, height: 30)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
     }
 
     /// UserDefaults-backed binding (not @AppStorage: the key is read at
