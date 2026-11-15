@@ -92,7 +92,11 @@ def main():
     documents = pathlib.Path(container)/'Documents'
     if documents.exists(): shutil.copytree(documents, out/'png', dirs_exist_ok=True)
     if 'CHART_RENDER_PASS checks=' not in console: raise SystemExit('real chart bitmap regression did not pass')
-    assert len(list((out/'png').glob('*.png'))) >= 720, 'missing chart render PNGs'
-    print('CHART_RENDER_ARTIFACT_OK png=720', flush=True)
+    if 'CHART_RENDER_TWO_HL_PASS cases=16 png=16' not in console: raise SystemExit('GDP two-highlight real bitmap regression did not pass')
+    png_total = len(list((out/'png').glob('*.png')))
+    gdp_hl2_total = len(list((out/'png').glob('gdp-hl2-*.png')))
+    assert png_total >= 736 and gdp_hl2_total == 16, f'missing chart render PNGs total={png_total} gdp_hl2={gdp_hl2_total}'
+    print(f'CHART_RENDER_ARTIFACT_OK png={png_total}', flush=True)
+    print(f'CHART_RENDER_GDP_HL2_ARTIFACT_OK png={gdp_hl2_total}', flush=True)
 
 if __name__ == '__main__': main()

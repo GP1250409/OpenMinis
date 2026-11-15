@@ -216,7 +216,10 @@ if run.returncode != 0 or not match:
     print('CHART_LAYOUT_RUN_FAILED')
     sys.exit(1)
 checks = int(match.group(1))
-if checks < 647:
+if static_passed < 61:
+    print('CHART_LAYOUT_TOO_FEW_SOURCE_CHECKS %d' % static_passed)
+    sys.exit(1)
+if checks < 1190:
     print('CHART_LAYOUT_TOO_FEW_CHECKS %d' % checks)
     sys.exit(1)
 print('CHART_LAYOUT_SOURCE_PASS checks=%d' % static_passed)
