@@ -1486,15 +1486,94 @@ enum MUCardPlane {
 // The view (`MinisUIView.MUMultiChartBody`) only maps these results to colours
 // and `.offset`s; it must not re-implement any of the rules.
 
+// MARK: - Chart palette tokens & style identity allocation (pure Foundation; no SwiftUI)
+
+struct MUChartColorPair: Equatable {
+    let light: UInt32
+    let dark: UInt32
+
+    var lightRGB: MUMapRGB { MUMapRGB(hex: String(format: "#%06X", light)) }
+    var darkRGB: MUMapRGB { MUMapRGB(hex: String(format: "#%06X", dark)) }
+    func rgb(forDarkSurface: Bool) -> MUMapRGB { forDarkSurface ? darkRGB : lightRGB }
+}
+
+enum MUChartPaletteTokens {
+    /// Recent Economist style (2024-26 sampled finite 6-colour identity palette):
+    /// red, salmon, dark blue, light blue, dark grey, light grey.
+    /// Blue is a regular series colour from 3-4 series onward (no "> 6" rule).
+    /// Finite capacity: 6 distinct series colours (MultiChart allows 1-6 series;
+    /// any hypothetical >6 caller cycles deterministically and is not infinite-unique).
+    static let recentSeries: [MUChartColorPair] = [
+        MUChartColorPair(light: 0xE62923, dark: 0xF04540), // red
+        MUChartColorPair(light: 0xE46F68, dark: 0xFFC0B0), // salmon
+        MUChartColorPair(light: 0x203B87, dark: 0x5685EB), // dark blue
+        MUChartColorPair(light: 0x4A89C8, dark: 0x9AD0FF), // light blue
+        MUChartColorPair(light: 0x383B3E, dark: 0x8A8D8C), // dark grey
+        MUChartColorPair(light: 0x808279, dark: 0xD6D8CF), // light grey
+    ]
+    /// Highlight priority: red -> salmon -> dark blue (indices 0, 1, 2).
+    static let recentAccents: [MUChartColorPair] = [
+        recentSeries[0],
+        recentSeries[1],
+        recentSeries[2],
+    ]
+    static let recentAccentOccupiedSeries: [Int?] = [0, 1, 2]
+    static let recentContext = MUChartColorPair(light: 0x8E9086, dark: 0xA0A299)
+
+    /// 2017 official guide series & accents (dark red #A81829 intentionally unchanged).
+    static let guide2017Series: [MUChartColorPair] = [
+        MUChartColorPair(light: 0x006BA2, dark: 0x4D9FD1), // blue
+        MUChartColorPair(light: 0x3EBCD2, dark: 0x6FD3E4), // cyan
+        MUChartColorPair(light: 0xEBB434, dark: 0xF2C85E), // gold / yellow
+        MUChartColorPair(light: 0xA81829, dark: 0xE0525E), // dark red (stand-in, unchanged)
+        MUChartColorPair(light: 0x379A8B, dark: 0x5CBBAD), // green
+        MUChartColorPair(light: 0x9A607F, dark: 0xBE86A2), // purple
+    ]
+    static let guide2017Accents: [MUChartColorPair] = [
+        MUChartColorPair(light: 0x006BA2, dark: 0x4D9FD1), // blue
+        MUChartColorPair(light: 0x005F73, dark: 0x4EC8DE), // dark cyan (occupies cyan slot 1)
+        MUChartColorPair(light: 0xEBB434, dark: 0xF2C85E), // gold
+    ]
+    static let guide2017AccentOccupiedSeries: [Int?] = [0, 1, 2]
+    static let guide2017Context = MUChartColorPair(light: 0x758D99, dark: 0x8FA3AD)
+
+    /// System look: accents [.blue, .teal, .indigo] vs series [.blue, .orange, .green, .red, .purple, .teal].
+    static let systemAccentOccupiedSeries: [Int?] = [0, 5, nil]
+
+    static func adapt(_ pair: MUChartColorPair, on surface: MUMapRGB, minimum: Double) -> MUMapRGB {
+        pair.rgb(forDarkSurface: surface.luminance < 0.179).readable(on: surface, minimum: minimum)
+    }
+}
+
 /// Colour role of one series in a multi-series chart.
 ///
 /// `normal` — no emphasis in this chart: the series keeps its palette colour.
 /// `emphasis(slot)` — highlighted; slot is 0-based, assigned in DATA order.
-/// `context` — greyed out because other series are emphasised.
+/// `context` — non-highlighted series when other series are emphasised (keeps an
+/// independent palette colour for visual identity, while stepping down weight/label).
 enum MUChartRole: Equatable {
     case normal
     case emphasis(Int)
     case context
+}
+
+enum MUChartColorSource: Equatable {
+    case accent(Int)
+    case series(Int)
+    case context
+}
+
+struct MUChartSeriesStyle: Equatable {
+    let role: MUChartRole
+    let color: MUChartColorSource
+    let isEmphasized: Bool
+    /// True for weight/boldness/user-dash-pattern when other series are highlighted
+    /// or when the series is an explicit "other"/"其他" catch-all bucket.
+    /// Does NOT collapse named series colours into a single context grey.
+    let isContextWeight: Bool
+    let boldLabel: Bool
+    /// Default lines are solid; automatic dashing is never used to patch colours.
+    let usesDashByDefault: Bool
 }
 
 enum MUChartEmphasis {
@@ -1503,10 +1582,13 @@ enum MUChartEmphasis {
     /// accent stops being clearly different from a normal series colour.
     static let slots = 3
 
+    static func isOtherBucket(_ name: String) -> Bool {
+        ["其他", "其它", "other", "unknown"].contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
     /// Highlight resolution. Deterministic and independent of the order of the
     /// `highlight` array: rank follows the order of `series`. A highlighted
-    /// series past the last accent slot keeps its palette colour (`normal`)
-    /// rather than turning grey — a highlight must never hide data.
+    /// series past the last accent slot keeps `normal` role (non-greyed).
     static func roles(series: [String], highlight: [String]) -> [MUChartRole] {
         guard !series.isEmpty else { return [] }
         let picked = Set(highlight)
@@ -1517,6 +1599,82 @@ enum MUChartEmphasis {
             out[index] = rank < slots ? .emphasis(rank) : .normal
         }
         return out
+    }
+
+    /// Deterministic style & non-colliding colour assignment for all series:
+    /// - Primary highlights (`< accentCount`) receive accent slots in data order.
+    /// - Extra highlights (`>= accentCount`, e.g. >3 highlights) take unused palette
+    ///   slots so they keep distinct, non-colliding colours and stay emphasised.
+    /// - Non-highlighted named series keep independent, distinguishable palette
+    ///   colours (skipping slots occupied by accents) instead of collapsing to grey.
+    /// - Only explicit "other"/"其他" buckets (when not highlighted) use `.context`.
+    static func styles(series: [String], highlight: [String],
+                       paletteCount: Int = 6,
+                       accentOccupiedSeries: [Int?] = MUChartPaletteTokens.recentAccentOccupiedSeries) -> [MUChartSeriesStyle] {
+        guard !series.isEmpty else { return [] }
+        let safePaletteCount = max(1, paletteCount)
+        let accentCount = accentOccupiedSeries.count
+        let roles = self.roles(series: series, highlight: highlight)
+        let picked = Set(highlight)
+        let hasSeriesEmphasis = hasEmphasis(roles)
+
+        var usedSeries = Set<Int>()
+        var activeAccentOccupied = Set<Int>()
+        var assignedColors = [MUChartColorSource?](repeating: nil, count: series.count)
+
+        for s in series.indices {
+            if case .emphasis(let slot) = roles[s], slot < accentCount {
+                assignedColors[s] = .accent(slot)
+                if let occ = accentOccupiedSeries[slot], occ >= 0, occ < safePaletteCount {
+                    usedSeries.insert(occ)
+                    activeAccentOccupied.insert(occ)
+                }
+            }
+        }
+
+        let overflowPool = (0..<safePaletteCount).filter { !activeAccentOccupied.contains($0) }
+        var overflowCursor = 0
+        func nextPaletteIndex() -> Int {
+            if let free = (0..<safePaletteCount).first(where: { !usedSeries.contains($0) }) {
+                usedSeries.insert(free)
+                return free
+            }
+            if !overflowPool.isEmpty {
+                let idx = overflowPool[overflowCursor % overflowPool.count]
+                overflowCursor += 1
+                return idx
+            }
+            let idx = overflowCursor % safePaletteCount
+            overflowCursor += 1
+            return idx
+        }
+
+        for s in series.indices where assignedColors[s] == nil && picked.contains(series[s]) {
+            assignedColors[s] = .series(nextPaletteIndex())
+        }
+
+        for s in series.indices where assignedColors[s] == nil {
+            if isOtherBucket(series[s]) {
+                assignedColors[s] = .context
+            } else {
+                assignedColors[s] = .series(nextPaletteIndex())
+            }
+        }
+
+        return series.indices.map { s in
+            let role = roles[s]
+            let isHit = picked.contains(series[s])
+            let isOther = !isHit && isOtherBucket(series[s])
+            let isContext = (hasSeriesEmphasis && !isHit) || isOther
+            return MUChartSeriesStyle(
+                role: role,
+                color: assignedColors[s] ?? .series(0),
+                isEmphasized: isHit,
+                isContextWeight: isContext,
+                boldLabel: !isContext,
+                usesDashByDefault: false
+            )
+        }
     }
 
     static func hasEmphasis(_ roles: [MUChartRole]) -> Bool {

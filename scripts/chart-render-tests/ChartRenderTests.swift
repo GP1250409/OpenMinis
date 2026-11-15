@@ -69,13 +69,29 @@ final class ChartRenderApp: UIResponder, UIApplicationDelegate {
                             surface = MUSurface.rgb(Color.primary.opacity(0.04),over:surface,scheme:scheme)
                         }
                         let theme = MUChartTheme.current(for: palette).adapted(to:surface,scheme:scheme)
-                        for c in [theme.title,theme.subtitle,theme.source,theme.axis] {
+                        for c in [theme.title,theme.subtitle,theme.source,theme.axis,theme.contextLabel] + theme.seriesLabels + theme.accentLabels {
                             check(MUSurface.rgb(c,over:surface,scheme:scheme).contrast(on:surface) >= 4.5, "resolved chart text contrast")
                         }
                         for c in theme.series + theme.accents + [theme.context,theme.grid,theme.zero] {
                             check(MUSurface.rgb(c,over:surface,scheme:scheme).contrast(on:surface) >= 3, "resolved chart graphic contrast")
                         }
                         check(Set(theme.series.map { MUSurface.rgb($0,over:surface,scheme:scheme).hex }).count == theme.series.count, "series remain distinct")
+                        check(Set(theme.seriesLabels.map { MUSurface.rgb($0,over:surface,scheme:scheme).hex }).count == theme.seriesLabels.count, "series labels remain distinct")
+                        if count > 1 {
+                            let occupied = theme.look == .recent ? MUChartPaletteTokens.recentAccentOccupiedSeries
+                                : (theme.look == .guide2017 ? MUChartPaletteTokens.guide2017AccentOccupiedSeries : MUChartPaletteTokens.systemAccentOccupiedSeries)
+                            let st = MUChartEmphasis.styles(series: names, highlight: ["中国"], paletteCount: theme.series.count, accentOccupiedSeries: occupied)
+                            let resolvedLineHexes = st.map { s -> String in
+                                let col: Color
+                                switch s.color {
+                                case .accent(let slot): col = theme.accents[min(slot, theme.accents.count - 1)]
+                                case .series(let idx): col = theme.series[idx % theme.series.count]
+                                case .context: col = theme.context
+                                }
+                                return MUSurface.rgb(col, over: surface, scheme: scheme).hex
+                            }
+                            check(Set(resolvedLineHexes).count == names.count, id + " non-highlighted named series remain distinct")
+                        }
                         let probe = ChartProbe()
                         let title = "中国保持增长"
                         let subtitle = "实际GDP同比增速，%，2019–24"

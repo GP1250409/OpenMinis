@@ -737,31 +737,23 @@ enum MUChartStyle {
         return Color(uiColor: UIColor { t in t.userInterfaceStyle == .dark ? ui(dark ?? rgb) : ui(rgb) })
     }
 
+    static func pair(_ p: MUChartColorPair) -> Color { hex(p.light, dark: p.dark) }
+
     /// Series order for lines, taken from the guide's web palette (p.12) and the
     /// "Lines" colour order (p.15): blue, cyan, gold, dark red, green, purple.
-    /// Dark red is not in the web palette; #A81829 (red scale, darkest) stands in.
-    static let series2017: [Color] = [
-        hex(0x006BA2, dark: 0x4D9FD1),  // blue
-        hex(0x3EBCD2, dark: 0x6FD3E4),  // cyan
-        hex(0xEBB434, dark: 0xF2C85E),  // gold / yellow
-        hex(0xA81829, dark: 0xE0525E),  // dark red (stand-in, see above)
-        hex(0x379A8B, dark: 0x5CBBAD),  // green
-        hex(0x9A607F, dark: 0xBE86A2),  // purple
-    ]
+    /// Dark red is not in the web palette; #A81829 (red scale, darkest) stands in
+    /// and is intentionally unchanged.
+    static let series2017: [Color] = MUChartPaletteTokens.guide2017Series.map(pair)
     /// Stacked bars use blue, cyan, gold, green, light green, dark blue (p.14).
     static let stacked2017: [Color] = [
         hex(0x006BA2, dark: 0x4D9FD1), hex(0x3EBCD2, dark: 0x6FD3E4), hex(0xEBB434, dark: 0xF2C85E),
         hex(0x379A8B, dark: 0x5CBBAD), hex(0x69C9B9, dark: 0x86E5D4), hex(0x00588D, dark: 0x3D89C3),
     ]
-    /// Recent-chart look (sampled from 2024-26 charts, not an official palette):
-    /// red, salmon, dark red, warm greys, the one blue. Used for multi-series.
-    static let seriesRecent: [Color] = [
-        red, grey,
-        hex(0xF8A290, dark: 0xF8A290),  // salmon
-        hex(0x4A4C4E, dark: 0xC9C9BE),  // dark grey
-        hex(0xBE191F, dark: 0xE0525E),  // dark red
-        hex(0x3651A3, dark: 0x7C92D6),  // the one blue
-    ]
+    /// Recent-chart look (sampled finite 6-colour identity palette from 2024-26 charts):
+    /// red, salmon, dark blue, light blue, dark grey, light grey. Blue appears from
+    /// 3-4 series onward (no >6 series gate). Dark mode tokens are independently tuned
+    /// so dark/light greys, reds/pinks and dark/light blues keep distinct visual tiers.
+    static let seriesRecent: [Color] = MUChartPaletteTokens.recentSeries.map(pair)
     static let panelRecent = hex(0xF1EFEA, dark: 0x262624)
     static let gridRecent = hex(0xD1D0C6, dark: 0x45443F)
     static let textRecent = hex(0x4A4C4E, dark: 0xB6B6A9)
@@ -771,44 +763,28 @@ enum MUChartStyle {
     static let grid2017 = hex(0xB7C6CF, dark: 0x3A474F)
     static let text2017 = hex(0x3F5661, dark: 0xB7C6CF)
     static let tag2017 = hex(0xE3120B, dark: 0xE3120B)
-    /// Grey for "other" / context (web palette grey).
-    static let other2017 = hex(0x758D99, dark: 0x8FA3AD)
+    /// Grey for explicit "other" / single-series context (web palette grey).
+    static let other2017 = pair(MUChartPaletteTokens.guide2017Context)
 
     /// Accent ramp for *highlighted* series, assigned in data order
     /// (`MUChartEmphasis`). 2017: blue → dark cyan → gold, i.e. the guide's own
-    /// first/second/third colour, so an emphasised line can never be confused
-    /// with the grey context lines. Deliberately not the dark-red stand-in
-    /// #A81829, whose value is intentionally unchanged.
-    static let accent2017: [Color] = [
-        hex(0x006BA2, dark: 0x4D9FD1),
-        hex(0x005F73, dark: 0x4EC8DE),
-        hex(0xEBB434, dark: 0xF2C85E),
-    ]
+    /// first/second/third colour. Remaining non-highlighted series keep distinct
+    /// palette colours instead of collapsing into `other2017`. Deliberately not
+    /// the dark-red stand-in #A81829, whose value is intentionally unchanged.
+    static let accent2017: [Color] = MUChartPaletteTokens.guide2017Accents.map(pair)
 
-    /// Recent look: main red → dark red → the one blue sampled from 2024-26
-    /// charts (a sample, not an official palette).
-    static let accentRecent: [Color] = [
-        red,
-        hex(0xBE191F, dark: 0xE0525E),
-        hex(0x3651A3, dark: 0x7C92D6),
-    ]
+    /// Recent look: red → salmon → dark blue (prioritising red/pink for highlights).
+    /// Remaining non-highlighted series take unused palette colours without clashing.
+    static let accentRecent: [Color] = MUChartPaletteTokens.recentAccents.map(pair)
 
     /// System look: semantic colours that adapt to light/dark on their own.
     static let accentSystem: [Color] = [.blue, .teal, .indigo]
 
     /// Main series red (light / dark).
-    static let red = Color(uiColor: UIColor { t in
-        t.userInterfaceStyle == .dark
-            ? UIColor(red: 0.94, green: 0.27, blue: 0.25, alpha: 1)
-            : UIColor(red: 0.902, green: 0.161, blue: 0.137, alpha: 1)
-    })
+    static let red = pair(MUChartPaletteTokens.recentSeries[0])
 
-    /// Context grey (warm, like the printed charts): #b6b6a9 light, #8c8c83 dark.
-    static let grey = Color(uiColor: UIColor { t in
-        t.userInterfaceStyle == .dark
-            ? UIColor(red: 0.549, green: 0.549, blue: 0.514, alpha: 1)
-            : UIColor(red: 0.714, green: 0.714, blue: 0.663, alpha: 1)
-    })
+    /// Context grey for single-series highlight background and explicit "other" bucket.
+    static let grey = pair(MUChartPaletteTokens.recentContext)
 }
 
 /// Three complete theme presets share one geometry/rendering skeleton.
@@ -831,6 +807,11 @@ struct MUChartTheme {
     let series: [Color]
     let accents: [Color]
     let context: Color
+    /// Independent >=4.5:1 label text colours so small end-labels remain legible on
+    /// dark/tinted surfaces without altering line/bar graphic identity or collapsing pairs.
+    let seriesLabels: [Color]
+    let accentLabels: [Color]
+    let contextLabel: Color
     let scales: [[Color]]
     enum LegendStyle { case shortLine, square }
     func legendStyle(for kind: String) -> LegendStyle { kind == "line" ? .shortLine : .square }
@@ -846,7 +827,9 @@ struct MUChartTheme {
                         title: MUChartStyle.hex(0x0C0C0C, dark: 0xF3F3F3),
                         subtitle: MUChartStyle.text2017, source: source, axis: MUChartStyle.text2017,
                         series: MUChartStyle.series2017, accents: MUChartStyle.accent2017,
-                        context: MUChartStyle.other2017, scales: guideScales)
+                        context: MUChartStyle.other2017,
+                        seriesLabels: MUChartStyle.series2017, accentLabels: MUChartStyle.accent2017,
+                        contextLabel: MUChartStyle.other2017, scales: guideScales)
         case MUChartStyle.economist:
             return Self(look: .recent, panel: MUChartStyle.panelRecent,
                         grid: MUChartStyle.gridRecent, gridWidth: 0.5,
@@ -854,15 +837,20 @@ struct MUChartTheme {
                         title: .primary, subtitle: MUChartStyle.textRecent, source: source,
                         axis: MUChartStyle.textRecent, series: MUChartStyle.seriesRecent,
                         accents: MUChartStyle.accentRecent, context: MUChartStyle.grey,
+                        seriesLabels: MUChartStyle.seriesRecent, accentLabels: MUChartStyle.accentRecent,
+                        contextLabel: MUChartStyle.grey,
                         scales: [[0xBE191F, 0xD32924, 0xE62923, 0xEE6552, 0xF8A290, 0xFAD0C6].map { MUChartStyle.hex($0) }])
         default:
+            let sysSeries: [Color] = [.blue, .orange, .green, .red, .purple, .teal]
             return Self(look: .system, panel: Color.primary.opacity(0.04),
                         grid: Color.primary.opacity(0.12), gridWidth: 0.5,
                         zero: Color.secondary.opacity(0.6), zeroWidth: 0.5,
                         tag: .clear, topRule: .clear, title: .primary, subtitle: .secondary,
                         source: source, axis: .secondary,
-                        series: [.blue, .orange, .green, .red, .purple, .teal],
+                        series: sysSeries,
                         accents: MUChartStyle.accentSystem, context: .gray,
+                        seriesLabels: sysSeries, accentLabels: MUChartStyle.accentSystem,
+                        contextLabel: .gray,
                         scales: [[.blue.opacity(1), .blue.opacity(0.85), .blue.opacity(0.7),
                                   .blue.opacity(0.55), .blue.opacity(0.4), .blue.opacity(0.25)]])
         }
@@ -899,13 +887,15 @@ extension MUChartTheme {
     }
 
     func adapted(to surface: MUMapRGB, scheme: ColorScheme) -> Self {
-        func text(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme) }
-        func graphic(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: scheme, minimum: 3) }
+        let effectiveScheme: ColorScheme = surface.luminance < 0.179 ? .dark : .light
+        func text(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: effectiveScheme) }
+        func graphic(_ c: Color) -> Color { MUSurface.foreground(c, on: surface, scheme: effectiveScheme, minimum: 3) }
         return Self(look: look, panel: .clear, grid: graphic(grid), gridWidth: gridWidth,
             zero: graphic(zero), zeroWidth: zeroWidth,
             tag: look == .system ? .clear : graphic(tag), topRule: look == .guide2017 ? graphic(topRule) : .clear,
             title: text(title), subtitle: text(subtitle), source: text(source), axis: text(axis),
             series: series.map(graphic), accents: accents.map(graphic), context: graphic(context),
+            seriesLabels: series.map(text), accentLabels: accents.map(text), contextLabel: text(context),
             scales: scales.map { $0.map(graphic) })
     }
 }
@@ -981,16 +971,40 @@ private struct MUMultiChartBody: View {
     private var cols: Int { min(labels.count, matrix.map(\.count).min() ?? 0) }
     private var hl: Set<String> { Set(highlight) }
     private var roles: [MUChartRole] { MUChartEmphasis.roles(series: series, highlight: highlight) }
-    private var showEndLabels: Bool { kind == "line" && series.count > 1 }
-    private func isGreyed(_ s: Int) -> Bool { MUChartEmphasis.isContext(roles, at: s) }
-    private func color(_ s: Int) -> Color {
-        let palette = theme.series
-        guard s >= 0, s < series.count else { return palette[0] }
-        if let slot = MUChartEmphasis.slot(roles, at: s) {
-            return theme.accents[min(slot, theme.accents.count - 1)]
+    private var occupiedAccentIndices: [Int?] {
+        switch look {
+        case .recent: return MUChartPaletteTokens.recentAccentOccupiedSeries
+        case .guide2017: return MUChartPaletteTokens.guide2017AccentOccupiedSeries
+        case .system: return MUChartPaletteTokens.systemAccentOccupiedSeries
         }
-        if isGreyed(s) || ["其他", "其它", "other", "unknown"].contains(series[s].lowercased()) { return theme.context }
-        return palette[s % palette.count]
+    }
+    private var styles: [MUChartSeriesStyle] {
+        MUChartEmphasis.styles(series: series, highlight: highlight,
+                               paletteCount: theme.series.count,
+                               accentOccupiedSeries: occupiedAccentIndices)
+    }
+    private var showEndLabels: Bool { kind == "line" && series.count > 1 }
+    private func isGreyed(_ s: Int) -> Bool {
+        guard s >= 0, s < styles.count else { return MUChartEmphasis.isContext(roles, at: s) }
+        return styles[s].isContextWeight
+    }
+    private func resolveColor(_ source: MUChartColorSource, forLabel: Bool) -> Color {
+        let palette = forLabel ? theme.seriesLabels : theme.series
+        let accents = forLabel ? theme.accentLabels : theme.accents
+        let context = forLabel ? theme.contextLabel : theme.context
+        switch source {
+        case .accent(let slot):
+            return accents[min(slot, max(0, accents.count - 1))]
+        case .series(let s):
+            return palette[s % palette.count]
+        case .context:
+            return context
+        }
+    }
+    private func color(_ s: Int, forLabel: Bool = false) -> Color {
+        let palette = forLabel ? theme.seriesLabels : theme.series
+        guard s >= 0, s < styles.count else { return palette[0] }
+        return resolveColor(styles[s].color, forLabel: forLabel)
     }
     private func barColor(series s: Int, index i: Int) -> Color {
         let marked = hl.intersection(Set(labels))
@@ -1081,6 +1095,8 @@ private struct MUMultiChartBody: View {
                     measure: { MUStyle.textWidth($0, size: $1, bold: true) })
         let columns = MUChartColumns.layout(width: width, labelWidth: gutter.labelWidth,
                                             axisWidth: ticks.map { axisWidth($0) }.max() ?? 0)
+        let marked = hl.intersection(Set(labels))
+        let singleLineContext = kind == "line" && rows == 1 && !marked.isEmpty
         return Chart {
             ForEach(0..<rows, id: \.self) { s in
                 ForEach(0..<cols, id: \.self) { i in
@@ -1088,7 +1104,7 @@ private struct MUMultiChartBody: View {
                     switch kind {
                     case "line":
                         LineMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]), series: .value("s", name))
-                            .foregroundStyle(color(s))
+                            .foregroundStyle(singleLineContext ? theme.context : color(s))
                             .lineStyle(StrokeStyle(lineWidth: drawing.width(isGreyed(s) ? 2 : 2.5), lineCap: .round, lineJoin: .round, dash: drawing.dash(context: isGreyed(s))))
                     case "stacked":
                         BarMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i])).foregroundStyle(color(s))
@@ -1099,7 +1115,7 @@ private struct MUMultiChartBody: View {
                     }
                     if kind == "line", rows == 1, look == .system, !hl.contains(labels[i]) {
                         PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
-                            .foregroundStyle(color(s))
+                            .foregroundStyle(singleLineContext ? theme.context : color(s))
                     }
                     if kind == "line", rows == 1, hl.contains(labels[i]) {
                         PointMark(x: .value("x", labels[i]), y: .value("y", matrix[s][i]))
@@ -1166,7 +1182,7 @@ private struct MUMultiChartBody: View {
                     if p.index < gutter.labels.count {
                         Text(gutter.labels[p.index])
                             .font(.system(size: size, weight: isGreyed(p.index) ? .regular : .bold))
-                            .foregroundStyle(MUSurface.foreground(color(p.index), on: surface, scheme: scheme)).lineLimit(1)
+                            .foregroundStyle(color(p.index, forLabel: true)).lineLimit(1)
                             .frame(width: columns.labelWidth, height: size * 1.3, alignment: .leading)
                             .clipped()
                             .position(x: labelX + columns.labelWidth / 2, y: frame.minY + p.centerY)

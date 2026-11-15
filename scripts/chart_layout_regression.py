@@ -139,12 +139,19 @@ need('private var chartHeight: CGFloat' in view_text
      and 'h.isFinite, h > 0' in view_text
      and 'return 180' in view_text,
      'the plot defaults to 180pt height with finite positive environment override')
-need(view_text.count('palette[s % palette.count]') == 1,
-     'the palette is indexed in exactly one place (behind the role switch)')
+need(view_text.count('palette[s % palette.count]') == 1 and 'MUChartEmphasis.styles(' in view_text,
+     'the palette is indexed in exactly one place (behind the pure style resolver)')
 need('GeometryReader' in view_text and '.frame(height: chartHeight + MUChartTypography.xAxisHeight + MUChartTypography.plotTop)' in view_text,
      'the width comes from a fixed-height GeometryReader, not from a guessed constant')
 for symbol in ['MUChartStyle.accent2017', 'MUChartStyle.accentRecent', 'MUChartStyle.accentSystem']:
     need(symbol in view_text, symbol + ' is defined for the accent ramp')
+need('enum MUChartPaletteTokens' in core_text and 'static func styles(' in core_text,
+     'palette tokens and non-colliding style allocator live in pure Foundation core')
+need('light: 0xA81829' in core_text, '2017 dark red stand-in #A81829 is preserved unchanged')
+need('MUChartEmphasis.styles(' in view_text and 'forLabel: true' in view_text,
+     'view consumes pure style allocator and separates 4.5:1 end-label text adaptation')
+need('surface.luminance < 0.179' in view_text and 'seriesLabels: series.map(text)' in view_text,
+     'theme adaptation resolves light/dark from actual surface and separates text vs graphic contrast')
 
 # --- the prompt still teaches the charting rules ---------------------------
 for phrase, why in [
@@ -157,7 +164,17 @@ for phrase, why in [
     ('No second y-axis, no dashed/forecast styling, no pie/donut', 'MultiChart limits are accurate'),
     ('system: orange bars on blue, Economist recent: red on grey, Economist 2017: cyan on blue',
      'BarChart highlight colours match what the code draws'),
+    ('blue appears naturally from 3–4 series onward, with no >6 series gate',
+     'prompt drops the old >6 blue gate and documents natural blue usage'),
+    ('recent: red → salmon → dark blue', 'prompt documents red/salmon priority accent order'),
+    ('retain distinct, non-colliding palette colours', 'prompt documents independent non-highlighted series identity'),
+    ('lines are solid by default', 'prompt documents default solid lines'),
+    ('no shared-grey background-group mode', 'prompt accurately states background-group mode is unsupported'),
+    ('no faceting', 'prompt accurately states faceting is unsupported'),
     ('the others turn grey in the Economist chart style', 'the old, wrong "others turn grey" claim is gone'),
+    ('and the other series turn grey', 'the old MultiChart "other series turn grey" claim is gone'),
+    ('context greyed via', 'the old Charts rule "context greyed via highlight" claim is gone'),
+    ('recent style red → dark red → blue', 'the old accent order claim is gone'),
 ]:
     if why.startswith('the old'):
         need(phrase not in prompt_text, why)

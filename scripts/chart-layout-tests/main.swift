@@ -349,6 +349,158 @@ for bg in ["#FFFFFF", "#000000", "#F1EFEA", "#161B1F", "#7B83A0", "#B8D8C8"] {
 }
 check(MUMapRGB(hex:"#FFFFFF").composited(over:MUMapRGB(hex:"#000000"),alpha:0.5) == MUMapRGB(hex:"#808080"), "alpha is composited rather than treated as opaque")
 check(MUMapRGB(hex:"#000000").composited(over:MUMapRGB(hex:"#808080"),alpha:0.5) == MUMapRGB(hex:"#404040"), "nested surfaces compose recursively")
+
+// MARK: - 4. Series identity palette, non-colliding style assignment & dark/surface adaptation
+
+func resolvedColorHex(source: MUChartColorSource,
+                      series: [MUChartColorPair],
+                      accents: [MUChartColorPair],
+                      context: MUChartColorPair,
+                      on surface: MUMapRGB,
+                      minimum: Double) -> String {
+    let pair: MUChartColorPair
+    switch source {
+    case .accent(let slot): pair = accents[min(slot, accents.count - 1)]
+    case .series(let idx): pair = series[idx % series.count]
+    case .context: pair = context
+    }
+    return MUChartPaletteTokens.adapt(pair, on: surface, minimum: minimum).hex
+}
+
+func rgbDistance(_ a: MUMapRGB, _ b: MUMapRGB) -> Double {
+    let (ar, ag, ab) = a.rgb, (br, bg, bb) = b.rgb
+    let dr = (ar - br) * 255, dg = (ag - bg) * 255, db = (ab - bb) * 255
+    return sqrt(dr * dr + dg * dg + db * db)
+}
+
+// 4.1 2017 dark red stand-in #A81829 intentionally preserved
+check(MUChartPaletteTokens.guide2017Series[3].light == 0xA81829,
+      "2017 dark red stand-in #A81829 remains unchanged")
+check(MUChartPaletteTokens.recentSeries.count == 6,
+      "recent Economist palette exposes 6 finite identity colours")
+
+// 4.2 3-4 series get blue naturally (no >6 series rule) and default solid
+let fourNames = ["Alpha", "Beta", "Gamma", "Delta"]
+let fourPlain = MUChartEmphasis.styles(series: fourNames, highlight: [])
+check(fourPlain.map(\.color) == [.series(0), .series(1), .series(2), .series(3)],
+      "4-series plain chart uses red, salmon, dark blue, light blue (blue used without >6 gate)")
+check(fourPlain.allSatisfy { !$0.isContextWeight && $0.boldLabel && !$0.usesDashByDefault },
+      "4-series plain chart uses default solid lines without context weight")
+
+// 4.3 Highlight counts 0/1/2/3/4 across 4-series and 6-series charts, plus order stability
+let sixNames = ["S0", "S1", "S2", "S3", "S4", "S5"]
+let highlightCases: [(String, [String], [String])] = [
+    ("4s-hl0", fourNames, []),
+    ("4s-hl1-head", fourNames, ["Alpha"]),
+    ("4s-hl1-tail", fourNames, ["Delta"]),
+    ("4s-hl2", fourNames, ["Beta", "Delta"]),
+    ("4s-hl3", fourNames, ["Alpha", "Gamma", "Delta"]),
+    ("4s-hl4", fourNames, fourNames),
+    ("6s-hl0", sixNames, []),
+    ("6s-hl1", sixNames, ["S4"]),
+    ("6s-hl2", sixNames, ["S1", "S5"]),
+    ("6s-hl3", sixNames, ["S0", "S2", "S5"]),
+    ("6s-hl4", sixNames, ["S1", "S2", "S4", "S5"]),
+]
+
+let themeConfigs: [(String, [MUChartColorPair], [MUChartColorPair], MUChartColorPair, [Int?])] = [
+    ("recent", MUChartPaletteTokens.recentSeries, MUChartPaletteTokens.recentAccents, MUChartPaletteTokens.recentContext, MUChartPaletteTokens.recentAccentOccupiedSeries),
+    ("guide2017", MUChartPaletteTokens.guide2017Series, MUChartPaletteTokens.guide2017Accents, MUChartPaletteTokens.guide2017Context, MUChartPaletteTokens.guide2017AccentOccupiedSeries),
+]
+
+for (label, sNames, hl) in highlightCases {
+    let reversedHl = Array(hl.reversed())
+    for (tName, tSeries, tAccents, tContext, tOcc) in themeConfigs {
+        let st = MUChartEmphasis.styles(series: sNames, highlight: hl, paletteCount: tSeries.count, accentOccupiedSeries: tOcc)
+        let stRev = MUChartEmphasis.styles(series: sNames, highlight: reversedHl, paletteCount: tSeries.count, accentOccupiedSeries: tOcc)
+        check(st == stRev, "\(tName) \(label): style assignment independent of highlight array order")
+        check(st.allSatisfy { !$0.usesDashByDefault }, "\(tName) \(label): default solid lines never auto-dashed")
+        let nonHl = st.enumerated().filter { !hl.contains(sNames[$0.offset]) }.map(\.element)
+        check(nonHl.allSatisfy { $0.color != .context },
+              "\(tName) \(label): non-highlighted named series keep independent identity colours instead of collapsing to context grey")
+        if !hl.isEmpty {
+            let hlIdx = st.indices.filter { hl.contains(sNames[$0]) }
+            check(hlIdx.allSatisfy { st[$0].isEmphasized && !st[$0].isContextWeight && st[$0].boldLabel },
+                  "\(tName) \(label): all highlighted series including >3 stay emphasised")
+        }
+        // Check actual resolved colours never collide in light or dark mode
+        for bg in ["#FFFFFF", "#F0EEE6", "#000000", "#262624", "#30302E", "#383836"] {
+            let surf = MUMapRGB(hex: bg)
+            let lineHexes = st.map { resolvedColorHex(source: $0.color, series: tSeries, accents: tAccents, context: tContext, on: surf, minimum: 3.0) }
+            let textHexes = st.map { resolvedColorHex(source: $0.color, series: tSeries, accents: tAccents, context: tContext, on: surf, minimum: 4.5) }
+            check(Set(lineHexes).count == sNames.count, "\(tName) \(label) on \(bg): all line colours distinct")
+            check(Set(textHexes).count == sNames.count, "\(tName) \(label) on \(bg): all label text colours distinct")
+        }
+    }
+    // System theme non-collision & non-context-grey retention (index-level check)
+    let sysSt = MUChartEmphasis.styles(series: sNames, highlight: hl, paletteCount: 6, accentOccupiedSeries: MUChartPaletteTokens.systemAccentOccupiedSeries)
+    let sysNonHl = sysSt.enumerated().filter { !hl.contains(sNames[$0.offset]) }.map(\.element)
+    check(sysNonHl.allSatisfy { $0.color != .context }, "system \(label): non-highlighted named series keep independent colours")
+    let sysResolvedIndices = sysSt.map { style -> String in
+        switch style.color {
+        case .accent(0): return "idx0"
+        case .accent(1): return "idx5"
+        case .accent(let k): return "acc\(k)"
+        case .series(let i): return "idx\(i)"
+        case .context: return "ctx"
+        }
+    }
+    check(Set(sysResolvedIndices).count == sNames.count, "system \(label): no slot collision between accents and regular series")
+}
+
+// 4.4 Explicit "other"/"其他" bucket uses context only when NOT highlighted
+let withOther = ["中国", "美国", "日本", "其他"]
+let otherPlain = MUChartEmphasis.styles(series: withOther, highlight: ["中国"])
+check(otherPlain[0].color == .accent(0) && otherPlain[1].color == .series(1)
+      && otherPlain[2].color == .series(2) && otherPlain[3].color == .context,
+      "explicit other bucket receives context colour while named non-highlighted series stay independent")
+let otherEmphasized = MUChartEmphasis.styles(series: withOther, highlight: ["其他"])
+check(otherEmphasized[3].color == .accent(0) && otherEmphasized[3].isEmphasized,
+      "explicit other bucket receives emphasis accent when highlighted")
+
+// 4.5 Finite capacity overflow (>6 hypothetical caller) still avoids active accent slot
+let sevenSeries = ["S0", "S1", "S2", "S3", "S4", "S5", "S6"]
+let sevenStyles = MUChartEmphasis.styles(series: sevenSeries, highlight: ["S3"])
+check(sevenStyles[3].color == .accent(0), "7-series overflow still honours highlight accent slot")
+check(sevenStyles.enumerated().filter { $0.offset != 3 }.allSatisfy { $0.element.color != .series(0) },
+      "7-series overflow skips occupied accent slot 0")
+
+// 4.6 Dark mode & real surface contrast: lines >= 3.0 without collapsing pairs; labels >= 4.5 without collapsing pairs
+let realSurfaces = ["#FFFFFF", "#F7F7F8", "#FAF9F5", "#F0EEE6", "#E6E4DD",
+                    "#000000", "#161B1F", "#1C1C1E", "#262624", "#30302E", "#383836", "#2D3D35"]
+for bg in realSurfaces {
+    let surf = MUMapRGB(hex: bg)
+    let isDark = surf.luminance < 0.179
+    let recentLines = MUChartPaletteTokens.recentSeries.map { MUChartPaletteTokens.adapt($0, on: surf, minimum: 3.0) }
+    let recentTexts = MUChartPaletteTokens.recentSeries.map { MUChartPaletteTokens.adapt($0, on: surf, minimum: 4.5) }
+    check(recentLines.allSatisfy { $0.contrast(on: surf) >= 3.0 }, "recent line colours on \(bg) >= 3.0")
+    check(recentTexts.allSatisfy { $0.contrast(on: surf) >= 4.5 }, "recent text colours on \(bg) >= 4.5")
+    check(Set(recentLines.map(\.hex)).count == 6, "recent line colours stay 6/6 distinct on \(bg)")
+    check(Set(recentTexts.map(\.hex)).count == 6, "recent text colours stay 6/6 distinct on \(bg)")
+    // Hierarchical separation between pairs: red vs salmon, dark blue vs light blue, dark grey vs light grey
+    check(rgbDistance(recentLines[0], recentLines[1]) >= 60, "recent line red vs salmon distance on \(bg)")
+    check(rgbDistance(recentLines[2], recentLines[3]) >= 75, "recent line dark blue vs light blue distance on \(bg)")
+    check(rgbDistance(recentLines[4], recentLines[5]) >= 75, "recent line dark grey vs light grey distance on \(bg)")
+    check(rgbDistance(recentTexts[0], recentTexts[1]) >= 60, "recent text red vs salmon distance on \(bg)")
+    check(rgbDistance(recentTexts[2], recentTexts[3]) >= 45, "recent text dark blue vs light blue distance on \(bg)")
+    check(rgbDistance(recentTexts[4], recentTexts[5]) >= 60, "recent text dark grey vs light grey distance on \(bg)")
+    if isDark {
+        // Dark mode lines keep exact independent dark hexes without brightening collapse
+        check(recentLines.map(\.hex) == ["#F04540", "#FFC0B0", "#5685EB", "#9AD0FF", "#8A8D8C", "#D6D8CF"],
+              "dark mode recent line identity hexes preserved uncollapsed on \(bg)")
+        check(recentLines[5].luminance - recentLines[4].luminance >= 0.35,
+              "dark mode light grey stays substantially brighter than dark grey on \(bg)")
+        check(recentTexts[5].luminance - recentTexts[4].luminance >= 0.25,
+              "dark mode label light grey stays distinctly brighter than dark grey on \(bg)")
+    }
+    let guideLines = MUChartPaletteTokens.guide2017Series.map { MUChartPaletteTokens.adapt($0, on: surf, minimum: 3.0) }
+    let guideTexts = MUChartPaletteTokens.guide2017Series.map { MUChartPaletteTokens.adapt($0, on: surf, minimum: 4.5) }
+    check(guideLines.allSatisfy { $0.contrast(on: surf) >= 3.0 } && Set(guideLines.map(\.hex)).count == 6,
+          "2017 line colours >= 3.0 and 6/6 distinct on \(bg)")
+    check(guideTexts.allSatisfy { $0.contrast(on: surf) >= 4.5 } && Set(guideTexts.map(\.hex)).count == 6,
+          "2017 text colours >= 4.5 and 6/6 distinct on \(bg)")
+}
+
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")
