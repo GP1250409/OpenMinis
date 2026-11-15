@@ -279,9 +279,9 @@ final class ViewModelCache {
     marker = (OUT / 'result.log').read_text().strip()
     print(marker, flush=True)
     m = re.search(r'APPEARANCE_SECONDARY_PASS checks=(\d+) png=(\d+)', marker)
-    assert m and int(m.group(1)) >= 50 and int(m.group(2)) == 8, marker
-    assert len(list(OUT.glob('*.png'))) == 8
-    print('APPEARANCE_SECONDARY_ARTIFACT_OK png=8', flush=True)
+    assert m and int(m.group(1)) >= 50 and int(m.group(2)) == 9, marker
+    assert len(list(OUT.glob('*.png'))) == 9
+    print('APPEARANCE_SECONDARY_ARTIFACT_OK png=9', flush=True)
 
 
 if __name__ == '__main__':

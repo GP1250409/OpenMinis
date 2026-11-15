@@ -657,10 +657,10 @@ struct AppIconSettingsView: View {
                                     // Wrap in LocalizedStringKey so the catalog lookup kicks
                                     // in — Text(String) would render them verbatim.
                                     Text(LocalizedStringKey(option.title))
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(Color(uiColor: .label))
                                     Text(LocalizedStringKey(option.subtitle))
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color(uiColor: .secondaryLabel))
                                 }
                                 Spacer()
                                 if appIconMode == option.id {
@@ -719,11 +719,11 @@ struct LanguageSettingsView: View {
                             } else {
                                 Image(systemName: "globe")
                                     .font(.title3)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color(uiColor: .secondaryLabel))
                                     .frame(width: 28)
                             }
                             Text(lang.name)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(Color(uiColor: .label))
                             Spacer()
                             if appLanguage == lang.id {
                                 Image(systemName: "checkmark")
