@@ -80,9 +80,7 @@ struct SettingsSheet: View {
                 }
 
                 Section("Appearance") {
-                    NavigationLink {
-                        AppearanceSettingsView()
-                    } label: {
+                    NavigationLink(value: SettingsDestination.appearance) {
                         Label {
                             Text("Appearance")
                         } icon: {
