@@ -221,6 +221,7 @@ struct AppearanceMenuSettingsSections: View {
                 Text("Dark").tag(2)
             }
             .pickerStyle(.menu)
+            .tint(Color(uiColor: .secondaryLabel))
         } header: {
             Text("Theme")
         } footer: {
@@ -241,6 +242,7 @@ struct AppearanceMenuSettingsSections: View {
                 }
             }
             .pickerStyle(.menu)
+            .tint(Color(uiColor: .secondaryLabel))
         } header: {
             Text("Chat Theme")
         } footer: {
@@ -254,18 +256,21 @@ struct AppearanceMenuSettingsSections: View {
                 Text("The Economist (2017 guide)").tag(MUChartStyle.economist2017)
             }
             .pickerStyle(.menu)
+            .tint(Color(uiColor: .secondaryLabel))
             Picker("Chart stroke weight", selection: $genuiChartWeight) {
                 Text("Fine").tag("fine")
                 Text("Standard").tag("standard")
                 Text("Bold").tag("bold")
             }
             .pickerStyle(.menu)
+            .tint(Color(uiColor: .secondaryLabel))
             Picker("Chart line pattern", selection: $genuiChartPattern) {
                 Text("Solid").tag("solid")
                 Text("Dashed context series").tag("context")
                 Text("All lines dashed").tag("dashed")
             }
             .pickerStyle(.menu)
+            .tint(Color(uiColor: .secondaryLabel))
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isPreviewExpanded.toggle()
@@ -427,6 +432,7 @@ struct AppearanceSettingsView: View {
                     Text("Send").tag(1)
                 }
                 .pickerStyle(.menu)
+                .tint(Color(uiColor: .secondaryLabel))
             } header: {
                 Text("Return Key")
             } footer: {

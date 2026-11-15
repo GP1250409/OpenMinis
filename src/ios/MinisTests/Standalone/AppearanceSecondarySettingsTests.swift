@@ -37,6 +37,10 @@ print("\n▶️  1. Return Key menu")
 check("segmented picker removed from AppearanceSettingsView", !appearance.contains(".pickerStyle(.segmented)"))
 let returnSection = slice(appearance, "Picker(\"Return Key\", selection: $returnKeyBehavior)", "Text(\"Choose whether the Return key")
 check("Return Key uses .pickerStyle(.menu)", returnSection.contains(".pickerStyle(.menu)"))
+check("Return Key uses semantic secondary menu tint", returnSection.contains(".tint(Color(uiColor: .secondaryLabel))"))
+let grayMenuPattern = #"\.pickerStyle\(\.menu\)\s*\.tint\(Color\(uiColor: \.secondaryLabel\)\)"#
+let grayMenuCount = (try? NSRegularExpression(pattern: grayMenuPattern))?.numberOfMatches(in: appearance, range: NSRange(appearance.startIndex..., in: appearance)) ?? 0
+check("all six menu pickers explicitly use semantic secondary tint", grayMenuCount == 6)
 check("Return Key preserves tag 0/1 and Newline/Send", returnSection.contains("Text(\"Newline\").tag(0)") && returnSection.contains("Text(\"Send\").tag(1)"))
 check("Return Key preserves @AppStorage(\"returnKeyBehavior\")", appearance.contains("@AppStorage(\"returnKeyBehavior\") private var returnKeyBehavior: Int = 0"))
 
