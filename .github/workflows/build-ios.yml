@@ -64,6 +64,7 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/toolfold_linux_check.py 2>&1 | tee toolfold-regression.log
+          python3 scripts/toolfold_uikit_regression.py 2>&1 | tee toolfold-uikit-regression.log
       - name: AOJIT images
         if: steps.prebuilt_deps.outputs.hit != 'true'
         env:
