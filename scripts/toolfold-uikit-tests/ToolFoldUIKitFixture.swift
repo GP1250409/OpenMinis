@@ -1,4 +1,4 @@
-// Mounted UIKit regression fixture: production ToolFoldPlanner + BridgedToolGroupV3 + ToolGroupRowView.
+// Mounted UIKit regression fixture: production ToolFoldPlanner + MessageListLayout + SelfSizingCell (ToolGroupCellV3) + BridgedToolGroupV3 + ToolGroupRowView.
 import Combine
 import Foundation
 import SwiftUI
@@ -44,6 +44,49 @@ extension Notification.Name {
     static let toolGroupToggled = Notification.Name("toolGroupToggled")
 }
 
+// MARK: - Minimal stubs required by verbatim MessageListLayout + SelfSizingCell slices
+
+enum AIChatViewModel {
+    static let onAppearTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+}
+
+final class FontSettings {
+    static let shared = FontSettings()
+    func scaledMessage(_ reference: CGFloat) -> CGFloat { reference }
+}
+
+final class AppLogger {
+    let category: String
+    init(category: String) { self.category = category }
+    func debug(_ m: String) {}
+    func info(_ m: String) {}
+    func warning(_ m: String) {}
+    func error(_ m: String) {}
+}
+
+enum TableColumnPlanner {
+    struct Column {
+        var natural: CGFloat
+        var minUnbreakable: CGFloat
+        init(natural: CGFloat, minUnbreakable: CGFloat) {
+            self.natural = natural
+            self.minUnbreakable = minUnbreakable
+        }
+    }
+    struct Plan { var widths: [CGFloat]; var isWide: [Bool] }
+    static func plan(columns: [Column], availableWidth: CGFloat) -> Plan {
+        let total = max(columns.reduce(0) { $0 + $1.natural }, 1)
+        let scale = min(1, max(0, availableWidth) / total)
+        return Plan(widths: columns.map { max($0.minUnbreakable, $0.natural * scale) },
+                    isWide: columns.map { _ in false })
+    }
+}
+
+final class SelectableMarkdownTextView: UIView {
+    private var signal = 0
+    func asyncAttachmentRenderSignal() -> Int { signal }
+}
+
 @main final class ToolFoldUIKitFixture: UIResponder, UIApplicationDelegate, UICollectionViewDataSource {
     struct RowCase {
         let label: String
@@ -52,11 +95,18 @@ extension Notification.Name {
         let expanded: Bool
     }
 
+    // Deliberately non-28 initial layout estimate to prove real self-sizing
+    // shrinks every cell to ToolGroupRowView.rowHeight (28pt) instead of
+    // echoing a fixed cell size.
+    static let initialEstimateHeight: CGFloat = 40
+
     var window: UIWindow?
+    var listLayout: MessageListLayout!
     var list: UICollectionView!
     var rows: [RowCase] = []
     var checks = 0
     var failures: [String] = []
+    var diagLines: [String] = []
     var output: URL!
     var pngCount = 0
 
@@ -78,13 +128,16 @@ extension Notification.Name {
         w.makeKeyAndVisible()
         window = w
 
-        let layout = UICollectionViewFlowLayout()
-        layout.itemSize = CGSize(width: 390, height: 40)
-        layout.minimumLineSpacing = 4
+        let layout = MessageListLayout()
+        layout.estimatedItemHeight = Self.initialEstimateHeight
+        layout.itemSpacing = 4
+        listLayout = layout
         list = UICollectionView(frame: CGRect(x: 0, y: 0, width: 390, height: 760), collectionViewLayout: layout)
-        list.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "group")
+        list.contentInsetAdjustmentBehavior = .never
+        list.register(ToolGroupCellV3.self, forCellWithReuseIdentifier: "group")
         list.dataSource = self
         vc.view.addSubview(list)
+        vc.view.layoutIfNeeded()
 
         DispatchQueue.main.async { self.renderStyle(0) }
         return true
@@ -158,9 +211,13 @@ extension Notification.Name {
     func collectionView(_ view: UICollectionView, numberOfItemsInSection section: Int) -> Int { rows.count }
 
     func collectionView(_ view: UICollectionView, cellForItemAt path: IndexPath) -> UICollectionViewCell {
-        let cell = view.dequeueReusableCell(withReuseIdentifier: "group", for: path)
+        let cell = view.dequeueReusableCell(withReuseIdentifier: "group", for: path) as! ToolGroupCellV3
         let row = rows[path.item]
-        cell.contentConfiguration = UIHostingConfiguration {
+        let key = "g:\(row.message.id.uuidString):\(row.run.firstBlockId.uuidString):\(row.label)"
+        cell.contentKey = key
+        listLayout.setContentKey(key, at: path.item)
+        listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: path.item)
+        let config = UIHostingConfiguration {
             BridgedToolGroupV3(
                 message: row.message,
                 firstBlockId: row.run.firstBlockId,
@@ -170,6 +227,7 @@ extension Notification.Name {
                 maxWidth: 358
             )
         }.minSize(width: 0, height: 0).margins(.all, 0)
+        cell.applyContentConfiguration(config)
         cell.backgroundColor = ChatColors.backgroundUIColor
         return cell
     }
@@ -183,22 +241,64 @@ extension Notification.Name {
         let (name, style) = styles[step]
         window!.overrideUserInterfaceStyle = style
         list.backgroundColor = ChatColors.backgroundUIColor
+        listLayout.clearHeightCache()
+        for i in 0..<rows.count {
+            listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i)
+        }
         list.reloadData()
         list.layoutIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.list.setNeedsLayout()
+            self.list.layoutIfNeeded()
+            let expectedContentH = CGFloat(self.rows.count) * ToolGroupRowView.rowHeight
+                + CGFloat(max(0, self.rows.count - 1)) * self.listLayout.itemSpacing
+            let contentSize = self.listLayout.collectionViewContentSize
             for i in 0..<self.rows.count {
                 let ip = IndexPath(item: i, section: 0)
-                guard let cell = self.list.cellForItem(at: ip) else {
+                guard let cell = self.list.cellForItem(at: ip) as? ToolGroupCellV3 else {
                     self.check(false, "missing cell \(name) \(i)")
                     continue
                 }
+                cell.setNeedsLayout()
+                cell.layoutIfNeeded()
                 cell.contentView.setNeedsLayout()
                 cell.contentView.layoutIfNeeded()
+
+                let frameSize = cell.frame.size
+                let layoutCacheH = self.listLayout.cachedHeight(at: i) ?? -1
                 let attrs = (self.list.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes)
                     ?? UICollectionViewLayoutAttributes(forCellWith: ip)
+                cell.clearCachedHeight()
                 let fit = cell.preferredLayoutAttributesFitting(attrs).size
-                self.check(abs(fit.height - ToolGroupRowView.rowHeight) <= 1.0,
-                           "\(name) row \(self.rows[i].label) height=\(fit.height)")
+                let contentFit = cell.contentView.systemLayoutSizeFitting(
+                    CGSize(width: attrs.size.width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                let intrinsic = cell.contentView.intrinsicContentSize
+                let hostIntrinsic = cell.contentView.subviews.first?.intrinsicContentSize ?? .zero
+                let diag = String(
+                    format: "TOOLFOLD_UIKIT_DIAG style=%@ row=%@ est=%.1f frame=%.1fx%.1f attrs=%.1fx%.1f layoutCache=%.1f fit=%.1fx%.1f contentFit=%.1fx%.1f intrinsic=%.1fx%.1f hostIntrinsic=%.1fx%.1f contentSize=%.1fx%.1f",
+                    name, self.rows[i].label, Self.initialEstimateHeight,
+                    frameSize.width, frameSize.height,
+                    attrs.size.width, attrs.size.height,
+                    layoutCacheH,
+                    fit.width, fit.height,
+                    contentFit.width, contentFit.height,
+                    intrinsic.width, intrinsic.height,
+                    hostIntrinsic.width, hostIntrinsic.height,
+                    contentSize.width, contentSize.height
+                )
+                self.diagLines.append(diag)
+                print(diag)
+
+                let ok = abs(fit.height - ToolGroupRowView.rowHeight) <= 1.0
+                    && abs(frameSize.height - ToolGroupRowView.rowHeight) <= 1.0
+                    && abs(contentFit.height - ToolGroupRowView.rowHeight) <= 1.0
+                    && abs(layoutCacheH - ToolGroupRowView.rowHeight) <= 1.0
+                    && abs(contentSize.height - expectedContentH) <= 1.0
+                self.check(ok,
+                           "\(name) row \(self.rows[i].label) frame=\(frameSize.height) fit=\(fit.height) contentFit=\(contentFit.height) layoutCache=\(layoutCacheH) intrinsic=\(intrinsic.height) contentSize=\(contentSize.height) expected=\(ToolGroupRowView.rowHeight)")
                 let renderer = UIGraphicsImageRenderer(bounds: cell.bounds)
                 let img = renderer.image { ctx in cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true) }
                 if let data = img.pngData() {
@@ -222,6 +322,8 @@ extension Notification.Name {
     }
 
     func finish() {
+        let diagText = diagLines.joined(separator: "\n") + "\n"
+        try? diagText.write(to: output.appendingPathComponent("diag.log"), atomically: true, encoding: .utf8)
         let msg: String
         if failures.isEmpty {
             msg = "TOOLFOLD_UIKIT_PASS checks=\(checks) png=\(pngCount)"
