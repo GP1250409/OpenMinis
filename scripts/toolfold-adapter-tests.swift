@@ -62,11 +62,20 @@ func tool(_ kind: AssistantBlock.Kind, _ status: AssistantBlock.Status?) -> Assi
         if status == .cancelled {
             check(plan.count == 1 && plan[0].group.cancelledCount == 1 && plan[0].group.toolCount == 2, "cancelled retained")
         } else {
-            check(!plan.contains { $0.memberIds.contains(sample[0].id) || $0.memberIds.contains(sample[2].id) }, "unfinished blocks prior run")
+            check(!plan.contains { $0.memberIds.contains(sample[0].id) || $0.memberIds.contains(sample[2].id) }, "unfinished show_ui blocks prior run as barrier")
         }
     }
-    let live = ChatMessage(blocks: [think(907), tool(.shellTool, .success), tool(.genuiTool, .running)])
-    check(ToolFoldPlanner.foldHorizon(for: live, runningMessageId: live.id, separators: [:]) == 0, "live running no early fold")
+    var live = ChatMessage(blocks: [think(907), tool(.shellTool, .running)])
+    let hLive = ToolFoldPlanner.foldHorizon(for: live, runningMessageId: live.id, separators: [:])
+    check(hLive == live.blocks.count, "live running folds immediately from first block")
+    let liveThinkRun = ToolFoldPlanner.foldedRuns(in: [live.blocks[0]], ended: false)
+    let liveWithTool = ToolFoldPlanner.foldedRuns(in: Array(live.blocks.prefix(hLive)), ended: false)
+    check(liveThinkRun.count == 1 && liveThinkRun[0].group.isLive, "thinking-only live run folds")
+    check(liveWithTool.count == 1 && liveWithTool[0].group.runningCount == 1 && liveWithTool[0].group.completedCount == 0 && liveWithTool[0].group.isLive, "live running tool counted")
+    check(liveWithTool[0].matchKeys.contains(liveThinkRun[0].key), "live group preserves fallback key for manual expansion")
+    live.blocks.append(tool(.genuiTool, .success))
+    let liveAfterCard = ToolFoldPlanner.foldedRuns(in: live.blocks, ended: false)
+    check(liveAfterCard.count == 1 && !liveAfterCard[0].memberIds.contains(live.blocks[2].id), "successful show_ui card stays outside live group")
     print("TOOLFOLD_ADAPTER_PASS checks=\(checks)")
 }
 MainActor.assumeIsolated { runAdapters() }

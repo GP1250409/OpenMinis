@@ -31,8 +31,11 @@ struct BridgedToolGroupV3: View {
             failedCount: group.failedCount,
             cancelledCount: group.cancelledCount,
             duration: duration,
-            isExpanded: isExpanded
+            isExpanded: isExpanded,
+            runningCount: group.runningCount,
+            isLive: group.isLive
         )
+        .transaction { $0.disablesAnimations = true }
         .frame(maxWidth: maxWidth > 0 ? maxWidth : nil, alignment: .leading)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)

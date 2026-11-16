@@ -357,6 +357,22 @@ extension CollectionViewMessageListV3.Coordinator {
             toolFoldRunByFirstBlock = Dictionary(
                 toolFolds.runs.values.flatMap { $0 }.map { ($0.firstBlockId, $0) },
                 uniquingKeysWith: { first, _ in first })
+            // [T-fold-live-process] Keep manual expanded state (and already-
+            // presented marker) when a leading-thinking run promotes its key to
+            // its first tool's `toolUseId`.
+            for (first, run) in toolFoldRunByFirstBlock {
+                var aliases = run.matchKeys
+                if let prevKey = previousFoldRuns[first]?.key, !aliases.contains(prevKey) {
+                    aliases.append(prevKey)
+                }
+                if aliases.contains(where: { expandedToolGroups.contains($0) }) {
+                    for k in aliases { expandedToolGroups.remove(k) }
+                    expandedToolGroups.insert(run.key)
+                }
+                if aliases.contains(where: { presentedToolGroupKeys.contains($0) }) {
+                    presentedToolGroupKeys.formUnion(aliases)
+                }
+            }
             // [T-fold-tool-notes] A run can now GROW under the same row (a
             // remark turns into a note once the model calls another tool, and
             // the calls after it join), and its row keeps its identity — so
@@ -1110,7 +1126,12 @@ extension CollectionViewMessageListV3.Coordinator {
                     var snap = ds.snapshot()
                     snap.reconfigureItems(changedToolGroupItems.filter { snap.indexOfItem($0) != nil })
                     changedToolGroupItems = []
-                    ds.apply(snap, animatingDifferences: false)
+                    UIView.performWithoutAnimation {
+                        (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = true
+                        ds.apply(snap, animatingDifferences: false)
+                        (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = false
+                    }
+                    viewController?.collectionView.setNeedsLayout()
                 }
                 AppLogger(category: "SnapshotDiag").info("[SnapshotDiag] SKIP caller=\(caller) items unchanged (count=\(newItems.count)) — no re-apply")
                 // [T-ios-bg-resume-collapse] …but a SKIP is exactly wrong for a

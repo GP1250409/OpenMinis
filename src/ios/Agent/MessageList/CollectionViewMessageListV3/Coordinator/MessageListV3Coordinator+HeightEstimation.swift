@@ -196,7 +196,7 @@ extension CollectionViewMessageListV3.Coordinator {
             let run = toolFoldRunByFirstBlock[first]
             let expanded = run.map { expandedToolGroups.contains($0.key) } ?? false
             let g = run?.group
-            return "g:\(mid.uuidString):\(first.uuidString):\(g?.toolCount ?? 0):\(g?.failedCount ?? 0):\(g?.cancelledCount ?? 0):\(run?.memberIds.count ?? 0):\(expanded ? 1 : 0)"
+            return "g:\(mid.uuidString):\(first.uuidString):\(g?.toolCount ?? 0):\(g?.runningCount ?? 0):\(g?.isLive == true ? 1 : 0):\(g?.failedCount ?? 0):\(g?.cancelledCount ?? 0):\(run?.memberIds.count ?? 0):\(expanded ? 1 : 0)"
         }
 
         func stableHeightKey(for item: MessageListItem, messages: [ChatMessage]) -> String? {

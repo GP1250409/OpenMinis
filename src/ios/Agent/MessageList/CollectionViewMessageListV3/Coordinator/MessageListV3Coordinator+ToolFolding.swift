@@ -30,6 +30,9 @@ extension CollectionViewMessageListV3.Coordinator {
             /// which survives a session reload (block ids are regenerated on
             /// every load); the block id when there is none.
             let key: String
+            /// [T-fold-live-process] All keys by which this run may have been
+            /// tracked earlier in its live lifecycle.
+            let matchKeys: [String]
             let firstBlockId: UUID
             /// [T-fold-lead-gap] The block this row is DRAWN at: the first
             /// member after the run's visible gaps.
@@ -99,14 +102,18 @@ extension CollectionViewMessageListV3.Coordinator {
                 guard !folded.isEmpty else { continue }
                 var runs: [ToolFoldRun] = []
                 for run in folded {
+                    let prevKey = toolFoldRunByFirstBlock[run.firstBlockId]?.key
+                    let alreadyFolded = run.matchKeys.contains(where: { presentedToolGroupKeys.contains($0) })
+                        || prevKey.map { presentedToolGroupKeys.contains($0) } == true
                     if ToolFoldPlanner.holdsBack(browsing: browsing,
-                                                 alreadyFolded: presentedToolGroupKeys.contains(run.key),
+                                                 alreadyFolded: alreadyFolded,
                                                  inRunningMessage: isRunning,
                                                  shownAsRows: { isShownUnfolded(message.id, run.firstBlockId) }) {
                         deferred = true
                         continue
                     }
-                    runs.append(ToolFoldRun(messageId: message.id, key: run.key, firstBlockId: run.firstBlockId,
+                    runs.append(ToolFoldRun(messageId: message.id, key: run.key, matchKeys: run.matchKeys,
+                                            firstBlockId: run.firstBlockId,
                                             anchorBlockId: run.anchorBlockId, visibleIds: run.visibleIds,
                                             memberIds: run.memberIds, group: run.group,
                                             duration: run.duration))
@@ -186,11 +193,12 @@ extension CollectionViewMessageListV3.Coordinator {
             let oldIp = IndexPath(item: oldIdx, section: 0)
             let anchorY = (cv.layoutAttributesForItem(at: oldIp)?.frame.minY ?? cv.contentOffset.y) - cv.contentOffset.y
 
-            let expanding = !expandedToolGroups.contains(run.key)
+            let expanding = !(expandedToolGroups.contains(run.key)
+                              || run.matchKeys.contains(where: { expandedToolGroups.contains($0) }))
             if expanding {
                 expandedToolGroups.insert(run.key)
             } else {
-                expandedToolGroups.remove(run.key)
+                for k in run.matchKeys { expandedToolGroups.remove(k) }
             }
             // Without this, a list pinned to the bottom keeps the bottom in
             // place and the newly opened calls push the row up and out of
@@ -205,7 +213,11 @@ extension CollectionViewMessageListV3.Coordinator {
             layout.invalidateHeight(at: idx)
             var snap = ds.snapshot()
             snap.reconfigureItems([item])
-            ds.apply(snap, animatingDifferences: false)
+            UIView.performWithoutAnimation {
+                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = true
+                ds.apply(snap, animatingDifferences: false)
+                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = false
+            }
             layout.invalidateLayout()
             cv.layoutIfNeeded()
 

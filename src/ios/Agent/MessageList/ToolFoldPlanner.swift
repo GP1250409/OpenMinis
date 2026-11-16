@@ -155,40 +155,49 @@ enum ToolFoldPlanner {
         /// inside the range, so every surface that draws a range has to skip
         /// them instead of treating the range as one solid block of members.
         let visibleGaps: [Int]
+        /// [T-fold-live-process] Number of `.tool(.unfinished)` calls currently
+        /// inside the group while the task is executing.
+        let runningCount: Int
+        /// [T-fold-live-process] True when this run is at the active tail of an
+        /// unfinished turn (`ended == false`) and has not yet been closed by a
+        /// reply or card boundary.
+        let isLive: Bool
 
         /// A run with no tool call is a thinking run ([T-fold-all-process]).
         var kind: Kind { toolCount > 0 ? .tools : .thinking }
 
+        /// Settled tools in this group (succeeded, failed, or cancelled).
+        var completedCount: Int { max(0, toolCount - runningCount) }
+
         init(range: ClosedRange<Int>, toolCount: Int, failedCount: Int, cancelledCount: Int,
-             thinkingCount: Int = 0, visibleGaps: [Int] = []) {
+             thinkingCount: Int = 0, visibleGaps: [Int] = [],
+             runningCount: Int = 0, isLive: Bool = false) {
             self.range = range
             self.toolCount = toolCount
             self.failedCount = failedCount
             self.cancelledCount = cancelledCount
             self.thinkingCount = thinkingCount
             self.visibleGaps = visibleGaps
+            self.runningCount = runningCount
+            self.isLive = isLive
         }
     }
 
     /// - Parameters:
     ///   - blocks: the message's blocks, in order (see `Input`).
     ///   - enabled: the user setting.
-    ///   - ended: [T-fold-stopped-tools] whether the task that wrote these
-    ///     blocks is OVER — a finished turn, a stopped/cancelled or failed
-    ///     one, or history read back from disk. Only then may a run with no
-    ///     reply after it fold. A message the agent loop is still writing
-    ///     into is planned with `ended: false` even when the planned prefix
-    ///     happens to end on a tool: the prefix ends at the latest finished
-    ///     request, the task does not, and those calls are about to run.
-    ///     Defaults to false — the safe direction: a forgotten argument
-    ///     leaves a run open, it never folds one early.
+    ///   - ended: [T-fold-stopped-tools] [T-fold-live-process] whether the
+    ///     task that wrote these blocks is OVER — a finished turn, a
+    ///     stopped/cancelled or failed one, or history read back from disk.
+    ///     Active tail runs also fold while `ended == false` (marked `isLive:
+    ///     true`) so tools and thinking stay folded by default mid-execution.
     static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {
         guard enabled else { return [] }
         var groups: [Group] = []
         /// First block of the open run, while one is open.
         var start: Int?
         var lastMember = 0
-        var tools = 0, thinks = 0, failed = 0, cancelled = 0
+        var tools = 0, thinks = 0, failed = 0, cancelled = 0, running = 0
         /// The run as it stood at its latest note (the soft end).
         var softEnd: Group?
         /// [T-fold-lead-gap] One-line remarks between the run's opening
@@ -201,7 +210,7 @@ enum ToolFoldPlanner {
 
         func reset() {
             start = nil
-            tools = 0; thinks = 0; failed = 0; cancelled = 0
+            tools = 0; thinks = 0; failed = 0; cancelled = 0; running = 0
             softEnd = nil
             leadGaps = []
             trailingThinking = nil
@@ -238,22 +247,22 @@ enum ToolFoldPlanner {
 
         for (i, block) in blocks.enumerated() {
             switch block {
-            case .tool(.unfinished), .barrier:
-                // A call that can still make progress — or a row that is
-                // always visible — cuts the run. What was already closed by a
-                // note still folds; a run of thinking only is dropped with the
-                // rest (the pills stay where they were, as before).
-                // [T-fold-card-boundary] A CARD is not in this group: it closes
-                // the run before it instead of dropping it.
+            case .barrier:
+                // A row that stays always visible (info banner, delegation, or
+                // a streaming show_ui before it validates) cuts the run without
+                // folding what has not yet reached a soft end.
+                // [T-fold-card-boundary] A CARD closes the run before it instead.
                 closeAtSoftEnd()
                 reset()
             case .tool(let outcome):
-                // [T-fold-all-process] A call joins the run its lead thinking
-                // opened, or opens one.
+                // [T-fold-all-process] [T-fold-live-process] Any tool call
+                // (including streaming/running `.unfinished`) joins the run its
+                // lead thinking opened, or opens one.
                 if start == nil { start = i }
                 lastMember = i
                 trailingThinking = nil
                 tools += 1
+                if outcome == .unfinished { running += 1 }
                 if outcome == .failed { failed += 1 }
                 if outcome == .cancelled { cancelled += 1 }
             case .note:
@@ -276,7 +285,9 @@ enum ToolFoldPlanner {
                 softEnd = Group(range: s...i, toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled,
                                 thinkingCount: thinks,
-                                visibleGaps: gaps(s, i))
+                                visibleGaps: gaps(s, i),
+                                runningCount: running,
+                                isLive: false)
             case .thinking:
                 // [T-fold-all-process] Thinking IS the process: it opens the
                 // run when no call has come yet (the old `leadThinking` case)
@@ -296,30 +307,25 @@ enum ToolFoldPlanner {
                     groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                         failedCount: failed, cancelledCount: cancelled,
                                         thinkingCount: thinks,
-                                        visibleGaps: gaps(s, lastBlock())))
+                                        visibleGaps: gaps(s, lastBlock()),
+                                        runningCount: running,
+                                        isLive: false))
                 }
                 reset()
             }
         }
-        // [T-fold-stopped-tools] The task is over and the message ends on a
-        // run with no reply after it (a user stop, a failed turn, a reply-less
-        // end): fold the whole run — cancelled and failed calls included, plus
-        // the thinking before, between and after them. [T-fold-all-process]
-        // The same holds for a run of thinking only: a stopped turn whose
-        // whole content was one thought becomes one "Thinking process" row
-        // instead of a stray pill (or nothing at all). A tool that never
-        // finished closed the run above, so a call that is still running (or
-        // still waiting for its confirmation) keeps its capsules visible even
-        // here. While the task runs, this shape is the pause before the next
-        // calls: only the part up to the latest note folds then.
-        if ended, let s = start, foldsAtClose() {
+        // [T-fold-stopped-tools] [T-fold-live-process] A run open at the end
+        // of the message folds both while the task is still executing
+        // (`isLive: true`, showing running/completed counts) and once the task
+        // ends or is loaded from history (`isLive: false`).
+        if let s = start, foldsAtClose() {
             groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled,
                                 thinkingCount: thinks,
-                                visibleGaps: gaps(s, lastBlock())))
+                                visibleGaps: gaps(s, lastBlock()),
+                                runningCount: running,
+                                isLive: !ended))
         } else {
-            // A run still open here has no reply after it: only its part up to
-            // the latest note folds; the rest stays unfolded.
             closeAtSoftEnd()
         }
         return groups
@@ -459,14 +465,13 @@ enum ToolFoldPlanner {
     /// [T-fold-browse-hold] Whether a run that is due to fold is held back
     /// for now because folding it would move what the user is reading: only
     /// while they are scrolled up (`browsing`), never for a run already folded
-    /// once (it stays folded), and only when it belongs to the running message
-    /// or its blocks are on the list as separate rows right now. A session
-    /// just opened has never shown them, so it folds at once. `shownAsRows` is
-    /// only called when the cheaper conditions leave the answer open.
+    /// once (it stays folded), and never for a live running message (which
+    /// folds immediately from its first block). `shownAsRows` is only called
+    /// for non-running messages when the cheaper conditions leave it open.
     static func holdsBack(browsing: Bool, alreadyFolded: Bool, inRunningMessage: Bool,
                           shownAsRows: () -> Bool) -> Bool {
-        guard browsing, !alreadyFolded else { return false }
-        return inRunningMessage || shownAsRows()
+        guard browsing, !alreadyFolded, !inRunningMessage else { return false }
+        return shownAsRows()
     }
 }
 // END ToolFoldPlanner
@@ -576,6 +581,14 @@ extension ToolFoldPlanner {
         /// [T-fold-tool-duration] Summed execution time of the folded tool
         /// calls; nil when none of them recorded one.
         let duration: TimeInterval?
+
+        /// [T-fold-live-process] All expanded-state keys that identify this run
+        /// across its live lifecycle (`key` plus `firstBlockId.uuidString` when
+        /// a leading-thinking run later receives its first tool call).
+        var matchKeys: [String] {
+            let fallback = firstBlockId.uuidString
+            return key == fallback ? [key] : [key, fallback]
+        }
     }
 
     /// [T-share-fold-tools] The runs `blocks` fold into (`plan` over
@@ -608,19 +621,13 @@ extension ToolFoldPlanner {
         }
     }
 
-    /// [T-fold-at-request-end] How many of `message`'s leading blocks may be
-    /// planned now: all of them, unless it is the message the running loop is
-    /// writing into — then only through its latest fold separator.
+    /// [T-fold-live-process] Plan all current blocks even while the task is
+    /// still running so active tools and thinking fold live instead of stopping
+    /// at the previous reply separator.
     @MainActor
     static func foldHorizon(for message: ChatMessage, runningMessageId: UUID?,
                             separators: [UUID: Set<UUID>]) -> Int {
-        guard message.id == runningMessageId else { return message.blocks.count }
-        // [T-fold-card-boundary] The cards already on screen may be planned
-        // through (see the generic rule above).
-        let cards = Set(message.blocks.filter(isCard).map(\.id))
-        return foldHorizon(blockIds: message.blocks.map(\.id),
-                           separators: separators[message.id] ?? [],
-                           isCard: { cards.contains($0) })
+        message.blocks.count
     }
 
     /// Settings key for the feature. Off unless the user turns it on.

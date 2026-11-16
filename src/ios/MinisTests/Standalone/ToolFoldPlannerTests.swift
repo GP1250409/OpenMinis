@@ -96,14 +96,23 @@ func show(_ s: String, enabled: Bool = true) -> String {
     return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.failedCount)/\($0.cancelledCount)" }
         .joined(separator: ",")
 }
-// [T-fold-stopped-tools] The same message while its task still runs: the run
-// that ends it is the pause before the next calls, so it stays open.
+// [T-fold-live-process] While its task still runs (`ended: false`), active
+// tools (including `.unfinished`) and thinking fold live with running/settled
+// counts and `isLive` status.
 func live(_ s: String) -> String {
     let chars = Array(s)
     let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
     let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: false)
     if g.isEmpty { return "none" }
     return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.failedCount)/\($0.cancelledCount)" }
+        .joined(separator: ",")
+}
+func liveMeta(_ s: String, ended: Bool = false) -> String {
+    let chars = Array(s)
+    let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: ended)
+    if g.isEmpty { return "none" }
+    return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.runningCount)/\($0.completedCount)/\($0.failedCount)/\($0.cancelledCount)/\($0.isLive ? "live" : "done")" }
         .joined(separator: ",")
 }
 let cases: [(String, String)] = [
@@ -246,6 +255,14 @@ print("stStoppedThink=\(live("KK"))|\(show("KK"))")
 print("stStoppedThinkOne=\(live("K"))|\(show("K"))")
 print("stStreamThink=\(running("K", 0))|\(running("Kt", 1))|\(running("Kt", 2))")
 print("stLiveThinkNoReply=\(live("Kt"))")
+print("liveMetaThink=\(liveMeta("K"))|\(liveMeta("K", ended: true))")
+print("liveMetaRun1=\(liveMeta("KR"))")
+print("liveMetaRunMix=\(liveMeta("KTR"))")
+print("liveMetaRunCounts=\(liveMeta("KTFCR"))")
+print("liveMetaReplyClosed=\(liveMeta("KTTt"))")
+print("liveMetaCardSplit=\(liveMeta("KTQKR"))")
+print("liveMetaBarrierOutside=\(liveMeta("KTBKR"))")
+print("liveMetaEnded=\(liveMeta("KTT", ended: true))")
 // [T-fold-at-request-end] Timing. `running(s, h)` is what the list folds in a
 // message whose task is still running: only its first `h` blocks are planned
 // (notes marked within them), h = foldHorizon, `ended: false`. `show(s)` is the
@@ -298,22 +315,17 @@ print("blankText=\(ToolFoldPlanner.isBlank(" x "))")
 print("blankHan=\(ToolFoldPlanner.isBlank("思考"))")
 print("blankSoftHyphen=\(ToolFoldPlanner.isBlank("\u{00AD}"))")
 print("blankLRM=\(ToolFoldPlanner.isBlank("\u{200E}"))")
-// One task, step by step: T T, then a request whose reply streams ("t"), then
-// a call (R) that runs and finishes (T), then the final reply.
-print("stStreaming=\(running("TTt", 0))")        // reply streaming, no request end yet
-print("stShortEnd=\(running("TToR", 0))")        // that request ended on a 1-line remark: no separator
-print("stLongEnd=\(running("TTtR", 4))")         // ended on >=2 lines: separator = its last block (R)
-print("stToolRuns=\(running("TTtTT", 4))")       // the next calls finish: nothing new folds mid-task
-print("stNextStream=\(running("TTtTTt", 4))")    // next reply streams: still only the first run
-// [T-fold-trailing-thinking] The thinking that trails the last call folds with
-// the run only once the reply closing it is there; while it streams, nothing.
-print("stTrailThink=\(running("KTKTK", 5))")     // thinking streams after the last call: no fold
-print("stTrailThinkEnd=\(running("KTKTKt", 6))") // request ended on >=2 lines: one row for all of it
-print("stTrailThinkHistory=\(show("KTKTKt"))")   // history / task end: the same group
-print("stTaskEnd=\(show("TTtTTt"))")             // task ends: whole message, no line limit
-// Retry / resume: the message's existing 6 blocks are a separator (floor), the
-// new request's call (R) is past it — the folds from the ended task stay as-is.
-print("stResume=\(running("TTtTToR", 6))|\(show("TTtTTo"))")
+// [T-fold-live-process] Live task folding along the running timeline.
+print("stStreaming=\(running("TTt", 3))")
+print("stShortEnd=\(running("TToR", 4))")
+print("stLongEnd=\(running("TTtR", 4))")
+print("stToolRuns=\(running("TTtTT", 5))")
+print("stNextStream=\(running("TTtTTt", 6))")
+print("stTrailThink=\(running("KTKTK", 5))")
+print("stTrailThinkEnd=\(running("KTKTKt", 6))")
+print("stTrailThinkHistory=\(show("KTKTKt"))")
+print("stTaskEnd=\(show("TTtTTt"))")
+print("stResume=\(running("TTtTToR", 7))|\(show("TTtTTo"))")
 // [T-fold-browse-hold] holdsBack(browsing, alreadyFolded, running, shownAsRows)
 var probed = 0
 func hb(_ b: Bool, _ f: Bool, _ r: Bool, _ shown: Bool) -> Bool {
@@ -326,7 +338,7 @@ print("hbShownRows=\(hb(true, false, false, true))")
 print("hbFreshSession=\(hb(true, false, false, false))")
 probed = 0; _ = hb(false, false, false, true); _ = hb(true, true, false, true); _ = hb(true, false, true, true)
 print("hbLazy=\(probed)")
-print("stShortOnly=\(running("TToTTo", 0)),\(show("TToTTo"))") // only short replies: open until the end
+print("stShortOnly=\(running("TToTTo", 6)),\(show("TToTTo"))")
 // [T-fold-card-boundary] A card is the boundary while its answer is pending AND
 // after it: the run before it is closed by the card, not by the end of the task.
 print("stCardWaiting=\(live("KTTKQKQKQ"))|\(show("KTTKQKQKQ"))")
@@ -387,8 +399,8 @@ check("an info block breaks the run: the 2 before it have no reply, the 2 after 
 check("a CARD closes the run before it instead of dropping it — the user's screenshot: process, card, "
       + "thinking, card, thinking, card, thinking, reply",
       has("cardUserScreenshot=0-3:2/0/0,5-5:0/0/0,7-7:0/0/0,9-9:0/0/0"))
-check("the same message while the third card waits for its answer: the two earlier runs are already folded "
-      + "and the thinking after the last card stays open",
+check("the same message while the third card waits for its answer: the two earlier runs and live trailing thinking fold "
+      + "(K T T K Q K Q K Q)",
       has("stCardWaiting=0-3:2/0/0,5-5:0/0/0,7-7:0/0/0|0-3:2/0/0,5-5:0/0/0,7-7:0/0/0"))
 check("the thinking AFTER the last card is a row of its own, not part of the run before the card "
       + "(K T T K Q K)", has("stCardKinds=0-3:tools:2/2,5-5:thinking:0/1"))
@@ -396,7 +408,7 @@ check("two cards in a row do not make an empty group (T T Q Q t)", has("cardTwoI
 check("a card cuts what follows it, so the next run folds on its own reply (T T Q T T t)",
       has("cardThenRun=0-1:2/0/0,3-4:2/0/0"))
 check("pure text around a card is not a process: no row (t Q t)", has("cardTextOnly=none") && has("stCardText=none|none"))
-check("a call that never finished keeps the run open across a card (T T R Q t)", has("cardUnfinishedTool=none"))
+check("a running tool in a card-closed run folds along with it (T T R Q t)", has("cardUnfinishedTool=0-2:3/0/0"))
 check("cancelled and failed calls close on a card like any finished call (T C Q / T F Q)",
       has("cardCancelTool=0-1:2/0/1") && has("cardFailTool=0-1:2/1/0"))
 check("a card with nothing before it makes no row (T T Q)", has("cardNoThinking=0-1:2/0/0"))
@@ -404,17 +416,17 @@ check("thinking after the last card folds into its own row at task end (T Q K)",
       has("cardTrailingThinking=0-0:1/0/0,2-2:0/0/0"))
 check("a delegate block breaks the run; the run after it folds alone", has("delegateSplit=4-6:3/0/0"))
 
-print("▶️  what closes a run: the reply, or the end of the task [T-fold-stopped-tools]")
+print("▶️  what closes a run: the reply, or live execution [T-fold-stopped-tools] [T-fold-live-process]")
 check("a run the task ended on folds with no reply after it (t T T T T)", has("noReply=1-4:4/0/0"))
 check("an empty text is never a reply, but the task end still folds the run (T T T e)", has("noReplyEmpty=0-2:3/0/0"))
-check("while the task runs, a message that ends on its calls folds nothing — the next calls come (T T)",
-      has("stStoppedPair=none|0-1:2/0/0"))
+check("while the task runs, a message that ends on its calls already folds live (T T)",
+      has("stStoppedPair=0-1:2/0/0|0-1:2/0/0"))
 check("the user's screenshot shape: 5 calls, thinking before/between/after them, nothing after",
       has("stoppedFiveThink=0-10:5/0/0"))
 check("a stopped run folds with its cancelled call counted (K T K T C)", has("stoppedCancel=0-4:3/0/1"))
 check("thinking left trailing the last call folds into the row too (T K T K)", has("stoppedTrailThink=0-3:2/0/0"))
-check("still one row, thinking at both ends (live: nothing, ended: one row)",
-      has("stStoppedTrail=none|0-3:2/0/0"))
+check("thinking at both ends folds both live and ended (T K T K)",
+      has("stStoppedTrail=0-3:2/0/0|0-3:2/0/0"))
 check("a failed call ends a stopped run the same way (T T F)", has("stoppedFail=0-2:3/1/0"))
 check("cancelled and failed calls are both counted, not split (T T C T F)", has("stoppedFailCancel=0-4:5/1/1"))
 check("after a remark, a stopped run folds whole (T T o T)", has("stoppedAfterNote=0-3:3/0/0"))
@@ -422,8 +434,8 @@ check("two runs in a stopped message: both fold, the second one on the end of th
       has("stoppedTwoRuns=0-1:2/0/0,3-6:3/0/1"))
 check("at task end a single cancelled call folds, and so do two thoughts with no call at all",
       has("stoppedOne=0-0:1/0/1") && has("stoppedNoTools=0-1:0/0/0"))
-check("a call that never finished keeps its capsules visible even at task end (T T T R)",
-      has("stoppedRunning=none"))
+check("a running tool stays folded with its run (T T T R)",
+      has("stoppedRunning=0-3:4/0/0"))
 check("an info/delegate row still cuts the run WITHOUT folding it, even at task end (T T B)",
       has("stoppedBarrier=none"))
 
@@ -437,8 +449,8 @@ check("marks that change their neighbours are NOT stripped (soft hyphen, LRM)",
       has("blankSoftHyphen=false") && has("blankLRM=false"))
 
 print("▶️  status")
-check("an unfinished tool before the reply keeps the run open (no fold)", has("running=none"))
-check("an unfinished tool ends the run; the finished ones after it fold", has("runningFirst=1-3:3/0/0"))
+check("an unfinished tool before the reply folds into the run and updates runningCount (T T T R t)", has("running=0-3:4/0/0"))
+check("a leading unfinished tool merges with finished tools after it (R T T T t)", has("runningFirst=0-3:4/0/0"))
 check("failed and cancelled tools fold, and are counted", has("failCancel=0-3:4/1/1"))
 
 print("▶️  one-line remarks between tool calls [T-fold-tool-notes]")
@@ -446,14 +458,14 @@ check("the user's example: T, 1-line, T, 1-line reply -> T..T fold, the final li
 check("a remark between calls folds with them; a multi-line reply closes the run", has("noteThenReply=0-2:2/0/0"))
 check("several remarks keep one run going (4 tools)", has("notesLong=0-5:4/0/0"))
 check("a MULTI-line text between calls still ends the run (two runs)", has("multiLineMid=0-1:2/0/0,3-4:2/0/0"))
-check("live: a remark then a running call -> the part up to the remark stays folded", has("noteLive=0-2:2/0/0"))
+check("live: a remark then a running call folds together into one live group (T T o R)", has("noteLive=0-3:3/0/0"))
 check("message ends on tools after a remark: the task end folds the whole run (T T o T T)",
       has("noteNoReply=0-4:4/0/0"))
-check("soft end: one call and a remark already qualify (T o R)", has("noteOneTool=0-1:1/0/0"))
+check("soft end: one call, remark and running tool fold together (T o R)", has("noteOneTool=0-2:2/0/0"))
 check("a remark before the first call is not part of the run", has("noteLead=1-2:2/0/0"))
 check("a one-line text with no call after it is the reply, not a remark", has("noteBeforeBarrier=0-1:2/0/0"))
 check("thinking and a remark between calls both fold along", has("noteThink=0-3:2/0/0"))
-check("tools after the soft end, then a running call -> only up to the remark folds", has("noteAfterSoftEnd=0-2:2/0/0"))
+check("tools after the note join the same live group (T T o T T R)", has("noteAfterSoftEnd=0-5:5/0/0"))
 check("one line = no newline between first and last visible character",
       has("single1=true") && has("single2=false") && has("single3=true") && has("single4=true"))
 
@@ -478,14 +490,14 @@ check("a card between the remark and the calls: nothing folds above it, the call
       has("leadGapCard=3-3:1/0/0"))
 check("a MULTI-line paragraph is not a remark: it still cuts the run in two",
       has("leadGapMultiText=0-0:0/0/0,2-3:2/0/0"))
-check("live: a remark then a RUNNING call folds nothing early, the calls after it do",
-      has("leadGapLive=none") && has("leadGapRunning=3-4:2/0/0"))
-check("live: the call finished but the reply has not closed the run yet",
-      has("leadGapLiveOne=none"))
+check("live: a remark then a RUNNING call folds lead thinking and running call with remark as gap (K o R)",
+      has("leadGapLive=0-2:1/0/0") && has("leadGapRunning=0-4:3/0/0"))
+check("live: lead thinking + remark + finished call folds with remark as gap (K o T)",
+      has("leadGapLiveOne=0-2:1/0/0"))
 check("a barrier between them keeps the thinking out", has("leadThinkBarrier=2-3:2/0/0"))
-check("an unfinished tool between them keeps the thinking out", has("leadThinkRunning=2-3:2/0/0"))
+check("a running tool merges with lead thinking into one group (K R T T t)", has("leadThinkRunning=0-3:3/0/0"))
 
-print("▶️  timing: fold at request end, not while streaming [T-fold-at-request-end]")
+print("▶️  timing: live folding + running counts [T-fold-at-request-end] [T-fold-live-process]")
 check("line count = lines with a visible character (0 / 1 / blank lines ignored / 2 / CRLF / 3)",
       has("lines0=0") && has("lines1=1") && has("lines1b=1") && has("lines2=2")
       && has("lines2b=2") && has("lines2crlf=2") && has("lines3=3"))
@@ -497,30 +509,30 @@ check("horizon: none before the first separator; through its block; the latest w
       has("hNone=0") && has("hOne=3") && has("hLatest=4") && has("hGone=0") && has("hGoneOne=2"))
 check("a settled card extends the horizon: over the card(s) that follow a separator, and no further",
       has("hCardRun=4") && has("hCardFar=2") && has("hCardLast=5") && has("hCardStop=1") && has("hCardNone=4"))
-check("streaming: a reply that is still streaming folds nothing (the task-end rule alone would)",
-      has("stStreaming=none") && has("three=0-2:3/0/0"))
-check("a request ending on a 1-line remark folds nothing mid-task", has("stShortEnd=none"))
-check("a request ending on >=2 lines folds the run before it", has("stLongEnd=0-1:2/0/0"))
-check("tools finishing after the separator do not fold mid-task", has("stToolRuns=0-1:2/0/0"))
-check("the next reply streaming does not fold the next run yet", has("stNextStream=0-1:2/0/0"))
-check("thinking streaming after the last call does not fold yet (the pill never vanishes mid-stream)",
-      has("stTrailThink=none"))
-check("the request end that carries the reply folds lead thinking, calls and trailing thinking into one row",
+check("live: tools before a reply already fold while the reply streams (T T t)",
+      has("stStreaming=0-1:2/0/0") && has("three=0-2:3/0/0"))
+check("live: tools + 1-line remark + running tool fold together mid-task (T T o R)", has("stShortEnd=0-3:3/0/0"))
+check("a request ending on >=2 lines closes the run before it (T T t R)", has("stLongEnd=0-1:2/0/0,3-3:1/0/0"))
+check("tools after the reply form a second run (T T t T T)", has("stToolRuns=0-1:2/0/0,3-4:2/0/0"))
+check("the next reply closes the second run too (T T t T T t)", has("stNextStream=0-1:2/0/0,3-4:2/0/0"))
+check("live: thinking after calls folds into the live run (K T K T K)",
+      has("stTrailThink=0-4:2/0/0"))
+check("the reply closes lead thinking, calls and trailing thinking into one row",
       has("stTrailThinkEnd=0-4:2/0/0"))
 check("a reloaded/history message plans the same group", has("stTrailThinkHistory=0-4:2/0/0"))
 check("task end folds the whole message, the run before a short reply included", has("stTaskEnd=0-1:2/0/0,3-4:2/0/0"))
-check("only short replies: nothing mid-task, all folded at task end",
-      has("stShortOnly=none,0-4:4/0/0"))
-check("retry/resume on an ended message keeps its folds (floor separator = its last block)",
-      has("stResume=0-1:2/0/0,3-4:2/0/0|0-1:2/0/0,3-4:2/0/0"))
+check("live short notes keep one group while running, matching task end (T T o T T o)",
+      has("stShortOnly=0-4:4/0/0,0-4:4/0/0"))
+check("retry/resume folds previous settled run and new live run separately (T T t T T o R)",
+      has("stResume=0-1:2/0/0,3-6:3/0/0|0-1:2/0/0,3-4:2/0/0"))
 check("browse hold: never at the bottom, never for an already-folded run",
       has("hbAtBottom=false") && has("hbFolded=false"))
-check("browse hold: the running message, or a run whose blocks are on the list as rows [T-fold-browse-hold]",
-      has("hbRunning=true") && has("hbShownRows=true"))
+check("browse hold: running message folds immediately (false), non-running visible rows hold back (true) [T-fold-browse-hold]",
+      has("hbRunning=false") && has("hbShownRows=true"))
 check("browse hold: a session just opened (rows never shown) folds at once", has("hbFreshSession=false"))
 check("browse hold: the row lookup runs only when the cheap conditions leave it open", has("hbLazy=0"))
 check("a folded run stays the same group as the task goes on (no flip-flop)",
-      has("stLongEnd=0-1:2/0/0") && has("stToolRuns=0-1:2/0/0") && has("stNextStream=0-1:2/0/0"))
+      has("stLongEnd=0-1:2/0/0,3-3:1/0/0") && has("stToolRuns=0-1:2/0/0,3-4:2/0/0") && has("stNextStream=0-1:2/0/0,3-4:2/0/0"))
 
 print("▶️  one row per process, whatever it is made of [T-fold-all-process]")
 check("a single call and its reply (the memory_write screenshot: no thinking, one call)",
@@ -543,12 +555,30 @@ check("the kind comes from the members: no call at all = thinking, never 'Ran 0 
       has("kindTool=0-0:tools:1/0") && has("kindThink=0-2:thinking:0/3")
       && has("kindMixed=0-2:tools:1/2") && has("kindTwoRuns=0-0:thinking:0/1,2-2:thinking:0/1")
       && has("kindNone=none"))
-check("a stopped message that was only thinking folds once ended, and not while it streams",
-      has("stStoppedThink=none|0-1:0/0/0") && has("stStoppedThinkOne=none|0-0:0/0/0"))
-check("a thinking block still being written folds nothing: no reply yet, or past the horizon",
-      has("stStreamThink=none|none|0-0:0/0/0"))
+check("a thinking-only message folds live while streaming and stays folded at end",
+      has("stStoppedThink=0-1:0/0/0|0-1:0/0/0") && has("stStoppedThinkOne=0-0:0/0/0|0-0:0/0/0"))
+check("a thinking block folds live as soon as it has content (with or without reply)",
+      has("stStreamThink=none|0-0:0/0/0|0-0:0/0/0"))
 check("mid-task a thought followed by a reply closes at that request end, like a call run",
       has("stLiveThinkNoReply=0-0:0/0/0"))
+
+print("▶️  live running counts and boundaries [T-fold-live-process]")
+check("live thinking-only gets live flag; ended gets done flag",
+      has("liveMetaThink=0-0:0/0/0/0/0/live|0-0:0/0/0/0/0/done"))
+check("live 1 running tool reports 1 running and 0 completed",
+      has("liveMetaRun1=0-1:1/1/0/0/0/live"))
+check("live mix of settled and running tools reports 1 running and 1 completed",
+      has("liveMetaRunMix=0-2:2/1/1/0/0/live"))
+check("live run counts failed, cancelled and running accurately",
+      has("liveMetaRunCounts=0-4:4/1/3/1/1/live"))
+check("reply closes run with done flag",
+      has("liveMetaReplyClosed=0-2:2/0/2/0/0/done"))
+check("card splits completed group from live tail group",
+      has("liveMetaCardSplit=0-1:1/0/1/0/0/done,3-4:1/1/0/0/0/live"))
+check("barrier (info/delegate) stays outside group and splits live tail",
+      has("liveMetaBarrierOutside=3-4:1/1/0/0/0/live"))
+check("ended message marks final group done",
+      has("liveMetaEnded=0-2:2/0/2/0/0/done"))
 
 print("▶️  several runs")
 check("two runs in one message give two groups", has("twoRuns=0-2:3/0/0,4-7:4/0/0"))
@@ -611,26 +641,21 @@ check("re-plan triggers: request end, turn end, back to bottom — no longer a f
       && v3.contains("caller: \"toolFold-backToBottom\"") && !v3.contains("toolFold-textFilled"))
 check("the request-end trigger is the vm's separator signal",
       ordered(v3, ["vm.toolFoldSeparatorSignal", "resnapshotIfToolFoldsChanged(caller: \"toolFold-requestEnd\")"]))
-check("only the loop's running message is planned up to its fold horizon; every other message whole",
+check("running message plans all current blocks live, while each run keeps folded(ended: !isRunning) [T-fold-live-process]",
       plan.contains("let isRunning = message.id == runningId")
       && plan.contains("let runningId = vm.toolFoldRunningMessageId")
-      // [T-share-fold-tools] The horizon rule moved into ToolFoldPlanner,
-      // shared with the share export.
       && plan.contains("let horizon = ToolFoldPlanner.foldHorizon(for: message, runningMessageId: runningId,")
       && plan.contains("separators: vm.toolFoldSeparators)")
-      && plannerSrc.contains("guard message.id == runningMessageId else { return message.blocks.count }")
-      && ordered(plannerSrc, ["return foldHorizon(blockIds: message.blocks.map(\\.id),",
-                              "separators: separators[message.id] ?? [],", "isCard: { cards.contains($0) })"])
-      // [T-fold-stopped-tools] The horizon is where planning STOPS, not where
-      // the task does: `ended` comes from the running message alone.
+      && plannerSrc.contains("static func foldHorizon(for message: ChatMessage, runningMessageId: UUID?,")
+      && plannerSrc.contains("message.blocks.count")
       && plan.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
       && plan.contains("ended: !isRunning)"))
-check("the planner takes the task's end as its own input, defaulting to \"not ended\" [T-fold-stopped-tools]",
+check("the planner supports live tail folding (ended: false -> isLive) and ended closing [T-fold-stopped-tools] [T-fold-live-process]",
       plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {")
       && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {")
-      && plannerSrc.contains("if ended, let s = start, foldsAtClose() {")
+      && plannerSrc.contains("if let s = start, foldsAtClose() {")
       && plannerSrc.contains("qualifies(tools, thinks) && !(tools == 0 && !leadGaps.isEmpty)")
-      && plannerSrc.contains("[T-fold-stopped-tools]"))
+      && plannerSrc.contains("[T-fold-live-process]"))
 check("the share export passes the same two inputs (horizon + task end)",
       read("Views/Chat/ChatExportRenderer.swift")
         .contains("ended: m.id != runningMessageId)"))
@@ -653,9 +678,8 @@ check("a request ending on a card registers a fold separator, so the run before 
                       "toolFoldSeparators[messageId, default: []].insert(lastBlock.id)",
                       "toolFoldSeparatorSignal.send(messageId)",
                       "return"]))
-check("the horizon runs over settled cards only — not a blanket end of message",
-      plannerSrc.contains("while horizon < blockIds.count, isCard(blockIds[horizon]) { horizon += 1 }")
-      && plannerSrc.contains("let cards = Set(message.blocks.filter(isCard).map(\\.id))"))
+check("generic foldHorizon helper still runs over settled cards only when invoked directly",
+      plannerSrc.contains("while horizon < blockIds.count, isCard(blockIds[horizon]) { horizon += 1 }"))
 check("the list gives a settled blank thinking no row and keeps the block still being written",
       v3.contains("let liveTailBlockId: UUID? = (vm.isProcessing && message.id == vm.toolFoldRunningMessageId)")
       && v3.contains("blocks[bi].id != liveTailBlockId,")
@@ -752,10 +776,25 @@ check("the share picker hides a thinking run under Hide Thinking, next to the th
 check("the export follows the same split: tool runs with the tools, thinking runs with the thinking",
       exportRenderer.contains("return (cell.fold?.toolCount ?? 0) > 0 ? includeTools : includeThinking"))
 
+check("live group updates disable animations and preserve manual expansion keys [T-fold-live-process]",
+      v3.contains("expandedToolGroups.insert(run.key)")
+      && v3.contains("aliases.contains(where: { expandedToolGroups.contains($0) })")
+      && v3.contains("observeFoldStateChanges(in: message.blocks)")
+      && v3.contains("UIView.performWithoutAnimation")
+      && read("Agent/MessageList/CollectionViewMessageListV3/Cells/BridgedToolGroupV3.swift")
+            .contains(".transaction { $0.disablesAnimations = true }"))
+check("row shows live running/done counts and Thinking… while active",
+      row.contains("var runningCount: Int = 0")
+      && row.contains("var isLive: Bool = false")
+      && row.contains("AppLocalized(\"Running \\(runningCount) tools\")")
+      && row.contains("AppLocalized(\"\\(completedCount) done\")")
+      && row.contains("AppLocalized(\"Thinking…\")"))
+
 print("▶️  localization")
 let keys = ["Fold Consecutive Tool Calls", "Tool Calls",
             "Consecutive tool calls are shown as one line. Tap it to see each call.",
-            "Ran %lld tools", "%lld failed", "%lld cancelled", "Shows each tool call", "Hides the tool calls"]
+            "Ran %lld tools", "%lld failed", "%lld cancelled", "Shows each tool call", "Hides the tool calls",
+            "Running %lld tools", "%lld done", "Thinking…"]
 let locales = ["de", "es", "fil", "fr", "hr", "id", "ja", "ko", "ms", "pl", "pt-BR", "ro", "ru", "th", "tr", "zh-Hans", "zh-Hant"]
 for k in keys {
     guard let r = catalog.range(of: "\n    \"\(k)\" : {") else { check("xcstrings has \"\(k)\"", false); continue }
@@ -764,7 +803,7 @@ for k in keys {
     let missing = locales.filter { !entry.contains("\"\($0)\" : {") }
     check("xcstrings \"\(k)\" has all 18 locales\(missing.isEmpty ? "" : " — missing \(missing)")", missing.isEmpty)
 }
-for k in ["Thinking process", "Ran 1 tool"] {
+for k in ["Thinking process", "Ran 1 tool", "Running 1 tool"] {
     check("xcstrings has \"\(k)\"", catalog.contains("\n    \"\(k)\" : {") || catalog.contains("\"value\" : \"\(k)\""))
 }
 check("\"Thinking process\" is 思考过程 in both Chinese variants",

@@ -44,6 +44,8 @@ extension CollectionViewMessageListV3.Coordinator {
             subscriptions.removeAll()
             lastMessageSub?.cancel(); lastMessageSub = nil
             lastMessageBlockCountSub?.cancel(); lastMessageBlockCountSub = nil
+            blockFoldSubs.values.forEach { $0.cancel() }
+            blockFoldSubs.removeAll()
             lastMessageId = nil
             vm = newVM
             bindViewModel(newVM)

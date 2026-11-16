@@ -28,8 +28,11 @@ extension CollectionViewMessageListV3.Coordinator {
             lastMessageId = message.id
             lastMessageSub?.cancel()
             lastMessageBlockCountSub?.cancel()
+            blockFoldSubs.values.forEach { $0.cancel() }
+            blockFoldSubs.removeAll()
 
             guard vm?.isProcessing == true else { return }
+            observeFoldStateChanges(in: message.blocks)
 
             // Watch objectWillChange for content updates (text streaming)
             lastMessageSub = message.objectWillChange
@@ -47,6 +50,8 @@ extension CollectionViewMessageListV3.Coordinator {
                         self.lastMessageSub = nil
                         self.lastMessageBlockCountSub?.cancel()
                         self.lastMessageBlockCountSub = nil
+                        self.blockFoldSubs.values.forEach { $0.cancel() }
+                        self.blockFoldSubs.removeAll()
                         self.flushStreamingLayout()
                         // [T-ios-tooluibatch-stuck-pending-snapshot] Terminal
                         // rescue for a snapshot deferred during a streaming-UI
@@ -92,8 +97,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .dropFirst()
-                .sink { [weak self] count in
+                .sink { [weak self, weak message] count in
                     guard let self, let msgs = self.vm?.messages else { return }
+                    if let message {
+                        self.observeFoldStateChanges(in: message.blocks)
+                    }
                     if self.vm?.streamingUIUpdatesSuspended == true {
                         // [PendingSnap] Deferring snapshot rebuild while suspended;
                         // blocks added now (count) won't get cells until a flush.
@@ -103,6 +111,61 @@ extension CollectionViewMessageListV3.Coordinator {
                     }
                     self.applySnapshot(messages: msgs, caller: "bind4b-blockCount")
                 }
+        }
+
+        /// [T-fold-live-process] Watch fold-relevant state transitions on blocks
+        /// of the running message (tool status settling, blank thinking/text
+        /// receiving content) so collapsed counts and card boundaries update live
+        /// without pulsing on every streaming delta.
+        private func observeFoldStateChanges(in blocks: [AssistantBlock]) {
+            let currentIds = Set(blocks.map(\.id))
+            let staleIds = blockFoldSubs.keys.filter { !currentIds.contains($0) }
+            for id in staleIds {
+                blockFoldSubs.removeValue(forKey: id)?.cancel()
+            }
+            for block in blocks where blockFoldSubs[block.id] == nil {
+                switch block.kind {
+                case .thinking:
+                    blockFoldSubs[block.id] = block.$content
+                        .map { !ToolFoldPlanner.isBlank($0) }
+                        .removeDuplicates()
+                        .dropFirst()
+                        .receive(on: DispatchQueue.main)
+                        .sink { [weak self] _ in
+                            guard ToolFoldPlanner.isEnabled else { return }
+                            self?.resnapshotIfToolFoldsChanged(caller: "toolFold-blockState")
+                        }
+                case .text:
+                    blockFoldSubs[block.id] = block.$content
+                        .map { $0.contains(where: { !$0.isWhitespace }) }
+                        .removeDuplicates()
+                        .dropFirst()
+                        .receive(on: DispatchQueue.main)
+                        .sink { [weak self] _ in
+                            guard ToolFoldPlanner.isEnabled else { return }
+                            self?.resnapshotIfToolFoldsChanged(caller: "toolFold-blockState")
+                        }
+                case .info:
+                    break
+                default:
+                    blockFoldSubs[block.id] = block.$toolStatus
+                        .map { status -> UInt8 in
+                            switch status {
+                            case .success: return 1
+                            case .failed: return 2
+                            case .cancelled: return 3
+                            case .streaming, .running, .none: return 0
+                            }
+                        }
+                        .removeDuplicates()
+                        .dropFirst()
+                        .receive(on: DispatchQueue.main)
+                        .sink { [weak self] _ in
+                            guard ToolFoldPlanner.isEnabled else { return }
+                            self?.resnapshotIfToolFoldsChanged(caller: "toolFold-blockState")
+                        }
+                }
+            }
         }
 
         /// [T-rotate-scroll-jank] Re-run the snapshot pass after

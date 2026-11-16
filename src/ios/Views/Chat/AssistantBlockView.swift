@@ -706,6 +706,10 @@ struct ToolGroupRowView: View {
     /// [T-fold-tool-duration] Summed execution time of the folded calls.
     var duration: TimeInterval? = nil
     let isExpanded: Bool
+    /// [T-fold-live-process] Running/streaming tools currently inside the group.
+    var runningCount: Int = 0
+    /// [T-fold-live-process] True while this run is at the active tail of a running turn.
+    var isLive: Bool = false
 
     /// Fixed so the list can estimate the row exactly (see
     /// `estimateItemHeight`), with no first-measure correction.
@@ -714,9 +718,20 @@ struct ToolGroupRowView: View {
     /// [T-fold-all-process] A run with no tool call is the thinking that led
     /// to the reply (or answered the request), not an empty tool run.
     private var isThinkingOnly: Bool { toolCount == 0 }
+    private var completedCount: Int { max(0, toolCount - runningCount) }
 
     private var title: String {
-        isThinkingOnly ? AppLocalized("Thinking process") : AppLocalized("Ran \(toolCount) tools")
+        if runningCount > 0 {
+            return AppLocalized("Running \(runningCount) tools")
+        }
+        if isThinkingOnly && isLive {
+            return AppLocalized("Thinking…")
+        }
+        return isThinkingOnly ? AppLocalized("Thinking process") : AppLocalized("Ran \(toolCount) tools")
+    }
+    private var completedText: String? {
+        guard runningCount > 0, completedCount > 0 else { return nil }
+        return AppLocalized("\(completedCount) done")
     }
     private var failedText: String { AppLocalized("\(failedCount) failed") }
     private var cancelledText: String { AppLocalized("\(cancelledCount) cancelled") }
@@ -743,6 +758,7 @@ struct ToolGroupRowView: View {
 
     private var accessibilityText: String {
         var parts = [title]
+        if let completedText { parts.append(completedText) }
         if let durationText { parts.append(durationText) }
         if failedCount > 0 { parts.append(failedText) }
         if cancelledCount > 0 { parts.append(cancelledText) }
@@ -756,6 +772,10 @@ struct ToolGroupRowView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 Text(title)
+                if let completedText {
+                    Text(verbatim: "·")
+                    Text(completedText).monospacedDigit()
+                }
                 if let durationText {
                     Text(verbatim: "·")
                     Text(verbatim: durationText).monospacedDigit()

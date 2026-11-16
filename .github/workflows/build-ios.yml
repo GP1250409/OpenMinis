@@ -173,6 +173,10 @@ jobs:
             build/map-render/*.log
             build/map-render/compile-command.txt
             toolfold-regression.log
+            toolfold-uikit-regression.log
+            build/toolfold-uikit/*.png
+            build/toolfold-uikit/*.log
+            build/toolfold-uikit/ProductionToolGroupRow.swift
             build/genui-height/
             build.log
             build/mod-regression/*.swift

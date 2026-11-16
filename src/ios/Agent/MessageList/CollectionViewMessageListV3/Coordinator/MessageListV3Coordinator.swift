@@ -261,6 +261,9 @@ extension CollectionViewMessageListV3 {
         var lastMessageId: UUID?
         var lastMessageSub: AnyCancellable?
         var lastMessageBlockCountSub: AnyCancellable?
+        /// [T-fold-live-process] Per-block observers for fold-relevant phase
+        /// edges (blank→visible thinking/text, unfinished→settled tool).
+        var blockFoldSubs: [UUID: AnyCancellable] = [:]
 
         /// [T-ios-ui-blocks-lost-suspend-resume] Last observed value of the vm's
         /// `streamingUIUpdatesSuspended`, tracked so the vm-state subscription can
