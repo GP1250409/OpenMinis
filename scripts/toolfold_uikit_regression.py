@@ -71,6 +71,8 @@ def prepare():
     assert 'ToolGroupCellV3.self' in fixture
     assert 'TOOLFOLD_UIKIT_DIAG' in fixture
     assert 'clearCachedHeight()' in fixture
+    assert 'safeAreaLayoutGuide' in fixture
+    assert 'suppressContentOffsetAdjustment' in fixture
     (OUT / 'ProductionToolGroupRow.swift').write_text(fixture + '\n' + row_slice + '\n')
     print(f'TOOLFOLD_UIKIT_SLICE_OK bytes={len(row_slice)} cell_bytes={len(cell_slice)}', flush=True)
 

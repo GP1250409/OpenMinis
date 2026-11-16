@@ -124,22 +124,31 @@ final class SelectableMarkdownTextView: UIView {
 
         let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let vc = UIViewController()
+        vc.view.backgroundColor = .systemBackground
         w.rootViewController = vc
         w.makeKeyAndVisible()
         window = w
+        vc.view.setNeedsLayout()
+        vc.view.layoutIfNeeded()
 
         let layout = MessageListLayout()
         layout.estimatedItemHeight = Self.initialEstimateHeight
         layout.itemSpacing = 4
         listLayout = layout
-        list = UICollectionView(frame: CGRect(x: 0, y: 0, width: 390, height: 760), collectionViewLayout: layout)
-        list.contentInsetAdjustmentBehavior = .never
+        let topSafe = max(vc.view.safeAreaInsets.top, vc.view.safeAreaLayoutGuide.layoutFrame.minY)
+        let bottomSafe = vc.view.safeAreaInsets.bottom
+        let listH = min(700, max(320, vc.view.bounds.height - topSafe - bottomSafe))
+        list = UICollectionView(frame: CGRect(x: 0, y: topSafe, width: 390, height: listH), collectionViewLayout: layout)
+        // Mirror production MessageListViewController while positioning collectionView
+        // inside vc.view.safeAreaLayoutGuide so row 0 never inherits Dynamic Island safe area.
+        list.contentInsetAdjustmentBehavior = .automatic
         list.register(ToolGroupCellV3.self, forCellWithReuseIdentifier: "group")
         list.dataSource = self
         vc.view.addSubview(list)
+        vc.view.setNeedsLayout()
         vc.view.layoutIfNeeded()
 
-        DispatchQueue.main.async { self.renderStyle(0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.renderStyle(0) }
         return true
     }
 
@@ -232,6 +241,24 @@ final class SelectableMarkdownTextView: UIView {
         return cell
     }
 
+    private func syncCollectionFrameToSafeArea() -> Bool {
+        guard let rootView = window?.rootViewController?.view else { return false }
+        rootView.setNeedsLayout()
+        rootView.layoutIfNeeded()
+        let safe = rootView.safeAreaLayoutGuide.layoutFrame
+        let topSafe = max(rootView.safeAreaInsets.top, safe.minY)
+        let bottomSafe = rootView.safeAreaInsets.bottom
+        let availH = safe.height > 0 ? safe.height : max(320, rootView.bounds.height - topSafe - bottomSafe)
+        let targetFrame = CGRect(x: 0, y: topSafe, width: 390, height: min(700, max(320, availH)))
+        let frameChanged = list.frame != targetFrame
+        if frameChanged {
+            list.frame = targetFrame
+            rootView.setNeedsLayout()
+            rootView.layoutIfNeeded()
+        }
+        return frameChanged
+    }
+
     func renderStyle(_ step: Int) {
         let styles: [(String, UIUserInterfaceStyle)] = [("light", .light), ("dark", .dark)]
         if step == styles.count {
@@ -239,75 +266,151 @@ final class SelectableMarkdownTextView: UIView {
             return
         }
         let (name, style) = styles[step]
+        _ = syncCollectionFrameToSafeArea()
         window!.overrideUserInterfaceStyle = style
         list.backgroundColor = ChatColors.backgroundUIColor
+        list.contentOffset = .zero
+        // Match production Snapshot.swift initial apply: suppress offset compensation
+        // during initial reload/layout so height updates settle without shifting origin.
+        listLayout.suppressContentOffsetAdjustment = true
         listLayout.clearHeightCache()
         for i in 0..<rows.count {
             listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i)
         }
         list.reloadData()
+        list.setNeedsLayout()
         list.layoutIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.list.setNeedsLayout()
-            self.list.layoutIfNeeded()
-            let expectedContentH = CGFloat(self.rows.count) * ToolGroupRowView.rowHeight
-                + CGFloat(max(0, self.rows.count - 1)) * self.listLayout.itemSpacing
-            let contentSize = self.listLayout.collectionViewContentSize
-            for i in 0..<self.rows.count {
-                let ip = IndexPath(item: i, section: 0)
-                guard let cell = self.list.cellForItem(at: ip) as? ToolGroupCellV3 else {
-                    self.check(false, "missing cell \(name) \(i)")
-                    continue
-                }
-                cell.setNeedsLayout()
-                cell.layoutIfNeeded()
-                cell.contentView.setNeedsLayout()
-                cell.contentView.layoutIfNeeded()
-
-                let frameSize = cell.frame.size
-                let layoutCacheH = self.listLayout.cachedHeight(at: i) ?? -1
-                let attrs = (self.list.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes)
-                    ?? UICollectionViewLayoutAttributes(forCellWith: ip)
-                cell.clearCachedHeight()
-                let fit = cell.preferredLayoutAttributesFitting(attrs).size
-                let contentFit = cell.contentView.systemLayoutSizeFitting(
-                    CGSize(width: attrs.size.width, height: UIView.layoutFittingCompressedSize.height),
-                    withHorizontalFittingPriority: .required,
-                    verticalFittingPriority: .fittingSizeLevel
-                )
-                let intrinsic = cell.contentView.intrinsicContentSize
-                let hostIntrinsic = cell.contentView.subviews.first?.intrinsicContentSize ?? .zero
-                let diag = String(
-                    format: "TOOLFOLD_UIKIT_DIAG style=%@ row=%@ est=%.1f frame=%.1fx%.1f attrs=%.1fx%.1f layoutCache=%.1f fit=%.1fx%.1f contentFit=%.1fx%.1f intrinsic=%.1fx%.1f hostIntrinsic=%.1fx%.1f contentSize=%.1fx%.1f",
-                    name, self.rows[i].label, Self.initialEstimateHeight,
-                    frameSize.width, frameSize.height,
-                    attrs.size.width, attrs.size.height,
-                    layoutCacheH,
-                    fit.width, fit.height,
-                    contentFit.width, contentFit.height,
-                    intrinsic.width, intrinsic.height,
-                    hostIntrinsic.width, hostIntrinsic.height,
-                    contentSize.width, contentSize.height
-                )
-                self.diagLines.append(diag)
-                print(diag)
-
-                let ok = abs(fit.height - ToolGroupRowView.rowHeight) <= 1.0
-                    && abs(frameSize.height - ToolGroupRowView.rowHeight) <= 1.0
-                    && abs(contentFit.height - ToolGroupRowView.rowHeight) <= 1.0
-                    && abs(layoutCacheH - ToolGroupRowView.rowHeight) <= 1.0
-                    && abs(contentSize.height - expectedContentH) <= 1.0
-                self.check(ok,
-                           "\(name) row \(self.rows[i].label) frame=\(frameSize.height) fit=\(fit.height) contentFit=\(contentFit.height) layoutCache=\(layoutCacheH) intrinsic=\(intrinsic.height) contentSize=\(contentSize.height) expected=\(ToolGroupRowView.rowHeight)")
-                let renderer = UIGraphicsImageRenderer(bounds: cell.bounds)
-                let img = renderer.image { ctx in cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true) }
-                if let data = img.pngData() {
-                    try? data.write(to: self.output.appendingPathComponent("\(name)-\(self.rows[i].label).png"))
-                    self.pngCount += 1
-                }
-            }
-            self.renderStyle(step + 1)
+        listLayout.suppressContentOffsetAdjustment = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            self.settleAndCaptureStyle(step: step, name: name, tick: 1, stableTicks: 0, previousHeights: [])
         }
+    }
+
+    func settleAndCaptureStyle(step: Int, name: String, tick: Int, stableTicks: Int, previousHeights: [CGFloat]) {
+        if syncCollectionFrameToSafeArea() || list.safeAreaInsets.top > 0.5 {
+            listLayout.suppressContentOffsetAdjustment = true
+            listLayout.clearHeightCache()
+            for i in 0..<rows.count {
+                listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i)
+            }
+            list.reloadData()
+            list.setNeedsLayout()
+            list.layoutIfNeeded()
+            listLayout.suppressContentOffsetAdjustment = false
+            if tick < 25 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                    self.settleAndCaptureStyle(step: step, name: name, tick: tick + 1, stableTicks: 0, previousHeights: [])
+                }
+                return
+            }
+        }
+
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+
+        let expectedContentH = CGFloat(rows.count) * ToolGroupRowView.rowHeight
+            + CGFloat(max(0, rows.count - 1)) * listLayout.itemSpacing
+
+        var currentHeights: [CGFloat] = []
+        var allCellsReady = true
+        var allCachedReady = true
+        var allLeftEstimate = true
+        for i in 0..<rows.count {
+            let ip = IndexPath(item: i, section: 0)
+            guard let cell = list.cellForItem(at: ip) as? ToolGroupCellV3 else {
+                allCellsReady = false
+                break
+            }
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            let h = cell.frame.size.height
+            currentHeights.append(h)
+            if abs(h - Self.initialEstimateHeight) <= 0.5 {
+                allLeftEstimate = false
+            }
+            if listLayout.cachedHeight(at: i) == nil {
+                allCachedReady = false
+            }
+        }
+
+        let contentSize = listLayout.collectionViewContentSize
+        let sumHeights = currentHeights.reduce(0, +) + CGFloat(max(0, rows.count - 1)) * listLayout.itemSpacing
+        let layoutMatchesCells = allCellsReady && currentHeights.count == rows.count
+            && abs(contentSize.height - sumHeights) <= 0.5
+        let sameAsPrev = allCellsReady && previousHeights.count == currentHeights.count
+            && zip(previousHeights, currentHeights).allSatisfy { abs($0 - $1) <= 0.1 }
+
+        let nextStable = (allCellsReady && allCachedReady && allLeftEstimate && layoutMatchesCells && sameAsPrev && list.safeAreaInsets.top <= 0.5)
+            ? (stableTicks + 1) : 0
+        let maxTicks = 25
+        if (tick >= 3 && nextStable >= 2) || tick >= maxTicks {
+            captureStyleDiagnostics(step: step, name: name, settleTicks: tick, expectedContentH: expectedContentH)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            self.settleAndCaptureStyle(step: step, name: name, tick: tick + 1, stableTicks: nextStable, previousHeights: currentHeights)
+        }
+    }
+
+    func captureStyleDiagnostics(step: Int, name: String, settleTicks: Int, expectedContentH: CGFloat) {
+        let contentSize = self.listLayout.collectionViewContentSize
+        let listSafeTop = self.list.safeAreaInsets.top
+        for i in 0..<self.rows.count {
+            let ip = IndexPath(item: i, section: 0)
+            guard let cell = self.list.cellForItem(at: ip) as? ToolGroupCellV3 else {
+                self.check(false, "missing cell \(name) \(i)")
+                continue
+            }
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+
+            let frameSize = cell.frame.size
+            let layoutCacheH = self.listLayout.cachedHeight(at: i) ?? -1
+            let cellSafeTop = cell.safeAreaInsets.top
+            let attrs = (self.list.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes)
+                ?? UICollectionViewLayoutAttributes(forCellWith: ip)
+            cell.clearCachedHeight()
+            let fit = cell.preferredLayoutAttributesFitting(attrs).size
+            let contentFit = cell.contentView.systemLayoutSizeFitting(
+                CGSize(width: attrs.size.width, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            let intrinsic = cell.contentView.intrinsicContentSize
+            let hostIntrinsic = cell.contentView.subviews.first?.intrinsicContentSize ?? .zero
+            let diag = String(
+                format: "TOOLFOLD_UIKIT_DIAG style=%@ row=%@ est=%.1f frame=%.1fx%.1f attrs=%.1fx%.1f layoutCache=%.1f fit=%.1fx%.1f contentFit=%.1fx%.1f intrinsic=%.1fx%.1f hostIntrinsic=%.1fx%.1f contentSize=%.1fx%.1f safeTop=%.1f cellSafeTop=%.1f ticks=%d",
+                name, self.rows[i].label, Self.initialEstimateHeight,
+                frameSize.width, frameSize.height,
+                attrs.size.width, attrs.size.height,
+                layoutCacheH,
+                fit.width, fit.height,
+                contentFit.width, contentFit.height,
+                intrinsic.width, intrinsic.height,
+                hostIntrinsic.width, hostIntrinsic.height,
+                contentSize.width, contentSize.height,
+                listSafeTop, cellSafeTop, settleTicks
+            )
+            self.diagLines.append(diag)
+            print(diag)
+
+            let ok = abs(fit.height - ToolGroupRowView.rowHeight) <= 1.0
+                && abs(frameSize.height - ToolGroupRowView.rowHeight) <= 1.0
+                && abs(contentFit.height - ToolGroupRowView.rowHeight) <= 1.0
+                && abs(layoutCacheH - ToolGroupRowView.rowHeight) <= 1.0
+                && abs(contentSize.height - expectedContentH) <= 1.0
+            self.check(ok,
+                       "\(name) row \(self.rows[i].label) frame=\(frameSize.height) fit=\(fit.height) contentFit=\(contentFit.height) layoutCache=\(layoutCacheH) intrinsic=\(intrinsic.height) contentSize=\(contentSize.height) expected=\(ToolGroupRowView.rowHeight)")
+            let renderer = UIGraphicsImageRenderer(bounds: cell.bounds)
+            let img = renderer.image { ctx in cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true) }
+            if let data = img.pngData() {
+                try? data.write(to: self.output.appendingPathComponent("\(name)-\(self.rows[i].label).png"))
+                self.pngCount += 1
+            }
+        }
+        self.renderStyle(step + 1)
     }
 
     func testToggleNotification() {

@@ -1,6 +1,20 @@
 name: Build iOS (unsigned)
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Validation regression scope (full or incremental)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - incremental
+      baseline_sha:
+        description: 'Baseline commit SHA for changed-files verification in incremental mode'
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: write
 jobs:
@@ -10,6 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive, fetch-depth: 0 }
+      - name: Determine validation scope
+        id: scope
+        run: |
+          set -o pipefail
+          python3 scripts/ci_validation_scope.py \
+            --mode "${{ inputs.scope || 'full' }}" \
+            --baseline "${{ inputs.baseline_sha }}" \
+            --out validation-scope.json 2>&1 | tee validation-scope.log
       - name: Bundle identity source gate
         run: |
           set -o pipefail
@@ -30,11 +52,13 @@ jobs:
           brew install ninja llvm lld libarchive pkg-config go
           pip3 install --break-system-packages meson || pip3 install meson
       - name: Card dark real hosting regression tests
+        if: steps.scope.outputs.run_card_dark == 'true'
         run: |
           set -o pipefail
           python3 scripts/card_dark_regression.py --baseline 2>&1 | tee card-dark-baseline.log
           python3 scripts/card_dark_regression.py 2>&1 | tee card-dark-regression.log
       - name: Layered theme real hosting and image geometry regression tests
+        if: steps.scope.outputs.run_theme_suite == 'true'
         run: |
           set -o pipefail
           python3 scripts/image_geometry_regression.py 2>&1 | tee image-geometry-regression.log
@@ -44,23 +68,33 @@ jobs:
           (cd src/ios/MinisTests/Standalone && swift SendButtonReturnModeMenuTests.swift) 2>&1 | tee send-return-menu-standalone.log
           python3 scripts/appearance_secondary_regression.py 2>&1 | tee appearance-secondary-regression.log
       - name: Map regression tests
+        if: steps.scope.outputs.run_map == 'true'
         run: |
           set -o pipefail
           python3 scripts/map_regression.py --render-simulator 2>&1 | tee map-regression.log
       - name: MOD UIKit regression tests
+        if: steps.scope.outputs.run_mod_uikit == 'true'
         run: |
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
           python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
+      - name: Thinking & list transaction regression tests
+        if: steps.scope.outputs.run_thinking_uikit == 'true'
+        run: |
+          set -o pipefail
+          python3 scripts/thinking_transaction_regression.py 2>&1 | tee thinking-transaction-regression.log
       - name: Chart layout regression tests
+        if: steps.scope.outputs.run_chart_layout == 'true'
         run: |
           set -o pipefail
           python3 scripts/chart_layout_regression.py 2>&1 | tee chart-layout-regression.log
       - name: Chart bitmap rendering regression tests
+        if: steps.scope.outputs.run_chart_render == 'true'
         run: |
           set -o pipefail
           python3 scripts/chart_render_regression.py 2>&1 | tee chart-render-regression.log
       - name: Tool fold regression tests [T-fold-lead-gap]
+        if: steps.scope.outputs.run_toolfold == 'true'
         run: |
           set -o pipefail
           python3 scripts/toolfold_linux_check.py 2>&1 | tee toolfold-regression.log
@@ -139,8 +173,11 @@ jobs:
         with:
           name: mod-validation-logs
           path: |
+            validation-scope.json
+            validation-scope.log
             bundle-identity-source.log
             bundle-identity-ipa.log
+            thinking-transaction-regression.log
             card-dark-baseline.log
             build/card-dark-baseline/*.png
             build/card-dark-baseline/*.log
