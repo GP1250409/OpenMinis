@@ -201,11 +201,21 @@ try:
                                       info['CFBundleIdentifier']], text=True, timeout=600)
 except subprocess.CalledProcessError as e:
     output = e.output or ''
+except subprocess.TimeoutExpired as e:
+    output = (e.output or b'').decode('utf-8', 'replace') if isinstance(e.output, bytes) else (e.output or '')
+    print('SHOWUI_INTERACTION_TIMEOUT simulator launch exceeded 600s', flush=True)
 (OUT / 'launch.log').write_text(output)
 print(output, flush=True)
+produced = container / 'tmp/showui-interaction'
+if not produced.exists() or not any(produced.iterdir()):
+    print('SHOWUI_INTERACTION_NO_FIXTURE_OUTPUT container=%s' % produced, flush=True)
+    raise SystemExit(1)
 PNG.mkdir(parents=True, exist_ok=True)
-for p in (container / 'tmp/showui-interaction').iterdir():
+for p in produced.iterdir():
     shutil.copy2(p, PNG / p.name)
+if not (PNG / 'result.log').exists():
+    print('SHOWUI_INTERACTION_RESULT_LOG_MISSING launch produced no result.log', flush=True)
+    raise SystemExit(1)
 marker = (PNG / 'result.log').read_text()
 print(marker, flush=True)
 if 'FAILED' in marker or 'SHOWUI_INTERACTION_FAILED' in marker:

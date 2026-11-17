@@ -85,6 +85,12 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     # toolfold step only; it is not part of any skippable module spec, so
     # touching it cannot make chart/map/theme inherit or run twice.
     'scripts/genui_fold_barrier_regression.py',
+    # [T-showui-interaction-theme] the interaction suite runs inside the theme
+    # job; listing its own files here only stops an incremental dispatch from
+    # degrading to full for a reason the module hash already decides. No module
+    # spec is narrowed and the whole MinisUI/ tree stays a dependency of all.
+    'scripts/showui_interaction_regression.py',
+    'scripts/showui-interaction-tests/',
     'src/ios/Agent/MessageList/',
     'src/ios/Views/Chat/AssistantBlockView.swift',
     'src/ios/MinisTests/Standalone/ToolFoldPlannerTests.swift',

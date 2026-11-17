@@ -742,7 +742,7 @@ struct MUChartSettingsPreview: View {
                 Spacer(minLength: 8)
                 Text(Self.l("Sample"))
                     .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(MUActionText.on(MUSurface.rgb(ChatColors.tint, over: MUMapRGB(hex: "#FFFFFF"), scheme: .light)).color)
+                    .foregroundStyle(ChatColors.onTint)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(ChatColors.tint))

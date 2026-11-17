@@ -18,6 +18,7 @@ import UIKit
     let names = ["system", "economist", "economist2017"]
     var panels: [String: Set<String>] = [:]
     var pngs = 0
+    var runs = 0
 
     func check(_ ok: Bool, _ label: String) { checks += 1; if !ok { failures.append(label) } }
     func rgb(_ hex: String) -> MUMapRGB { MUMapRGB(hex: hex) }
@@ -30,6 +31,15 @@ import UIKit
         host = UIHostingController(rootView: AnyView(EmptyView()))
         if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
         w.rootViewController = host; w.makeKeyAndVisible(); window = w
+        // [T-showui-interaction-theme] The real app declares
+        // ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
+        // (src/ios/Assets.xcassets/AccentColor.colorset: #3686EE light,
+        // #5490E4 dark). This fixture has no asset catalog, so the same values
+        // are installed as the window tint, which is what Color.accentColor
+        // resolves from; the Default-theme check below proves they match.
+        let accentLight = UIColor(red: 0.212, green: 0.525, blue: 0.933, alpha: 1)
+        let accentDark = UIColor(red: 0.329, green: 0.565, blue: 0.894, alpha: 1)
+        w.tintColor = UIColor { $0.userInterfaceStyle == .dark ? accentDark : accentLight }
         let long = String(repeating: "这是一段很长的中文说明文字，用来检查换行、估高与裁切。", count: 5)
         let source = """
         root = Card([
@@ -39,14 +49,16 @@ import UIKit
           Callout("11/17 开盘前暂无当日收盘价，图上最后一点为 11/16 收盘。"),
           Callout("数据为估算，仅供参考。", "warning"),
           Text("来源：用户截图，仅用于配色预览", "secondary", "source"),
-          Text("\(long)")
+          Text("\(long)"),
+          Button("对比英伟达同期走势", @Copy("compare")),
+          Button("复制数据", @Copy("copy"), style: "secondary")
         ], "GOOGL · 视觉示例")
         """
         let v = MinisUIEngine.validate(source)
         guard v.ok, let root = v.root else { fatalError(MinisUIEngine.feedback(v)) }
         card = root
         ctx = MUContext(state: [:], program: MUProgram.parse(source), defaults: [:],
-                        set: { _, _, _ in }, commit: {}, run: { _ in })
+                        set: { _, _, _ in }, commit: {}, run: { _ in self.runs += 1 })
         runCase(0)
         return true
     }
@@ -58,6 +70,9 @@ import UIKit
 
     func render(_ scheme: ColorScheme, width: CGFloat = 360) -> (UIImage, CGFloat) {
         window!.overrideUserInterfaceStyle = scheme == .dark ? .dark : .light
+        // mount -> settle -> measure, never measure in the same turn as mount
+        host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         host.view.backgroundColor = ChatColors.backgroundUIColor
         let size = host.sizeThatFits(in: CGSize(width: width, height: 2400))
         host.view.frame = CGRect(x: 0, y: 0, width: width, height: size.height)
@@ -100,10 +115,22 @@ import UIKit
         let label = "\(names[index / 8])-\(app.isEmpty ? "default" : app)-\(dark ? "night" : "day")"
         ChatThemeStore.select(app)
         UserDefaults.standard.set(style, forKey: MUChartStyle.key)
+        window!.overrideUserInterfaceStyle = dark ? .dark : .light
+        hostFor(card, scheme: scheme)
+        host.view.backgroundColor = ChatColors.backgroundUIColor
+        // Same contract as theme-matrix: the theme, the trait and the mounted
+        // root view need real run-loop turns before the first screenshot,
+        // otherwise the pixels can still belong to the previous case.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+            self.measureCase(index, style: style, app: app, dark: dark, label: label)
+        }
+    }
+
+    func measureCase(_ index: Int, style: String, app: String, dark: Bool, label: String) {
+        let scheme: ColorScheme = dark ? .dark : .light
         let tokens = MUChartInteractionTheme.interior(style, dark: dark)
 
-        // 1. the whole confirmed card, one PNG per case
-        hostFor(card, scheme: scheme)
+        // 1. the whole confirmed card (with both real buttons), one PNG per case
         let (image, measured) = render(scheme)
         let file = "case-" + String(format: "%02d", index) + "-" + label + ".png"
         try! image.pngData()!.write(to: output.appendingPathComponent(file))
@@ -158,8 +185,14 @@ import UIKit
         """).render([:]).0!
         hostFor(buttonCard, scheme: scheme)
         let (buttonImage, _) = render(scheme)
-        let surface = MUSurface.base(nil, scheme: scheme)
+        // MUButton inherits the real Card surface (MUSurface.base of the mounted
+        // tree), not systemBackground: reuse the cardFill sampled for THIS case.
+        let surface = cardFill
         let tint = MUSurface.rgb(ChatColors.tint, over: surface, scheme: scheme)
+        if app.isEmpty {
+            check(tint == (dark ? MUMapRGB(hex: "#5490E4") : MUMapRGB(hex: "#3686EE")),
+                  "\(label): the Default chat tint is the app AccentColor (#3686EE / #5490E4)")
+        }
         let labelInk = MUActionText.on(tint)
         let wash = tint.composited(over: surface, alpha: 0.12)
         let secondaryInk = MUActionText.secondaryInk(tint: tint, wash: wash)
@@ -174,6 +207,11 @@ import UIKit
         // the action survived both styles
         let buttons = buttonCard.children
         check(buttons.count == 2 && buttons.allSatisfy { $0.action != nil }, "\(label): both buttons keep their action")
+        // The MUButton body calls ctx.run(action); the closure is the same one,
+        // so firing it proves the wiring, NOT a user tap on the glass.
+        runs = 0
+        for b in buttons { if let a = b.action { ctx.run(a) } }
+        check(runs == 2, "\(label): both actions reach ctx.run (closure invoked directly, not a UI tap)")
 
         // 7. typography heights: 14 > 12 > 10.5, measured, not asserted from source
         func textHeight(_ extra: String) -> CGFloat {
