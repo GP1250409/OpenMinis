@@ -25,12 +25,12 @@ enum MUSurface {
         inherited ?? rgb(UIColor.systemBackground, over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
     }
     static func rgb(_ color: Color, over background: MUMapRGB, scheme: ColorScheme, environment: EnvironmentValues? = nil) -> MUMapRGB {
-        if #available(iOS 17.0, *) {
-            var environment = environment ?? EnvironmentValues()
-            environment.colorScheme = scheme
-            let c = color.resolve(in: environment)
-            return rgb(UIColor(red: CGFloat(c.red), green: CGFloat(c.green), blue: CGFloat(c.blue), alpha: CGFloat(c.opacity)), over: background, scheme: scheme)
-        }
+        // Resolve through UIKit under an explicit trait collection. Asking a
+        // *fresh* `EnvironmentValues` instead answered for a context with no
+        // tint: `Color.accentColor` (the Default chat theme) then came back as
+        // the system default blue, so the ink was measured against a fill the
+        // view never paints. UIKit resolves the same colour against the app's
+        // real tint and the requested light/dark appearance.
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
         var native = UIColor.clear
         traits.performAsCurrent { native = UIColor(color) }
@@ -39,8 +39,14 @@ enum MUSurface {
     static func rgb(_ color: UIColor, over background: MUMapRGB, scheme: ColorScheme) -> MUMapRGB {
         let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
         let resolved = color.resolvedColor(with: traits)
+        // Components are only comparable in one space. A Display P3 triple read
+        // as sRGB moves a saturated accent by tens of units (#4C84E7 for
+        // #3686EE), so convert the CGColor into sRGB before the byte maths.
+        // Neutral surfaces are unchanged by the conversion.
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let converted = resolved.cgColor.converted(to: space, intent: .defaultIntent, options: nil) ?? resolved.cgColor
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
+        guard UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
         func byte(_ x: CGFloat) -> Int { Int((min(1, max(0, x)) * 255).rounded()) }
         let foreground = MUMapRGB(hex: String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b)))
         return foreground.composited(over: background, alpha: Double(a))

@@ -19,6 +19,8 @@ import UIKit
     var panels: [String: Set<String>] = [:]
     var pngs = 0
     var runs = 0
+    var diag: [String] = []
+    var accentColor: UIColor!
 
     func check(_ ok: Bool, _ label: String) { checks += 1; if !ok { failures.append(label) } }
     func rgb(_ hex: String) -> MUMapRGB { MUMapRGB(hex: hex) }
@@ -36,6 +38,7 @@ import UIKit
         guard let accent = UIColor(named: "AccentColor", in: .main, compatibleWith: nil) else {
             fatalError("SHOWUI_INTERACTION_ASSET_MISSING AccentColor")
         }
+        accentColor = accent
         w.tintColor = accent
         let long = String(repeating: "这是一段很长的中文说明文字，用来检查换行、估高与裁切。", count: 5)
         let source = """
@@ -133,9 +136,33 @@ import UIKit
         return UIColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1)
     }
 
-    /// Contrast from actual raster glyph pixels near the expected ink, against
-    /// the actual dominant fill. A missing glyph returns zero, never a pass.
+    /// Contrast from the ACTUAL flat glyph core against the actual dominant
+    /// fill. Sampling the darkest near-ink pixel measured antialiasing instead
+    /// of legibility: at 14pt every stroke carries a lighter edge pixel inside
+    /// the 4/255 match tolerance, so a label that legitimately sits just above
+    /// the 4.5:1 floor always read about 4.4 and failed. The modal matched pixel
+    /// is the solid stroke colour. A missing core returns zero, never a pass.
     func rasterContrast(_ image: UIImage, ink: MUMapRGB, fill: MUMapRGB) -> Double {
+        let (width, height, bytes) = pixelBytes(image)
+        let (r, g, b) = ink.rgb
+        var counts: [String: Int] = [:]
+        for y in stride(from: 0, to: height, by: 2) {
+            for x in stride(from: 0, to: width, by: 2) {
+                let o = (y * width + x) * 4
+                let hex = String(format: "#%02X%02X%02X", bytes[o], bytes[o + 1], bytes[o + 2])
+                let (pr, pg, pb) = rgb(hex).rgb
+                if abs(r - pr) < 0.015 && abs(g - pg) < 0.015 && abs(b - pb) < 0.015 {
+                    counts[hex, default: 0] += 1
+                }
+            }
+        }
+        guard let core = counts.max(by: { $0.value < $1.value }), core.value >= 40 else { return 0 }
+        return rgb(core.key).contrast(on: fill)
+    }
+
+    /// Worst antialiased pixel near the ink. Diagnostic only: it measures glyph
+    /// blending, not legibility, so it never decides pass or fail.
+    func rasterEdgeMinimum(_ image: UIImage, ink: MUMapRGB, fill: MUMapRGB) -> Double {
         let (width, height, bytes) = pixelBytes(image)
         let (r, g, b) = ink.rgb
         var lowest = Double.infinity
@@ -237,8 +264,15 @@ import UIKit
         let surface = cardFill
         let tint = MUSurface.rgb(ChatColors.tint, over: surface, scheme: scheme)
         if app.isEmpty {
-            check(tint == (dark ? MUMapRGB(hex: "#5490E4") : MUMapRGB(hex: "#3686EE")),
-                  "\(label): the Default chat tint is the app AccentColor (#3686EE / #5490E4)")
+            // Two separate facts, so a failure says WHICH one moved: the bundled
+            // asset is still the documented blue, and the Default chat theme's
+            // tint really resolves through that asset rather than the system
+            // default. A bare `EnvironmentValues` used to answer #007AFF here.
+            let assetNow = MUSurface.rgb(accentColor, over: surface, scheme: scheme)
+            check(assetNow == (dark ? rgb("#5490E4") : rgb("#3686EE")),
+                  "\(label): the bundled AccentColor asset is still the documented blue (got \(assetNow.hex))")
+            check(tint == assetNow,
+                  "\(label): the Default chat tint resolves to the app AccentColor (tint \(tint.hex) vs asset \(assetNow.hex))")
         }
         let labelInk = MUActionText.on(tint)
         let wash = tint.composited(over: surface, alpha: 0.12)
@@ -255,10 +289,23 @@ import UIKit
         check((secondarySeen["text"] ?? 0) > 80, "\(label): substantial secondary glyph pixels use the resolved ink")
         check(labelInk.contrast(on: tint) >= 4.5, "\(label): primary label >= 4.5:1")
         check(secondaryInk.contrast(on: wash) >= 4.5, "\(label): secondary label >= 4.5:1")
-        check(rasterContrast(primaryImage, ink: labelInk, fill: dominant(primaryImage)) >= 4.5,
+        let primaryFill = dominant(primaryImage)
+        let secondaryFill = dominant(secondaryImage)
+        let primaryCore = rasterContrast(primaryImage, ink: labelInk, fill: primaryFill)
+        let secondaryCore = rasterContrast(secondaryImage, ink: secondaryInk, fill: secondaryFill)
+        check(primaryCore >= 4.5,
               "\(label): actual primary raster foreground/background >= 4.5:1")
-        check(rasterContrast(secondaryImage, ink: secondaryInk, fill: dominant(secondaryImage)) >= 4.5,
+        check(secondaryCore >= 4.5,
               "\(label): actual secondary raster foreground/background >= 4.5:1")
+        let primaryEdge = rasterEdgeMinimum(primaryImage, ink: labelInk, fill: primaryFill)
+        let secondaryEdge = rasterEdgeMinimum(secondaryImage, ink: secondaryInk, fill: secondaryFill)
+        diag.append("\(label) surface=\(surface.hex) tint=\(tint.hex) wash=\(wash.hex)"
+            + " labelInk=\(labelInk.hex) secondaryInk=\(secondaryInk.hex)"
+            + " primaryFill=\(primaryFill.hex) secondaryFill=\(secondaryFill.hex)"
+            + " primaryCore=\(String(format: "%.2f", primaryCore))"
+            + " secondaryCore=\(String(format: "%.2f", secondaryCore))"
+            + " primaryEdgeMin=\(String(format: "%.2f", primaryEdge))"
+            + " secondaryEdgeMin=\(String(format: "%.2f", secondaryEdge))")
         check(labelInk != rgb("#FFFFFF"), "\(label): the primary label is never pure white")
         // the action survived both styles
         let buttons = buttonCard.children
@@ -294,6 +341,9 @@ import UIKit
         var log = "SHOWUI_INTERACTION_" + (failures.isEmpty ? "PASS" : "FAILED")
         log += " checks=\(checks) cases=24 png=\(pngs)\n"
         for f in failures { log += "FAILED: \(f)\n" }
+        // Measured values for the button block, so a future verdict can be read
+        // without guessing which of tint / wash / ink actually moved.
+        for d in diag { log += "DIAG " + d + "\n" }
         try! log.write(to: output.appendingPathComponent("result.log"), atomically: true, encoding: .utf8)
         print(log)
         exit(failures.isEmpty ? 0 : 1)
