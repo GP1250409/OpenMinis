@@ -457,6 +457,50 @@ func run() async {
         check(!runs.contains { $0.memberIds.contains(card.id) }, "S5: card is never a fold member")
     }
 
+    // --------------------------------------------------------------- S5b ---
+    // [T-fold-open-card] A show_ui that starts streaming right below a row that
+    // is already folded. It used to be a `.barrier`: the row came apart for as
+    // long as the program streamed and folded again when the card validated.
+    // Now the open card closes the run like the card does, keeps its own row,
+    // and the key never changes — so a manual expansion keeps matching.
+    do {
+        let s = Stream([think("已完成"), tool(.shellTool, .success), tool(.shellTool, .success)])
+        let before = s.list.frame(s.message, ended: false)
+        let runBefore = ToolFoldPlanner.foldedRuns(in: s.message.blocks, ended: false)
+        check(before.groupCount == 1 && runBefore.count == 1, "S5b: one folded row before the show_ui")
+        let keyBefore = runBefore[0].key
+        let ui = tool(.genuiTool, .streaming)
+        s.message.blocks.append(ui)
+        let streaming = s.list.frame(s.message, ended: false)
+        check(streaming.groupCount == 1, "S5b: the fold row above survives the show_ui streaming")
+        check(streaming.rows.contains(.block(ui.id)), "S5b: the streaming show_ui keeps its own capsule row")
+        let runStreaming = ToolFoldPlanner.foldedRuns(in: s.message.blocks, ended: false)
+        check(runStreaming.count == 1 && runStreaming[0].key == keyBefore,
+              "S5b: same run, same key, no re-fold with a new identity")
+        check(!runStreaming[0].memberIds.contains(ui.id), "S5b: the open card is never a member")
+        s.list.expanded.insert(keyBefore)
+        let expandedFrame = s.list.frame(s.message, ended: false)
+        check(expandedFrame.rows.contains(.block(s.message.blocks[1].id)),
+              "S5b: a manual expansion still shows the members under the surviving row")
+        s.list.expanded.remove(keyBefore)
+        ui.toolStatus = .running
+        let running = s.list.frame(s.message, ended: false)
+        check(running.groupCount == 1 && running.rows.contains(.block(ui.id)),
+              "S5b: running keeps the row and the capsule")
+        ui.toolStatus = .success
+        let landed = s.list.frame(s.message, ended: false)
+        check(landed.groupCount == 1 && landed.rows.contains(.block(ui.id)),
+              "S5b: the card landing keeps one folded row and its own row")
+        let runLanded = ToolFoldPlanner.foldedRuns(in: s.message.blocks, ended: false)
+        check(runLanded.count == 1 && runLanded[0].key == keyBefore && runLanded[0].memberIds == runBefore[0].memberIds,
+              "S5b: the row is identical before and after the card lands (no range or count jump)")
+        // The plain barrier keeps its contract: an info row still discards.
+        let info = AssistantBlock(kind: .info, content: "info")
+        let withInfo = Stream([think("已完成"), tool(.shellTool, .success), tool(.shellTool, .success), info])
+        let infoFrame = withInfo.list.frame(withInfo.message, ended: false)
+        check(infoFrame.groupCount == 0, "S5b: an info row still discards the open run (barrier contract)")
+    }
+
     // ---------------------------------------------------------------- S6 ---
     // Semantics kept: the opening placeholder of a turn with no calls.
     do {

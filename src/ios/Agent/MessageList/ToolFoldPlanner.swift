@@ -40,7 +40,9 @@ import Foundation
 /// It ends at a non-empty text block, [T-fold-card-boundary] an interactive
 /// card for the user (a question, a generated UI), an info block, a delegate
 /// block, or a tool that has not finished (streaming / running / awaiting
-/// confirmation).
+/// confirmation). [T-fold-open-card] A generated UI that is still streaming or
+/// running is the card BEFORE it lands: it closes the run above it the same
+/// way, and never discards it.
 ///
 /// [T-fold-card-boundary] A CARD closes the run before it instead of dropping
 /// it: the card is a boundary the model drew on purpose — it asked, or handed
@@ -51,6 +53,19 @@ import Foundation
 /// "process · card · thinking · card · thinking · reply". Info rows and
 /// sub-agent delegations stay plain barriers: they are process, not a handover,
 /// and keep cutting a run without folding it.
+///
+/// [T-fold-open-card] A `show_ui` that has NOT rendered yet (streaming,
+/// running, or never sent) sits between the two: it is not a card on screen
+/// yet — it draws as a capsule, and nothing has been handed over — but it is
+/// already the card the model chose to write, so the run before it is over and
+/// must be CLOSED rather than discarded. A barrier threw that run away, and
+/// with "fold while replying" on that is a row the user was looking at: it came
+/// apart the moment the program started streaming and folded again once it
+/// validated (with "fold after the reply" off it never came back). So an open
+/// card closes the run exactly like the settled card does — same range, same
+/// counts, same flags — using the switch that owns the run's state: "fold while
+/// replying" for a running task, "fold after the reply" for a finished message.
+/// The card itself is never a member: it keeps its own row in every state.
 ///
 /// [T-fold-blank-thinking] A thinking block with nothing visible in it is
 /// transparent, exactly like an empty text block: it never opens, joins or
@@ -129,6 +144,12 @@ enum ToolFoldPlanner {
         /// Always visible and ends a run WITHOUT folding it: info rows and sub
         /// agent delegations.
         case barrier
+        /// [T-fold-open-card] A card for the user that has NOT landed yet: a
+        /// `show_ui` that is still streaming / running (or never got a status).
+        /// It is never a member and it closes the run before it, exactly like
+        /// the `.card` it is about to become — but it must not throw that run
+        /// away the way `.barrier` does (see `plan`).
+        case openCard
     }
 
     /// What a folded run is made of. Derived from `toolCount` so the two can
@@ -261,9 +282,41 @@ enum ToolFoldPlanner {
         func closeAtSoftEnd() {
             if let g = softEnd, qualifies(g.toolCount, g.thinkingCount) { groups.append(g) }
         }
+        /// [T-fold-open-card] The run that a card just closed, as one row —
+        /// the same shape the settled `.card` case emits, so the row does not
+        /// change its range, counts or flags when the card lands.
+        func closeAtCard(from s: Int) {
+            groups.append(Group(range: s...lastBlock(), toolCount: tools,
+                                failedCount: failed, cancelledCount: cancelled,
+                                thinkingCount: thinks,
+                                visibleGaps: gaps(s, lastBlock()),
+                                runningCount: running,
+                                isLive: false))
+        }
 
         for (i, block) in blocks.enumerated() {
             switch block {
+            case .openCard:
+                // [T-fold-open-card] A show_ui that has not rendered yet is a
+                // card the moment it lands: it is never a member, and the run
+                // before it is OVER (the model is handing over a UI, not
+                // calling another tool), so it closes here like it does at a
+                // settled `.card`. What it must NOT do is what `.barrier` did:
+                // throw that run away. With "fold while replying" on the row
+                // was on screen one snapshot earlier, and `closeAtSoftEnd()`
+                // found no note to keep — so the row came apart, the capsules
+                // came back, and it folded again once the card validated (or,
+                // with "fold after the reply" off, never: the calls stayed
+                // expanded for the rest of the message).
+                // The switch that owns the state the run is in folds it, i.e.
+                // the one that folded it as a tail a moment ago: `liveFolding`
+                // for a running task, `endFolding` for a finished message.
+                // With "fold while replying" off nothing folds early, exactly
+                // as the old barrier did — that switch is "nothing folds
+                // before the reply".
+                let foldsHere = ended ? endFolding : liveFolding
+                if foldsHere, let s = start, foldsAtClose() { closeAtCard(from: s) }
+                reset()
             case .barrier:
                 // A row that stays always visible (info banner, delegation, or
                 // a streaming show_ui before it validates) cuts the run without
@@ -546,11 +599,15 @@ extension ToolFoldPlanner {
         case .genuiTool:
             // A rendered UI is a handover. Failed/cancelled calls are settled
             // process, not unfinished barriers that discard the preceding run.
+            // [T-fold-open-card] Streaming / running / never-sent is the card
+            // BEFORE it lands: it closes the run above it like the card does
+            // instead of discarding it (`.barrier` made a row already on
+            // screen come apart for as long as the program streamed).
             switch block.toolStatus {
             case .success: return .card
             case .failed: return .tool(.failed)
             case .cancelled: return .tool(.cancelled)
-            case .streaming, .running, .none: return .barrier
+            case .streaming, .running, .none: return .openCard
             }
         case .shellTool, .fileReadTool, .fileWriteTool, .fileEditTool,
              .browserTool, .readImageTool, .memoryTool:

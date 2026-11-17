@@ -31,10 +31,23 @@ func tool(_ kind: AssistantBlock.Kind, _ status: AssistantBlock.Status?) -> Assi
         case .success: check(actual == .card, "success card")
         case .failed: check(actual == .tool(.failed), "failed settled tool")
         case .cancelled: check(actual == .tool(.cancelled), "cancelled settled tool")
-        default: check(actual == .barrier, "unfinished barrier")
+        default: check(actual == .openCard, "unfinished open card")
         }
         check(ToolFoldPlanner.input(for: tool(.userAskTool, status)) == .card, "user ask unchanged")
     }
+    // [T-fold-open-card] The open card is its own boundary, NOT an info/delegate
+    // barrier: the run above it is the process being handed over, so it closes
+    // folded instead of being discarded. A real barrier keeps discarding.
+    let process = [think(907), tool(.shellTool, .success), tool(.shellTool, .success)]
+    let openUI = tool(.genuiTool, .streaming)
+    let liveOpen = ToolFoldPlanner.foldedRuns(in: process + [openUI], ended: false)
+    check(liveOpen.count == 1 && liveOpen[0].group.range == 0...2 && liveOpen[0].group.toolCount == 2,
+          "a streaming show_ui closes the live run instead of discarding it")
+    check(!liveOpen.contains { $0.memberIds.contains(openUI.id) },
+          "the open card itself is never a member")
+    check(ToolFoldPlanner.foldedRuns(in: process + [openUI], ended: false,
+                                     liveFolding: false, endFolding: true).isEmpty,
+          "with fold-while-replying off nothing folds early at an open card")
     var blocks = [think(907)]
     for i in 0..<32 { blocks.append(tool(.shellTool, .success)); if i % 8 == 0 { blocks.append(think(351)) } }
     blocks += [tool(.genuiTool, .failed), think(260), tool(.genuiTool, .failed), think(64)]
@@ -62,7 +75,19 @@ func tool(_ kind: AssistantBlock.Kind, _ status: AssistantBlock.Status?) -> Assi
         if status == .cancelled {
             check(plan.count == 1 && plan[0].group.cancelledCount == 1 && plan[0].group.toolCount == 2, "cancelled retained")
         } else {
-            check(!plan.contains { $0.memberIds.contains(sample[0].id) || $0.memberIds.contains(sample[2].id) }, "unfinished show_ui blocks prior run as barrier")
+            // [T-fold-open-card] UPDATED (was "unfinished show_ui blocks prior
+            // run as barrier"): an unrendered show_ui is now the card it is
+            // about to become, so the finished process above it CLOSES into
+            // one row instead of being thrown away — the row a live user was
+            // already looking at. The show_ui itself is still never a member,
+            // and the thinking between the open card and the settled card is
+            // its own (thinking-only) run, exactly as before.
+            check(plan.count == 2 && plan[0].group.range == 0...1 && plan[0].group.toolCount == 1,
+                  "the run before an open card folds (it is a card, not a barrier)")
+            check(plan[1].group.range == 3...3 && plan[1].group.thinkingCount == 1,
+                  "the thinking before the settled card keeps its own run")
+            check(!plan.contains { $0.memberIds.contains(sample[2].id) },
+                  "an unrendered show_ui is never a member either")
         }
     }
     var live = ChatMessage(blocks: [think(907), tool(.shellTool, .running)])

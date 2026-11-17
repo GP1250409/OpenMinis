@@ -721,6 +721,32 @@ check("a card closes the run like a reply and is never a member",
       plannerSrc.contains("case .card, .text(isEmpty: false):")
       && ordered(plannerSrc, ["case .card, .text(isEmpty: false):",
                               "if endFolding, let s = start, foldsAtClose() {", "reset()"]))
+// [T-fold-open-card] A show_ui that has not rendered yet is the card BEFORE it
+// lands: it closes the run above it (never a member), it does NOT discard it
+// the way an info/delegate barrier does, and the switch that owns the run's
+// state decides whether that row folds — so live folding cannot make a row on
+// screen come apart while the program streams.
+check("an unrendered show_ui is an open card, not an info/delegate barrier",
+      plannerSrc.contains("case .streaming, .running, .none: return .openCard")
+      && ordered(plannerSrc, ["case .genuiTool:", "case .streaming, .running, .none: return .openCard"]))
+check("the open card closes the run with the switch that owns it and keeps the row",
+      ordered(plannerSrc, ["case .openCard:",
+                           "let foldsHere = ended ? endFolding : liveFolding",
+                           "if foldsHere, let s = start, foldsAtClose() { closeAtCard(from: s) }",
+                           "reset()",
+                           "case .barrier:"])
+      && ordered(plannerSrc, ["func closeAtCard(from s: Int) {",
+                              "groups.append(Group(range: s...lastBlock(), toolCount: tools,",
+                              "visibleGaps: gaps(s, lastBlock())",
+                              "isLive: false"]))
+check("the plain barrier keeps its own contract (discard, never fold)",
+      ordered(plannerSrc, ["case .barrier:",
+                           "closeAtSoftEnd()",
+                           "reset()",
+                           "case .tool(.unfinished) where !liveFolding:"]))
+check("an open card is not a settled card for the horizon rule",
+      plannerSrc.contains("if case .success = block.toolStatus { return true }")
+      && plannerSrc.contains("case .streaming, .running, .none: return .openCard"))
 let vmSrc = chatViewModelSource()
 check("a request ending on a card registers a fold separator, so the run before it closes while the answer waits",
       ordered(vmSrc, ["if ToolFoldPlanner.isCard(lastBlock) {",
