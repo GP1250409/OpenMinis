@@ -190,6 +190,6 @@ if diag_file.exists():
     assert len(diag_lines) == 12, f'expected 12 TOOLFOLD_UIKIT_DIAG lines, got {len(diag_lines)}'
 marker = (OUT / 'result.log').read_text()
 print(marker, flush=True)
-assert 'TOOLFOLD_UIKIT_PASS checks=21 png=12' in marker, marker
+assert 'TOOLFOLD_UIKIT_PASS checks=33 png=12' in marker, marker
 assert len(list(OUT.glob('*.png'))) == 12
 print('TOOLFOLD_UIKIT_ARTIFACT_OK png=12', flush=True)
