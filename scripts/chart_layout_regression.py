@@ -172,9 +172,14 @@ need('truncationMode(.tail)' in view_text,
 # --- [T-chart-interaction-theme] callouts follow the chart card tokens ------
 need('enum MUChartInteractionTheme' in core_text,
      'one interaction token set (table + callouts) is defined in the pure core')
-need('static func panel(on surface: MUMapRGB)' in core_text
-     and 'MUChartInteractionTheme.panel(on:' in view_text,
-     'the data table and every callout share one ground token')
+# [T-showui-palette] Interior ground/ink follow the chart palette preset.
+need('static func interior(_ palette: String, dark: Bool)' in core_text
+     and 'MUChartInteractionTheme.interior(paletteKey, dark: scheme == .dark)' in view_text
+     and '@AppStorage(MUChartStyle.key) private var paletteKey: String = ""' in view_text,
+     'the table and the callout read genuiChartPalette through one AppStorage reader')
+need('MUChartInteriorPalette' in core_text and 'static let economist2017' in core_text
+     and 'static let economist = ' in core_text and 'static let system = ' in core_text,
+     'the three presets (system / economist / economist2017) are real tokens')
 need('MUChartInteractionTheme.resolved(tone: tone' in view_text,
      'the callout resolves its colours from the interaction tokens')
 callout_body = view_text[view_text.index('private struct MUCallout: View'):]
@@ -182,7 +187,19 @@ callout_body = callout_body[:callout_body.index('\n}\n')]
 need('ChatColors.' not in callout_body,
      'the callout takes no colour from the chat theme tint')
 need('MUChartInteractionTheme.resolved' in callout_body and 'look.accent' in callout_body,
-     'the callout paints its icon and leading bar from the semantic chart accent')
+     'the callout paints its icon from the semantic chart accent')
+# [T-showui-interaction-theme] the 3pt leading bar is removed, content is 12pt.
+need('frame(width: 3)' not in callout_body, 'the 3pt leading bar is gone')
+need('MUTextRole.note.size' in callout_body, 'callout content is the 12pt note role')
+button_body = view_text[view_text.index('private struct MUButton: View'):]
+button_body = button_body[:button_body.index('\n}\n')]
+need('MUActionText.on(base)' in button_body and 'foregroundStyle(primary ? ChatColors.onTint' not in button_body
+     and 'ChatColors.onTint : ChatColors.tint' not in button_body,
+     'the action button resolves its label from the real fill, never a pure-white onTint')
+need('MUActionText.secondaryInk' in button_body,
+     'the secondary style also clears 4.5:1 on the real tint wash')
+need('MUActionText.on(' in view_text[view_text.index('struct MUChartSettingsPreview'):],
+     'the settings preview badge uses the same resolved label colour')
 theme_block = core_text[core_text.index('enum MUChartInteractionTheme'):]
 theme_block = theme_block[:theme_block.index('\n}\n')]
 need('ChatColors' not in theme_block,

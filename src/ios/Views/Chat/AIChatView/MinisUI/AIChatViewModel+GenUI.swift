@@ -80,11 +80,11 @@ enum MinisUIPrompt {
             ("Row", "Horizontal group, children share the width equally. Max 3 children; phone screens are narrow."),
             ("Divider", "Thin horizontal line."),
             ("Title", "Heading."),
-            ("Text", "Paragraph. Supports **bold** only."),
+            ("Text", "Paragraph. Supports **bold** only. Optional role = the semantic size: \"body\" 14pt (default), \"note\" 12pt for a short annotation, \"source\" 10.5pt for where the numbers come from; optional size = explicit points for a one-off label. Never use role/size to shrink ordinary body copy."),
             ("Metric", "Big number with a label, e.g. Metric(\"月供\", \"¥5,368\")."),
             ("Badge", "Small pill label."),
             ("List", "Bulleted (or numbered) list."),
-            ("Callout", "Highlighted box, e.g. quiz feedback or a warning."),
+            ("Callout", "One short highlighted note, e.g. quiz feedback or a warning. tone \"info\" (default) is a neutral note with no accent frame; \"warning\"/\"danger\"/\"success\" keep a semantic accent. Never wrap data, a table or a plain explanation in a Callout."),
             ("Slider", "Numeric slider bound to $var."),
             ("Stepper", "−/+ integer control bound to $var (counts such as people, servings)."),
             ("Segmented", "2–4 short options in one row; $var holds the selected option text."),
@@ -121,7 +121,10 @@ enum MinisUIPrompt {
           needs something these components cannot draw; then say that the result is
           a static picture and does not follow the app's chart-colour setting.
         - Do not invent data or sources. `source` only for a source you actually
-          have. Numbers you made up or estimated must be labelled as such in
+          have. Write that source line once: MultiChart `source` for a chart, or a
+          single `Text("来源：国家统计局", "secondary", "source")` under a table — at
+          10.5pt it stays readable and never competes with the body text. A
+          Callout is for a caveat, not for the source. Numbers you made up or estimated must be labelled as such in
           `subtitle` or `source` ("估算", "示意数据") — never present them as official
           figures and never attach a real organisation's name to them.
         - Time series in time order, oldest first. State the unit and period in

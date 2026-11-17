@@ -393,8 +393,12 @@ struct MUNodeView: View {
                 .modifier(MUReadableText(color: ChatColors.primaryText))
                 .fixedSize(horizontal: false, vertical: true)
         case "Text":
+            // [T-showui-typography] role: body 14 (default when absent),
+            // note 12, source 10.5; `size` is an explicit clamped override.
+            // A legacy secondary Text that literally starts with a source
+            // label is treated as a source; ordinary body copy stays 14pt.
             Text(MUStyle.inline(comp.str("text") ?? ""))
-                .font(.system(size: 14))
+                .font(.system(size: MUTextStyle.style(comp).size))
                 .modifier(MUReadableText(color: MUStyle.tone(comp.str("tone"))))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -485,24 +489,27 @@ private struct MUList: View {
 
 private struct MUCallout: View {
     let comp: MUComp
-    /// [T-chart-interaction-theme] The box is chart-card chrome, so its colours
-    /// come from MUChartInteractionTheme (the family the data table in the same
-    /// card uses), never from the chat theme tint. Tone still decides the
-    /// semantic accent: info / warning / danger / success.
+    /// [T-showui-interaction-theme] The box is chart-card interior, so its
+    /// colours come from the chart palette preset (system / economist /
+    /// economist2017) with day/night taken from the real colour scheme — never
+    /// from the chat theme tint. Tone still decides the semantics: info is a
+    /// neutral ground with a muted icon and no leading bar, while warning /
+    /// danger / success keep a bounded semantic accent.
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
+    @AppStorage(MUChartStyle.key) private var paletteKey: String = ""
     var body: some View {
         let tone = comp.str("tone") ?? "info"
-        let look = MUChartInteractionTheme.resolved(tone: tone,
-                    on: MUSurface.base(inherited, scheme: scheme))
+        let look = MUChartInteractionTheme.resolved(tone: tone, dark: scheme == .dark, palette: paletteKey)
         let icon = ["success": "checkmark.circle.fill", "warning": "exclamationmark.triangle.fill",
                     "danger": "xmark.circle.fill"][tone] ?? "info.circle.fill"
         HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(look.accent.color)
-                .frame(width: 3)
-            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(look.accent.color).padding(.top, 1)
-            Text(MUStyle.inline(comp.str("text") ?? "")).font(.system(size: 14))
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(look.accent.color)
+                .padding(.top, 1)
+            Text(MUStyle.inline(comp.str("text") ?? ""))
+                .font(.system(size: MUTextRole.note.size))
                 .foregroundStyle(look.text.color)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -643,32 +650,35 @@ private struct MUChoice: View {
 
 private struct MUTable: View {
     let comp: MUComp
-    /// [T-chart-interaction-theme] The data table and the callouts in the same
-    /// card share one neutral ground token, so an info box can never drift into
-    /// the chat accent while its table stays grey.
+    /// [T-showui-palette] The data table and the callouts in the same card share
+    /// the chart palette's interior tokens: panel, hairlines and ink follow the
+    /// `genuiChartPalette` day/night halves, so neither an info box nor a table
+    /// can drift into the chat accent or the chat theme's warm/cool family.
     @Environment(\.muSurface) private var inherited
     @Environment(\.colorScheme) private var scheme
+    @AppStorage(MUChartStyle.key) private var paletteKey: String = ""
     var body: some View {
         let headers = comp.strings("headers")
         let rows = comp.rows("rows")
+        let tokens = MUChartInteractionTheme.interior(paletteKey, dark: scheme == .dark)
         VStack(spacing: 0) {
-            row(headers, header: true)
+            row(headers, header: true, tokens: tokens)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
-                Divider()
-                row(r, header: false)
+                Rectangle().fill(tokens.rule.color).frame(height: 0.6)
+                row(r, header: false, tokens: tokens)
             }
         }
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(MUChartInteractionTheme.panel(on: MUSurface.base(inherited, scheme: scheme)).color))
+            .fill(tokens.panel.color))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func row(_ cells: [String], header: Bool) -> some View {
+    private func row(_ cells: [String], header: Bool, tokens: MUChartInteriorTokens) -> some View {
         HStack(alignment: .top, spacing: 8) {
             ForEach(Array(cells.enumerated()), id: \.offset) { i, c in
                 Text(c)
                     .font(.system(size: 13, weight: header ? .semibold : .regular))
-                    .foregroundStyle(header ? .secondary : .primary)
+                    .foregroundStyle(header ? tokens.muted.color : tokens.ink.color)
                     .monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: i == 0 ? .leading : .trailing)
                     .fixedSize(horizontal: false, vertical: true)
@@ -732,7 +742,7 @@ struct MUChartSettingsPreview: View {
                 Spacer(minLength: 8)
                 Text(Self.l("Sample"))
                     .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(ChatColors.onTint)
+                    .foregroundStyle(MUActionText.on(MUSurface.rgb(ChatColors.tint, over: MUMapRGB(hex: "#FFFFFF"), scheme: .light)).color)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(ChatColors.tint))
@@ -1261,8 +1271,18 @@ private struct MUMultiChartBody: View {
 private struct MUButton: View {
     let comp: MUComp
     let ctx: MUContext
+    /// [T-showui-action] The fill follows the CHAT theme (ChatColors.tint) in
+    /// both styles; the label colour is resolved from the REAL fill, so it keeps
+    /// >= 4.5:1 without a global change to `ChatColors.onTint`.
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
         let primary = comp.str("style") != "secondary"
+        let surface = MUSurface.base(inherited, scheme: scheme)
+        let base = MUSurface.rgb(ChatColors.tint, over: surface, scheme: scheme)
+        let label = MUActionText.on(base)
+        let wash = base.composited(over: surface, alpha: 0.12)
+        let secondaryLabel = MUActionText.secondaryInk(tint: base, wash: wash)
         Button {
             if let a = comp.action { ctx.run(a) }
         } label: {
@@ -1270,7 +1290,7 @@ private struct MUButton: View {
                 .font(.system(size: 14, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(primary ? ChatColors.onTint : ChatColors.tint)
+                .foregroundStyle(primary ? label.color : secondaryLabel.color)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(primary ? ChatColors.tint : ChatColors.tint.opacity(0.12)))
         }

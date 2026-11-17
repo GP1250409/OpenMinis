@@ -632,16 +632,14 @@ check(shifted.placements.map(\.index) == detA.placements.map(\.index)
       && zip(shifted.placements, detA.placements).allSatisfy { abs(($0.minX - 12) - $1.minX) < 1e-6 },
       "a plot inset shifts the tick boxes without changing which ticks are kept")
 
-// MARK: - 8. [T-chart-interaction-theme] Callout colours come from the chart card
-//
-// Device report (photo_533C7419): the info box inside a card was filled with
-// the CHAT accent, so it turned black/graphite under ChatGPT, clay under
-// Claude and indigo under DeepSeek, while the data table right above it stayed
-// neutral. The box now shares the table's ground token and takes only its
-// semantic accent from the chart palette.
+// MARK: - 8. [T-showui-interaction-theme] Callout + table interior follows the
+// CHART palette preset (system / economist / economist2017), day/night by
+// colorScheme — never the chat theme. info is a neutral box with no leading
+// bar; warning / danger / success keep their semantic accent. Body text keeps
+// >= 4.5:1 in the palette's own ink instead of being forced to pure white.
 let calloutTones = ["info", "warning", "danger", "success"]
-let lightCards = ["#FFFFFF", "#F7F7F8", "#FAF9F5", "#F0EEE6", "#EBF0FF"]
-let darkCards = ["#1C1C1E", "#212121", "#262624", "#1E1F22", "#161B1F"]
+let presets: [(String, MUChartInteriorPalette)] = [("", .system), ("economist", .economist),
+                                                    ("economist2017", .economist2017)]
 
 check(MUChartInteractionTheme.accent("error") == MUChartInteractionTheme.danger
       && MUChartInteractionTheme.accent("caution") == MUChartInteractionTheme.warning
@@ -651,6 +649,10 @@ check(MUChartInteractionTheme.accent("WARNING") == MUChartInteractionTheme.warni
       "tone lookup is case-insensitive")
 check(MUChartInteractionTheme.accent("whatever") == MUChartInteractionTheme.info,
       "an unknown tone falls back to the informational accent")
+for tone in ["warning", "danger", "success", "info", "whatever"] {
+    check(MUChartInteractionTheme.isStatus(tone) == (tone == "warning" || tone == "danger" || tone == "success"),
+          "only status tones are painted semantically: \(tone)")
+}
 
 // Hue identity of the base tokens: blue info, amber warning, red danger, green success.
 func channelOrder(_ c: MUMapRGB) -> (Double, Double, Double) { c.rgb }
@@ -666,66 +668,135 @@ for (name, pair) in [("info", MUChartInteractionTheme.info), ("warning", MUChart
         }
     }
 }
-check(MUChartInteractionTheme.info.rgb(forDarkSurface: true) != MUChartInteractionTheme.info.rgb(forDarkSurface: false),
-      "every tone carries an independent day/night pair")
 
-for surfaceHex in lightCards + darkCards {
-    let surface = MUMapRGB(hex: surfaceHex)
-    let dark = surface.luminance < 0.179
-    let panel = MUChartInteractionTheme.panel(on: surface)
-    check(MUChartInteractionTheme.isDark(surface) == dark, "day/night is read from the real surface \(surfaceHex)")
-    // The table ground adds no new hue: it is the card surface, deepened by a
-    // neutral ink composite, so a warm (Claude), cool (DeepSeek) or dark card
-    // keeps its own family instead of importing the chat accent.
-    func hueSignature(_ c: MUMapRGB) -> [Double] {
-        let (r, g, b) = c.rgb
-        func sign(_ v: Double) -> Double { abs(v) < 0.004 ? 0 : (v > 0 ? 1 : -1) }
-        return [sign(r - g), sign(g - b), sign(r - b)]
-    }
-    check(hueSignature(panel) == hueSignature(surface), "chart panel keeps the card's own hue on \(surfaceHex)")
-    check(rgbDistance(panel, surface) <= 40, "chart panel is a neutral deepening of the card on \(surfaceHex)")
-    if dark {
-        check(panel.luminance > surface.luminance, "dark card: the panel lifts above the card \(surfaceHex)")
-        check(panel.luminance < 0.30, "dark card: the panel stays dark \(surfaceHex)")
-    } else {
-        check(panel.luminance < surface.luminance, "light card: the panel sits below the card \(surfaceHex)")
-        check(panel.luminance > 0.70, "light card: the panel stays light \(surfaceHex)")
-    }
-    var fills: [String] = []
-    var accents: [String] = []
-    for tone in calloutTones {
-        let box = MUChartInteractionTheme.resolved(tone: tone, on: surface)
-        fills.append(box.fill.hex); accents.append(box.accent.hex)
-        check(box.isDark == dark, "\(tone) on \(surfaceHex): resolved scheme matches the surface")
-        // Same family as the data table: the fill is the panel ground plus a
-        // bounded accent wash, never a full-strength brand colour.
-        check(rgbDistance(box.fill, panel) < rgbDistance(box.fill, MUChartInteractionTheme.accent(tone).rgb(forDarkSurface: dark)),
-              "\(tone) on \(surfaceHex): the fill is closer to the table ground than to the raw accent")
-        check(rgbDistance(box.fill, panel) <= 90, "\(tone) on \(surfaceHex): the accent wash stays bounded")
-        // Contrast contract, measured on the real fill.
-        check(box.accent.contrast(on: box.fill) >= 3.0 - 1e-9, "\(tone) on \(surfaceHex): icon/bar >= 3:1")
-        check(box.text.contrast(on: box.fill) >= 7.0 - 1e-9, "\(tone) on \(surfaceHex): body text >= 7:1")
-        check(box.muted.contrast(on: box.fill) >= 4.5 - 1e-9, "\(tone) on \(surfaceHex): secondary text >= 4.5:1")
-        check(box.border.contrast(on: box.fill) > 1.0 && box.border.contrast(on: box.fill) < box.accent.contrast(on: box.fill),
-              "\(tone) on \(surfaceHex): the border is a hairline, quieter than the icon")
-        // Readability direction follows the scheme.
-        if dark {
-            check(box.text.luminance > 0.55, "\(tone) on \(surfaceHex): dark card uses light text")
-        } else {
-            check(box.text.luminance < 0.20, "\(tone) on \(surfaceHex): light card uses dark text")
+// Preset identity: the panel, note and ink are the confirmed v2 demo values.
+for (key, preset) in presets {
+    for dark in [false, true] {
+        let tokens = MUChartInteractionTheme.interior(key, dark: dark)
+        check(tokens.panel == preset.panel.rgb(forDarkSurface: dark), "\(key.isEmpty ? "system" : key) \(dark ? "night" : "day") panel is the preset value")
+        check(tokens.note == preset.note.rgb(forDarkSurface: dark), "\(key.isEmpty ? "system" : key) \(dark ? "night" : "day") note is the preset value")
+        check(tokens.ink == preset.ink.rgb(forDarkSurface: dark), "\(key.isEmpty ? "system" : key) \(dark ? "night" : "day") ink is the preset value")
+        check(tokens.isDark == dark, "day/night is read from the colour scheme, not from a chat surface")
+        check(tokens.note.contrast(on: tokens.panel) >= 1.0 && tokens.note != tokens.panel,
+              "the note ground is distinguishable from the table panel")
+        var fills: [String] = []
+        var accents: [String] = []
+        for tone in calloutTones {
+            let box = MUChartInteractionTheme.resolved(tone: tone, dark: dark, palette: key)
+            fills.append(box.fill.hex); accents.append(box.accent.hex)
+            check(box.isDark == dark, "\(tone) \(key): the resolved scheme matches the requested day/night slot")
+            // Text contract: the palette ink, >= 4.5:1, never pure white/black.
+            check(box.text == preset.ink.rgb(forDarkSurface: dark), "\(tone) \(key): body text is the palette ink, not a forced neutral")
+            check(box.text.contrast(on: box.fill) >= 4.5 - 1e-9, "\(tone) \(key): body text >= 4.5:1 on the fill")
+            check(box.text != MUMapRGB(hex: "#FFFFFF") && box.text != MUMapRGB(hex: "#000000"),
+                  "\(tone) \(key): body text is not forced to pure white/black")
+            check(box.muted.contrast(on: box.fill) >= 4.5 - 1e-9, "\(tone) \(key): secondary text >= 4.5:1")
+            check(box.accent.contrast(on: box.fill) >= 3.0 - 1e-9, "\(tone) \(key): icon >= 3:1")
+            check(box.accent.contrast(on: tokens.panel) >= 3.0 - 1e-9, "\(tone) \(key): the icon keeps 3:1 on the table ground")
+            check(box.text.contrast(on: tokens.panel) >= 4.5 - 1e-9, "\(tone) \(key): the callout ink keeps 4.5:1 on the table ground")
+            if tone == "info" {
+                check(box.isNeutral, "info \(key): neutral, not a semantic frame")
+                check(box.fill == tokens.note, "info \(key): the ground is the palette note (no accent wash)")
+                check(box.border == tokens.rule, "info \(key): the hairline is the palette rule")
+                check(box.accent == tokens.muted.readable(on: tokens.note, minimum: 3.0), "info \(key): the icon is the palette muted, not the info blue")
+            } else {
+                check(!box.isNeutral, "\(tone) \(key): keeps its semantic accent")
+                check(rgbDistance(box.fill, tokens.note) < rgbDistance(box.fill, MUChartInteractionTheme.accent(tone).rgb(forDarkSurface: dark)),
+                      "\(tone) \(key): the accent wash stays bounded over the palette note")
+                check(rgbDistance(box.fill, tokens.note) <= 90, "\(tone) \(key): the accent wash stays bounded")
+                check(box.border.contrast(on: box.fill) > 1.0 && box.border.contrast(on: box.fill) < box.accent.contrast(on: box.fill),
+                      "\(tone) \(key): the border is a hairline, quieter than the icon")
+            }
         }
+        check(Set(fills).count == calloutTones.count, "the four tones are visually distinct in \(key) \(dark ? "night" : "day")")
+        check(Set(accents).count == calloutTones.count, "the four accents stay distinct in \(key) \(dark ? "night" : "day")")
+        // Graphic + text floors on the table's own ground, in the same preset.
+        check(tokens.ink.contrast(on: tokens.panel) >= 4.5 - 1e-9, "table ink >= 4.5:1 on the \(key) panel")
+        check(tokens.muted.contrast(on: tokens.panel) >= 4.5 - 1e-9, "table header/muted >= 4.5:1 on the \(key) panel")
+        check(tokens.series.contrast(on: tokens.panel) >= 3.0 - 1e-9, "the preset series colour >= 3:1 on the \(key) panel")
+        check(tokens.rule.contrast(on: tokens.panel) > 1.05, "the \(key) hairline is visible on the panel")
     }
-    check(Set(fills).count == calloutTones.count, "the four tones are visually distinct on \(surfaceHex)")
-    check(Set(accents).count == calloutTones.count, "the four accent colours stay distinct after adaptation on \(surfaceHex)")
 }
 
-// The same tone on a light and on a dark card of the SAME family must invert.
-let lightBox = MUChartInteractionTheme.resolved(tone: "info", on: MUMapRGB(hex: "#FFFFFF"))
-let darkBox = MUChartInteractionTheme.resolved(tone: "info", on: MUMapRGB(hex: "#1C1C1E"))
-check(lightBox.fill != darkBox.fill && lightBox.accent != darkBox.accent && lightBox.text != darkBox.text,
-      "info adapts independently for day and night cards")
-check(lightBox.fill.luminance > 0.75 && darkBox.fill.luminance < 0.30,
-      "info fill inverts between a white and a black card")
+// Chat-theme independence: the interior only sees (palette, day/night).
+check(MUChartInteractionTheme.resolved(tone: "info", dark: false, palette: "") ==
+      MUChartInteractionTheme.resolved(tone: "info", dark: false, palette: ""),
+      "the interior resolver takes no chat surface at all")
+check(MUChartInteractionTheme.resolved(tone: "warning", dark: true, palette: "economist") !=
+      MUChartInteractionTheme.resolved(tone: "warning", dark: false, palette: "economist"),
+      "day and night presets are independent")
+check(MUChartInteractionTheme.interior("", dark: false) != MUChartInteractionTheme.interior("economist", dark: false),
+      "switching the chart palette repaints the interior")
+check(MUChartInteractionTheme.interior("nonsense", dark: false) == MUChartInteractionTheme.interior("", dark: false),
+      "an unknown preset falls back to system, like the chart does")
+
+// MARK: - 9. [T-showui-typography] 14 / 12 / 10.5 and one estimate contract
+check(MUTextRole.body.size == 14, "body text is 14pt")
+check(MUTextRole.note.size == 12, "callout/note content is 12pt")
+check(MUTextRole.source.size == 10.5 && MUTextRole.source.size == MUChartTypography.source,
+      "one 10.5pt source size, shared with MultiChart.source")
+check(MUTextRole.names == ["body", "note", "source"], "the tool schema exposes exactly the three roles")
+let plain = MUTextStyle.style(role: nil, size: nil, tone: nil, text: "普通正文")
+check(plain.role == .body && plain.size == 14, "a Text with no role stays 14pt (backward compatible)")
+check(MUTextStyle.style(role: "note", size: nil, tone: "primary", text: "说明").size == 12, "role=note is 12pt")
+check(MUTextStyle.style(role: "source", size: nil, tone: "secondary", text: "来源：统计局").size == 10.5, "role=source is 10.5pt")
+check(MUTextStyle.style(role: nil, size: 16, tone: nil, text: "大一点").size == 16, "an explicit size is honoured")
+check(MUTextStyle.style(role: nil, size: 40, tone: nil, text: "太大").size == 20, "an explicit size is clamped")
+check(MUTextStyle.style(role: nil, size: 2, tone: nil, text: "太小").size == 10.5, "an explicit size has a readable floor")
+check(MUTextStyle.style(role: nil, size: nil, tone: "secondary", text: "Source: World Bank").size == 10.5,
+      "a legacy secondary source with a leading label becomes 10.5pt")
+check(MUTextStyle.style(role: nil, size: nil, tone: "secondary", text: "数据：国家统计局").size == 10.5,
+      "a legacy Chinese source label is recognised")
+check(MUTextStyle.style(role: nil, size: nil, tone: "secondary", text: "  来源：国家统计局").size == 10.5,
+      "leading whitespace does not hide a source label")
+check(MUTextStyle.style(role: nil, size: nil, tone: "secondary", text: "以上数据来自国家统计局，仅供示意").size == 14,
+      "a secondary sentence that merely MENTIONS a source stays 14pt (no substring guessing)")
+check(MUTextStyle.style(role: nil, size: nil, tone: "primary", text: "Source: World Bank").size == 14,
+      "the legacy rule only applies to secondary text")
+check(MUTextStyle.style(role: "body", size: nil, tone: "secondary", text: "Source: World Bank").size == 14,
+      "an explicit role body always wins over the legacy rule")
+check(MUTextStyle(role: .body, size: 14).lineHeight == 20 && MUTextStyle(role: .note, size: 12).lineHeight == 17
+      && MUTextStyle(role: .source, size: 10.5).lineHeight == 15,
+      "line boxes are 20 / 17 / 15pt for 14 / 12 / 10.5pt")
+
+func textDoc(_ body: String, extra: String = "") -> String {
+    "root = Card([Text(\"\(body)\"\(extra))])"
+}
+func estimate(_ src: String) -> CGFloat {
+    guard let root = MUProgram.parse(src).render([:]).0 else { return 0 }
+    return MinisUIEngine.estimatedHeight(root, width: 324)
+}
+let shortEstimate = estimate(textDoc("短短一行"))
+let longEstimate = estimate(textDoc(String(repeating: "很长的中文正文段落，用来检查估高是否收敛。", count: 6)))
+check(longEstimate > shortEstimate, "a long Chinese paragraph estimates taller than one line")
+check(longEstimate - shortEstimate <= 20 * 24, "the estimate stays bounded for long Chinese text")
+check(estimate(textDoc(String(repeating: "很长的中文正文段落，用来检查估高是否收敛。", count: 12))) - longEstimate > 0,
+      "the estimate grows monotonically with more lines")
+let noteEstimate = estimate("root = Card([Callout(\"一段说明文字\")])")
+let bodyEstimate = estimate(textDoc("一段说明文字"))
+check(noteEstimate > 0 && noteEstimate < bodyEstimate + 24,
+      "a 12pt callout is not estimated with the 14pt body line box")
+
+// MARK: - 10. [T-showui-action] button label contrast from the real fill
+let chatTints = [MUMapRGB(hex: "#3686EE"), MUMapRGB(hex: "#5490E4"), MUMapRGB(hex: "#0D0D0D"),
+                 MUMapRGB(hex: "#ECECEC"), MUMapRGB(hex: "#D97757"), MUMapRGB(hex: "#4D6BFE")]
+for fill in chatTints {
+    let glyph = MUActionText.on(fill)
+    check(glyph.contrast(on: fill) >= 4.5 - 1e-9, "action label >= 4.5:1 on \(fill.hex)")
+    check(glyph != MUMapRGB(hex: "#FFFFFF"), "action label is never pure white on \(fill.hex)")
+    check(glyph == (MUActionText.soft.contrast(on: fill) >= 4.5 ? MUActionText.soft : MUActionText.deep),
+          "the soft-light / near-black choice is measurable on \(fill.hex)")
+}
+check(MUActionText.on(MUMapRGB(hex: "#0D0D0D")) == MUActionText.soft, "a dark chat tint gets the soft light label")
+check(MUActionText.on(MUMapRGB(hex: "#ECECEC")) == MUActionText.deep, "a light chat tint gets the near-black label")
+for fill in chatTints {
+    for surface in [MUMapRGB(hex: "#F7F7F8"), MUMapRGB(hex: "#1C1C1E"), MUMapRGB(hex: "#30302E")] {
+        let wash = fill.composited(over: surface, alpha: 0.12)
+        let ink = MUActionText.secondaryInk(tint: fill, wash: wash)
+        check(ink.contrast(on: wash) >= 4.5 - 1e-9, "secondary label >= 4.5:1 on \(fill.hex) over \(surface.hex)")
+        check(ink != MUMapRGB(hex: "#FFFFFF"), "secondary label is never pure white")
+    }
+}
 
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {

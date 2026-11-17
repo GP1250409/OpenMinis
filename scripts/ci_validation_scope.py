@@ -22,6 +22,11 @@ SKIPPABLE_MODULES = {
         'src/ios/Views/Chat/AIChatView/Support/ChatColors.swift',
     ],
     'theme_suite': [
+        # [T-showui-interaction-theme] the show_ui interaction suite runs inside
+        # the theme job; its own inputs are listed here so an incremental run
+        # cannot skip a module whose compiled surface includes MinisUI.
+        'scripts/showui_interaction_regression.py',
+        'scripts/showui-interaction-tests/',
         'scripts/image_geometry_regression.py',
         'scripts/image_reflow_fixture.py',
         'scripts/image-geometry-tests/',

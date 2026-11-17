@@ -210,8 +210,13 @@ enum MinisUILibrary {
         "Row": [MUArg("children", .components, true)],
         "Divider": [],
         "Title": [MUArg("text", .text, true), MUArg("size", .oneOf(["s", "m", "l"]), false)],
+        // [T-showui-typography] role is the semantic size: body 14 (default),
+        // note 12, source 10.5. `size` is an explicit point override (clamped).
+        // Both are optional, so every existing Text keeps 14pt.
         "Text": [MUArg("text", .text, true),
-                 MUArg("tone", .oneOf(["primary", "secondary", "accent", "success", "warning", "danger"]), false)],
+                 MUArg("tone", .oneOf(["primary", "secondary", "accent", "success", "warning", "danger"]), false),
+                 MUArg("role", .oneOf(MUTextRole.names), false),
+                 MUArg("size", .number, false)],
         "Metric": [MUArg("label", .string, true), MUArg("value", .text, true), MUArg("note", .text, false)],
         "Badge": [MUArg("text", .text, true), MUArg("tone", .oneOf(["neutral", "info", "success", "warning", "danger"]), false)],
         "List": [MUArg("items", .strings, true), MUArg("ordered", .bool, false)],
@@ -1440,11 +1445,17 @@ enum MinisUIEngine {
             case "Title":
                 let lh: CGFloat = c.str("size") == "l" ? 26 : (c.str("size") == "s" ? 20 : 23)
                 return lh * textLines(c.str("text") ?? "", w, lh * 0.8)
-            case "Text": return 20 * textLines(c.str("text") ?? "", w, 13)
+            case "Text":
+                let style = MUTextStyle.style(c)
+                return style.lineHeight * textLines(c.str("text") ?? "", w, style.size)
             case "Metric": return 16 + 4 + 32 + (c.str("note") != nil ? 18 : 0)
             case "Badge": return 22
             case "List": return c.strings("items").map { 20 * textLines($0, w - 18, 13) + 4 }.reduce(0, +)
-            case "Callout": return 20 * textLines(c.str("text") ?? "", w - 46, 13) + 22
+            // [T-showui-typography] No 3pt leading bar anymore: 12pt horizontal
+            // padding each side, a 13pt icon in a ~15pt column and 8pt spacing.
+            case "Callout":
+                let style = MUTextStyle(role: .note, size: MUTextRole.note.size)
+                return style.lineHeight * textLines(c.str("text") ?? "", w - 47, style.size) + 21
             case "Slider": return 22 + 34
             case "Stepper", "Toggle": return 34
             case "Segmented": return 32
@@ -1553,11 +1564,13 @@ enum MUChartPaletteTokens {
 /// ChatGPT black / Claude clay / DeepSeek indigo) while the table next to it
 /// stayed neutral — the card read as two different designs.
 ///
-/// The interaction ground is therefore built from the card's own surface (the
-/// same neutral ink composite the data table uses), and the semantic accents
-/// are the chart palette tokens, not the chat tint. info stays blue, warning
-/// stays amber, danger stays red, success stays green in every chat theme and
-/// in both day and night, and global `ChatColors.tint` is untouched.
+/// [T-showui-interaction-theme] The confirmed design (showui-theme-demo v2)
+/// takes the interior from the CHART palette instead: the table panel, the
+/// callout ground and their ink read `genuiChartPalette` (system / economist /
+/// economist2017) with the day or night half chosen by `colorScheme`. warning /
+/// danger / success keep their semantic accents, while info is a neutral ground
+/// with no leading bar and a muted icon. Global `ChatColors.tint` is untouched;
+/// only the outer Card plane and the action buttons follow the chat theme.
 enum MUChartInteractionTheme {
     /// Semantic accents, taken from the chart guide ramps (never the chat tint).
     static let info = MUChartColorPair(light: 0x00588D, dark: 0x7BBFFC)     // guide blue ramp
@@ -1565,15 +1578,15 @@ enum MUChartInteractionTheme {
     static let danger = MUChartColorPair(light: 0xA81829, dark: 0xE0525E)   // guide dark red
     static let success = MUChartColorPair(light: 0x005F52, dark: 0x86E5D4)  // guide green ramp
 
-    /// Neutral ground shared by the data table and every callout in the card.
-    /// An ink composite on the ACTUAL card surface, so a warm (Claude) or dark
-    /// card gets a panel of its own family instead of a fixed grey.
-    static func panel(on surface: MUMapRGB) -> MUMapRGB {
-        surface.ink.composited(over: surface, alpha: isDark(surface) ? 0.10 : 0.045)
-    }
-    /// Hairline rules/dividers in the same neutral family.
-    static func rule(on surface: MUMapRGB) -> MUMapRGB {
-        surface.ink.composited(over: surface, alpha: isDark(surface) ? 0.20 : 0.10)
+    /// [T-showui-palette] The card's INTERIOR no longer follows the chat
+    /// theme. The data table, the callout ground and their text read the same
+    /// `genuiChartPalette` preset the chart in the card uses (system /
+    /// economist / economist2017) and pick the day or night half from the real
+    /// `colorScheme` only. Switching ChatGPT → Claude therefore cannot repaint
+    /// the panel or the ink; it only repaints the Card plane and the action
+    /// buttons, which is exactly what the confirmed design asks for.
+    static func interior(_ palette: String, dark: Bool) -> MUChartInteriorTokens {
+        MUChartInteriorPalette.preset(palette).tokens(dark: dark)
     }
     static func isDark(_ surface: MUMapRGB) -> Bool { surface.luminance < 0.179 }
 
@@ -1588,33 +1601,201 @@ enum MUChartInteractionTheme {
         }
     }
 
-    /// Final, OPAQUE tokens for one callout on one real surface. Nothing here
-    /// depends on the chat theme; the body text is the surface ink (`Color.primary`
-    /// equivalent) so it keeps >= 7:1 on the panel it is painted on.
+    /// Final, OPAQUE tokens for one callout on one palette + day/night slot.
+    /// Nothing here depends on the chat theme; the body text is the palette ink,
+    /// so it keeps >= 4.5:1 on the note it is painted on without being forced
+    /// to pure black/white.
     struct Resolved: Equatable {
         let fill: MUMapRGB
         let border: MUMapRGB
-        /// Icon / 3pt leading bar: >= 3:1 on the fill.
+        /// Icon: >= 3:1 on the fill (muted for the neutral info box).
         let accent: MUMapRGB
-        /// Body text and icon glyph: >= 4.5:1 (text 7:1) on the fill.
+        /// Body text: the palette ink, >= 4.5:1 on the fill.
         let text: MUMapRGB
         let muted: MUMapRGB
         let isDark: Bool
+        /// True for info/unknown: neutral ground, no semantic frame.
+        let isNeutral: Bool
     }
 
-    static func resolved(tone: String, on surface: MUMapRGB) -> Resolved {
-        let dark = isDark(surface)
-        let ground = panel(on: surface)
+    /// True when the tone carries a status meaning. info (and anything unknown)
+    /// must stay neutral: a neutral ground, a neutral hairline and a muted icon,
+    /// never a whole box painted in a semantic colour.
+    static func isStatus(_ tone: String) -> Bool {
+        switch tone.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "warning", "caution", "warn", "danger", "error", "critical", "success", "ok", "positive":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func resolved(tone: String, dark: Bool, palette: String = "") -> Resolved {
+        let tokens = interior(palette, dark: dark)
+        guard isStatus(tone) else {
+            return Resolved(fill: tokens.note,
+                            border: tokens.rule,
+                            accent: tokens.muted.readable(on: tokens.note, minimum: 3.0),
+                            text: tokens.ink.readable(on: tokens.note, minimum: 4.5),
+                            muted: tokens.muted.readable(on: tokens.note, minimum: 4.5),
+                            isDark: dark, isNeutral: true)
+        }
         let base = accent(tone).rgb(forDarkSurface: dark)
-        // A light accent wash keeps the info/warning/error reading while the
-        // box stays in the table's colour family: same ground, <= 16% accent.
-        let fill = base.composited(over: ground, alpha: dark ? 0.16 : 0.08)
+        // A bounded accent wash keeps the status reading while the box stays in
+        // the palette's own ground family (<= 16% accent).
+        let fill = base.composited(over: tokens.note, alpha: dark ? 0.16 : 0.08)
         return Resolved(fill: fill,
                         border: base.composited(over: fill, alpha: dark ? 0.55 : 0.40),
                         accent: base.readable(on: fill, minimum: 3.0),
-                        text: surface.ink.readable(on: fill, minimum: 7.0),
-                        muted: surface.ink.composited(over: fill, alpha: 0.75).readable(on: fill, minimum: 4.5),
-                        isDark: dark)
+                        text: tokens.ink.readable(on: fill, minimum: 4.5),
+                        muted: tokens.muted.readable(on: fill, minimum: 4.5),
+                        isDark: dark, isNeutral: false)
+    }
+}
+
+/// [T-showui-typography] Semantic text sizes for `show_ui` content.
+///
+/// The device report showed three body sizes and no source step in the same
+/// card, and the estimate used a size the renderer never drew. One table now
+/// owns the numbers for the view AND for `estimatedHeight`, so a long Chinese
+/// paragraph cannot make the card jump between the first layout pass and the
+/// measured pass.
+enum MUTextRole: String, CaseIterable {
+    case body, note, source
+    static let names = MUTextRole.allCases.map(\.rawValue)
+    var size: CGFloat {
+        switch self {
+        case .body: return 14
+        case .note: return 12
+        // One source size for the whole card: MultiChart.source already draws
+        // at this size, so a Text role="source" matches it exactly.
+        case .source: return MUChartTypography.source
+        }
+    }
+}
+
+struct MUTextStyle: Equatable {
+    let role: MUTextRole
+    let size: CGFloat
+    /// Line box shared with the height estimate.
+    var lineHeight: CGFloat { (size * MUTextStyle.lineRatio).rounded() }
+    static let lineRatio: CGFloat = 1.45
+    static let sizeRange: ClosedRange<CGFloat> = 10.5...20
+    /// A source line is only recognised in LEGACY content by an explicit
+    /// leading label on a `secondary` Text. Substring guessing is never used,
+    /// and ordinary body copy is never shrunk.
+    /// Confirmed list: trim + lowercase, then a strict STARTS-WITH match only.
+    static let legacySourcePrefixes = ["数据：", "数据:", "来源：", "来源:", "source:", "sources:"]
+
+    static func style(role: String?, size: Double?, tone: String?, text: String) -> MUTextStyle {
+        var resolved = MUTextRole.body
+        if let role, let named = MUTextRole(rawValue: role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            resolved = named
+        } else if role == nil, size == nil, tone?.lowercased() == "secondary" {
+            let head = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if legacySourcePrefixes.contains(where: { head.hasPrefix($0) }) { resolved = .source }
+        }
+        var points = resolved.size
+        if let size, size.isFinite { points = min(max(CGFloat(size), sizeRange.lowerBound), sizeRange.upperBound) }
+        return MUTextStyle(role: resolved, size: points)
+    }
+
+    static func style(_ c: MUComp) -> MUTextStyle {
+        style(role: c.str("role"), size: c.num("size"), tone: c.str("tone"), text: c.str("text") ?? "")
+    }
+}
+
+/// [T-showui-palette] Soft interior colours for one chart palette preset.
+/// These are the confirmed v2 demo values: a panel, an ink, a muted, a hairline,
+/// a note ground and a series colour per preset, day and night separately.
+struct MUChartInteriorPalette: Equatable {
+    let panel: MUChartColorPair
+    let ink: MUChartColorPair
+    let muted: MUChartColorPair
+    let rule: MUChartColorPair
+    let note: MUChartColorPair
+    let noteBorder: MUChartColorPair
+    let series: MUChartColorPair
+
+    static let system = MUChartInteriorPalette(
+        panel: .init(light: 0xEEF1F5, dark: 0x262D35),
+        ink: .init(light: 0x283744, dark: 0xCED7E0),
+        muted: .init(light: 0x586C7C, dark: 0xA1B1C1),
+        rule: .init(light: 0xD6DFE7, dark: 0x3C4652),
+        note: .init(light: 0xE8EEF4, dark: 0x2A333E),
+        noteBorder: .init(light: 0xD0DCE7, dark: 0x414F5F),
+        series: .init(light: 0x347ABD, dark: 0x79AEFF))
+
+    /// "recent" in the demo = `genuiChartPalette` "" / economist.
+    static let economist = MUChartInteriorPalette(
+        panel: .init(light: 0xF0EEE8, dark: 0x2B2B28),
+        ink: .init(light: 0x353631, dark: 0xD6D5CF),
+        muted: .init(light: 0x686B60, dark: 0xAAA99F),
+        rule: .init(light: 0xD8D8CD, dark: 0x41413B),
+        note: .init(light: 0xE9E8DF, dark: 0x30302B),
+        noteBorder: .init(light: 0xD7D7C9, dark: 0x47473E),
+        series: .init(light: 0xE62923, dark: 0xF04540))
+
+    static let economist2017 = MUChartInteriorPalette(
+        panel: .init(light: 0xEDF2F4, dark: 0x242D32),
+        ink: .init(light: 0x344B57, dark: 0xD1DCE1),
+        muted: .init(light: 0x576F7C, dark: 0xA5BAC4),
+        rule: .init(light: 0xCFDBE0, dark: 0x3A4B54),
+        note: .init(light: 0xE6EDF0, dark: 0x29363D),
+        noteBorder: .init(light: 0xC9D8DF, dark: 0x405660),
+        series: .init(light: 0x006BA2, dark: 0x4D9FD1))
+
+    /// "" (and anything unknown) = system, the same mapping the chart uses.
+    static func preset(_ key: String) -> MUChartInteriorPalette {
+        switch key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "economist2017": return .economist2017
+        case "economist": return .economist
+        default: return .system
+        }
+    }
+
+    func tokens(dark: Bool) -> MUChartInteriorTokens {
+        MUChartInteriorTokens(panel: panel.rgb(forDarkSurface: dark), ink: ink.rgb(forDarkSurface: dark),
+                              muted: muted.rgb(forDarkSurface: dark), rule: rule.rgb(forDarkSurface: dark),
+                              note: note.rgb(forDarkSurface: dark), noteBorder: noteBorder.rgb(forDarkSurface: dark),
+                              series: series.rgb(forDarkSurface: dark), isDark: dark)
+    }
+}
+
+struct MUChartInteriorTokens: Equatable {
+    let panel: MUMapRGB
+    let ink: MUMapRGB
+    let muted: MUMapRGB
+    let rule: MUMapRGB
+    let note: MUMapRGB
+    let noteBorder: MUMapRGB
+    let series: MUMapRGB
+    let isDark: Bool
+}
+
+/// [T-showui-action] Text colour for a button filled with the CHAT tint.
+///
+/// `ChatColors.onTint` is pure white for Claude and DeepSeek, so white-on-clay
+/// and white-on-indigo sat at ~3:1. A fixed global change would move every
+/// other onTint call site, so the action text is resolved from the REAL fill:
+/// a soft light (#E4E6EB) when it still reaches 4.5:1, otherwise near-black
+/// (#080808). Pure white is never the default; the global token is untouched.
+enum MUActionText {
+    static let soft = MUMapRGB(hex: "#E4E6EB")
+    static let deep = MUMapRGB(hex: "#080808")
+    static let minimum: Double = 4.5
+
+    static func on(_ fill: MUMapRGB) -> MUMapRGB {
+        soft.contrast(on: fill) >= minimum ? soft : deep
+    }
+    static func contrast(on fill: MUMapRGB) -> Double { on(fill).contrast(on: fill) }
+
+    /// Secondary style: the label keeps the chat tint's hue but is mixed just
+    /// far enough towards the card's neutral to reach 4.5:1 on the REAL 12%
+    /// tint wash it is painted on (darker on a light card, lighter on a dark
+    /// one). Still the chat theme, still not a global token change.
+    static func secondaryInk(tint: MUMapRGB, wash: MUMapRGB) -> MUMapRGB {
+        tint.readable(on: wash, minimum: minimum)
     }
 }
 

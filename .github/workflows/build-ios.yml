@@ -67,6 +67,11 @@ jobs:
           (cd src/ios/MinisTests/Standalone && swift AppearanceSecondarySettingsTests.swift) 2>&1 | tee appearance-secondary-standalone.log
           (cd src/ios/MinisTests/Standalone && swift SendButtonReturnModeMenuTests.swift) 2>&1 | tee send-return-menu-standalone.log
           python3 scripts/appearance_secondary_regression.py 2>&1 | tee appearance-secondary-regression.log
+      - name: ShowUI interaction theme (typography, palette, action contrast)
+        if: steps.scope.outputs.run_theme_suite == 'true'
+        run: |
+          set -o pipefail
+          python3 scripts/showui_interaction_regression.py 2>&1 | tee showui-interaction-regression.log
       - name: Map regression tests
         if: steps.scope.outputs.run_map == 'true'
         run: |
@@ -194,6 +199,13 @@ jobs:
             build/theme-matrix/*.png
             build/theme-matrix/*.log
             build/theme-matrix/ProductionRenderer.swift
+            showui-interaction-regression.log
+            build/showui-interaction/pure.log
+            build/showui-interaction/launch.log
+            build/showui-interaction/compile.log
+            build/showui-interaction/png/*.png
+            build/showui-interaction/png/result.log
+            build/showui-interaction/ProductionRenderer.swift
             settings-menu-regression.log
             build/settings-menu/*.png
             build/settings-menu/*.log
