@@ -152,7 +152,67 @@ final class SelectableMarkdownTextView: UIView {
         return true
     }
 
+    /// [T-fold-first-thinking-atomic] Intermediate-frame design for the 17.0s
+    /// one-frame "Deep Thinking" card (report §5.1). CI-PENDING: this fixture
+    /// links the planner + the real `LivePlaceholderPolicy`, NOT the
+    /// coordinator's snapshot walk, so it pins the invariants that walk
+    /// depends on: at EVERY step of the delta timeline the rows below the fold
+    /// row must stay zero — the blank tail never earns a row of its own, never
+    /// becomes a second run, and never changes the fold row's identity (which
+    /// is what a resnapshot diff would turn into an insert+delete pair).
+    /// The row-level run (same timeline, full walk) is
+    /// scripts/toolfold_live_thinking_flash_regression.py.
+    func runLiveTailFrameChecks() {
+        let prior = [AssistantBlock(kind: .thinking, content: "已完成"),
+                     AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "f1"),
+                     AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "f2")]
+        var blocks = prior
+        blocks.append(AssistantBlock(kind: .thinking, content: ""))   // the block the old stream appended first
+
+        func extraRows() -> Int {
+            let runs = ToolFoldPlanner.foldedRuns(in: blocks, ended: false)
+            let hidden = Set(runs.flatMap(\.memberIds))
+            var rows = 0
+            for i in prior.count..<blocks.count {
+                let b = blocks[i]
+                if hidden.contains(b.id) { continue }
+                if b.kind == .thinking,
+                   !LivePlaceholderPolicy.blankThinkingKeepsRow(hasFoldRowAbove: true,
+                                                               footerOwnsPlaceholder: false,
+                                                               isLiveTail: i == blocks.count - 1) {
+                    continue
+                }
+                rows += 1
+            }
+            return rows
+        }
+        func frame(_ step: String) -> (rows: Int, runs: Int, key: String?) {
+            let runs = ToolFoldPlanner.foldedRuns(in: blocks, ended: false)
+            check(extraRows() == 0, "live frame \(step): no row under the fold row")
+            check(runs.count == 1, "live frame \(step): still exactly one fold row")
+            return (extraRows(), runs.count, runs.first?.key)
+        }
+
+        let born = frame("blank-tail")
+        let tail = blocks.count - 1
+        blocks[tail].thinkingContentBuffer = "\n"
+        _ = frame("whitespace-opener")
+        blocks[tail].thinkingContentBuffer = "思考中"
+        let preflush = frame("buffer-only")
+        check(!ToolFoldPlanner.isBlankThinking(blocks[tail]), "buffered text is not blank to the planner")
+        check(ToolFoldPlanner.foldedRuns(in: blocks, ended: false).first?.memberIds.contains(blocks[tail].id) == true,
+              "the buffered tail already belongs to the run, so it cannot draw a row")
+        blocks[tail].content = "思考中"
+        let flushed = frame("first-flush")
+        check(flushed.key == born.key && preflush.key == born.key, "fold row identity stable across the timeline")
+        check(LivePlaceholderPolicy.blankThinkingKeepsRow(hasFoldRowAbove: true,
+                                                          footerOwnsPlaceholder: false,
+                                                          isLiveTail: true) == false,
+              "blank tail under a fold row is never row-worthy")
+    }
+
     func runLifecycleChecks() {
+        runLiveTailFrameChecks()
         let msg = ChatMessage()
         let think1 = AssistantBlock(kind: .thinking, content: "")
         msg.blocks = [think1]

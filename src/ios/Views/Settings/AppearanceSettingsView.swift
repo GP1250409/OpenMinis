@@ -356,7 +356,13 @@ struct AppearanceSettingsView: View {
     /// block-mount time in ThinkingBlockView.
     @AppStorage("chat.autoExpandThinking") private var autoExpandThinking: Bool = true
     /// [T-fold-consecutive-tools] Mirrors `ToolFoldPlanner.settingsKey`.
+    /// [T-fold-two-switches] "Fold tools after the reply": the calls a finished
+    /// reply closed become one row. Independent of the switch below.
     @AppStorage("chat.foldConsecutiveTools") private var foldConsecutiveTools: Bool = false
+    /// [T-fold-two-switches] "Fold tools while replying", mirrors
+    /// `ToolFoldPlanner.liveSettingsKey`. Independent: it folds the run that is
+    /// still growing, whether or not a finished reply folds anything.
+    @AppStorage("chat.foldToolsWhileReplying") private var foldToolsWhileReplying: Bool = false
     @ObservedObject private var fontSettings = FontSettings.shared
 
     enum LanguageSummaryDisplay: Equatable {
@@ -499,18 +505,34 @@ struct AppearanceSettingsView: View {
                 Text("When on, a new thinking block expands automatically while the model is reasoning and collapses when it finishes. When off, thinking blocks stay collapsed — tap one to read it.")
             }
 
-            // [T-fold-consecutive-tools] Fold a run of 3+ tool calls that a
-            // reply follows into one "Ran N tools" line.
+            // [T-fold-consecutive-tools] Fold a run of tool calls that a reply
+            // follows into one "Ran N tools" line.
+            // [T-fold-two-switches] TWO independent switches, never a master
+            // with a conditional child: the first one folds what a finished
+            // reply closed, the second folds the reply that is still being
+            // written. All four combinations do something sensible (see
+            // `ToolFoldPlanner.plan`), so both are always shown and both re-plan
+            // the open chat the moment they change.
             Section {
                 Toggle(AppLocalized("Fold Consecutive Tool Calls"), isOn: $foldConsecutiveTools)
                     .onChange(of: foldConsecutiveTools) { _ in
                         // Re-lay out an open chat (iPad split view) right away.
                         NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
                     }
+                Toggle(AppLocalized("Fold Tools While Replying"), isOn: $foldToolsWhileReplying)
+                    .onChange(of: foldToolsWhileReplying) { _ in
+                        // [T-fold-two-switches] Live folding changes rows while
+                        // the reply streams — re-plan at once, not on the next
+                        // token.
+                        NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)
+                    }
             } header: {
                 Text("Tool Calls")
             } footer: {
-                Text("Consecutive tool calls are shown as one line. Tap it to see each call.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Fold Consecutive Tool Calls: once a reply has ended, the tool calls before it fold into one summary line. Tap the line to see each call.")
+                    Text("Fold Tools While Replying: also fold the tool calls and thinking of a reply that is still being written. With this one on and the first one off, a run folds while the model works and opens again when its reply ends. A line you open or close by hand stays that way until the chat is reloaded.")
+                }
             }
 
             Section {

@@ -190,9 +190,26 @@ enum ToolFoldPlanner {
     ///     task that wrote these blocks is OVER — a finished turn, a
     ///     stopped/cancelled or failed one, or history read back from disk.
     ///     Active tail runs also fold while `ended == false` (marked `isLive:
-    ///     true`) so tools and thinking stay folded by default mid-execution.
-    static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {
-        guard enabled else { return [] }
+    ///     true`) when [T-fold-two-switches] `liveFolding` is on.
+    ///   - liveFolding: [T-fold-two-switches] "fold while replying" — the run
+    ///     still OPEN at the end of these blocks folds too (a running call is a
+    ///     member, not a barrier), and the row says its counts are live.
+    ///   - endFolding: [T-fold-two-switches] "fold after the reply" — a run a
+    ///     reply or a card CLOSED folds. Off: such a run opens again as soon as
+    ///     its reply lands (only the manual close of a row keeps it folded, see
+    ///     `MessageListV3Coordinator.toolGroupManuallyFolded`).
+    ///
+    /// The two switches are independent and the four combinations are the
+    /// product: neither folds nothing, only `endFolding` is the pre-live
+    /// behavior ("expanded while generating, folded once the reply ended"),
+    /// both is live folding, only `liveFolding` folds the growing run and
+    /// expands it again when the reply closes it. Defaults (true/true) are the
+    /// live behavior every existing caller and test was written against.
+    static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false,
+                     liveFolding: Bool = true, endFolding: Bool = true) -> [Group] {
+        // [T-fold-two-switches] One gate for every surface: with both switches
+        // off nothing folds, whatever `enabled` says.
+        guard enabled, liveFolding || endFolding else { return [] }
         var groups: [Group] = []
         /// First block of the open run, while one is open.
         var start: Int?
@@ -254,6 +271,13 @@ enum ToolFoldPlanner {
                 // [T-fold-card-boundary] A CARD closes the run before it instead.
                 closeAtSoftEnd()
                 reset()
+            case .tool(.unfinished) where !liveFolding:
+                // [T-fold-two-switches] "Fold while replying" off: a call that
+                // can still make progress cuts the run exactly as it did before
+                // live folding existed — the capsules stay open while the tool
+                // runs, and what a note already closed still folds.
+                closeAtSoftEnd()
+                reset()
             case .tool(let outcome):
                 // [T-fold-all-process] [T-fold-live-process] Any tool call
                 // (including streaming/running `.unfinished`) joins the run its
@@ -303,7 +327,10 @@ enum ToolFoldPlanner {
                 // [T-fold-card-boundary] A card closes the run the same way:
                 // what came before it is a finished process (its trailing
                 // thinking included), and the card stays outside it, on show.
-                if let s = start, foldsAtClose() {
+                // [T-fold-two-switches] A run a reply CLOSED folds only with
+                // "fold after the reply" on: that switch is exactly "the calls
+                // before a finished reply become one line".
+                if endFolding, let s = start, foldsAtClose() {
                     groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                         failedCount: failed, cancelledCount: cancelled,
                                         thinkingCount: thinks,
@@ -318,14 +345,20 @@ enum ToolFoldPlanner {
         // of the message folds both while the task is still executing
         // (`isLive: true`, showing running/completed counts) and once the task
         // ends or is loaded from history (`isLive: false`).
-        if let s = start, foldsAtClose() {
+        // [T-fold-two-switches] Which of the two it is depends on the switch
+        // that owns the state the run is in: a still-growing run is "fold while
+        // replying", a finished message is "fold after the reply". With the
+        // owning switch off the run stays expanded — the manual close of its
+        // row is the only thing that can still fold it (see the coordinator).
+        let tailFolds = ended ? endFolding : liveFolding
+        if let s = start, tailFolds, foldsAtClose() {
             groups.append(Group(range: s...lastBlock(), toolCount: tools,
                                 failedCount: failed, cancelledCount: cancelled,
                                 thinkingCount: thinks,
                                 visibleGaps: gaps(s, lastBlock()),
                                 runningCount: running,
                                 isLive: !ended))
-        } else {
+        } else if tailFolds || !ended {
             closeAtSoftEnd()
         }
         return groups
@@ -468,9 +501,15 @@ enum ToolFoldPlanner {
     /// once (it stays folded), and never for a live running message (which
     /// folds immediately from its first block). `shownAsRows` is only called
     /// for non-running messages when the cheaper conditions leave it open.
+    /// [T-fold-two-switches] With "fold while replying" off nothing folds in
+    /// the running message, so the old rule is back: the running message is
+    /// held back while the user browses exactly like any other row.
     static func holdsBack(browsing: Bool, alreadyFolded: Bool, inRunningMessage: Bool,
+                          liveFolding: Bool = true,
                           shownAsRows: () -> Bool) -> Bool {
-        guard browsing, !alreadyFolded, !inRunningMessage else { return false }
+        guard browsing, !alreadyFolded else { return false }
+        guard liveFolding else { return inRunningMessage || shownAsRows() }
+        guard !inRunningMessage else { return false }
         return shownAsRows()
     }
 }
@@ -599,8 +638,10 @@ extension ToolFoldPlanner {
     ///   finished or stopped turn and for history, false for the message the
     ///   agent loop is still writing into. Explicit on purpose: a prefix cut
     ///   at the fold horizon is not the end of the task.
-    static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {
-        plan(inputs(for: blocks), enabled: true, ended: ended).map { group in
+    static func foldedRuns(in blocks: [AssistantBlock], ended: Bool,
+                           liveFolding: Bool = true, endFolding: Bool = true) -> [FoldedRun] {
+        plan(inputs(for: blocks), enabled: true, ended: ended,
+             liveFolding: liveFolding, endFolding: endFolding).map { group in
             let members = blocks[group.range]
             let firstTool = members.first { $0.toolUseId != nil } ?? members[members.startIndex]
             let durations = members.compactMap(\.toolDuration)
@@ -626,14 +667,74 @@ extension ToolFoldPlanner {
     /// at the previous reply separator.
     @MainActor
     static func foldHorizon(for message: ChatMessage, runningMessageId: UUID?,
-                            separators: [UUID: Set<UUID>]) -> Int {
-        message.blocks.count
+                            separators: [UUID: Set<UUID>],
+                            liveFolding: Bool = true) -> Int {
+        // [T-fold-two-switches] "Fold while replying" off: the running message
+        // is planned again the way `7d8cea3` did — through the last request that
+        // ended with a real reply (a fold separator) and the settled cards after
+        // it. Nothing still streaming is planned, so nothing can fold before the
+        // reply that closes it.
+        guard !liveFolding else { return message.blocks.count }
+        guard message.id == runningMessageId else { return message.blocks.count }
+        // [T-fold-card-boundary] The cards already on screen may be planned
+        // through (see the generic rule above).
+        let cards = Set(message.blocks.filter(isCard).map(\.id))
+        return foldHorizon(blockIds: message.blocks.map(\.id),
+                           separators: separators[message.id] ?? [],
+                           isCard: { cards.contains($0) })
     }
 
-    /// Settings key for the feature. Off unless the user turns it on.
+    // MARK: Two independent switches [T-fold-two-switches]
+    //
+    // The user asked for two separate booleans, NOT a master switch with a
+    // conditional child:
+    //   - `settingsKey`     "fold tools after the reply" (the original key,
+    //                       default OFF — same meaning as before: the calls of
+    //                       a finished reply become one row).
+    //   - `liveSettingsKey` "fold tools while replying" (default OFF): the run
+    //                       that is still growing folds too.
+    // The four combinations are the product: off/off expands everything,
+    // off/on is the pre-live behavior, on/on is live folding, and on/off folds
+    // while the model works and expands again once its reply lands.
+
+    /// Settings key for "fold tools after the reply". Off unless the user turns it on.
     static let settingsKey = "chat.foldConsecutiveTools"
 
-    static var isEnabled: Bool {
+    /// [T-fold-two-switches] Settings key for "fold tools while replying".
+    static let liveSettingsKey = "chat.foldToolsWhileReplying"
+
+    /// "Fold after the reply": a run a reply or a card closed becomes one row.
+    static var isEndFoldingEnabled: Bool {
         (UserDefaults.standard.object(forKey: settingsKey) as? Bool) ?? false
+    }
+
+    /// "Fold while replying": the run still growing at the tail folds too.
+    static var isLiveFoldingEnabled: Bool {
+        (UserDefaults.standard.object(forKey: liveSettingsKey) as? Bool) ?? false
+    }
+
+    /// The two switches as one value every surface passes down.
+    struct FoldSettings: Equatable {
+        var live: Bool
+        var end: Bool
+        /// The live behavior (both on): the shape `4a4f238` shipped.
+        static let both = FoldSettings(live: true, end: true)
+        /// The pre-live behavior: nothing folds while the model is working.
+        static let afterReply = FoldSettings(live: false, end: true)
+        /// Folds while the model works, expands once the reply lands.
+        static let whileReplying = FoldSettings(live: true, end: false)
+        /// Nothing folds in any state.
+        static let off = FoldSettings(live: false, end: false)
+        static var current: FoldSettings {
+            FoldSettings(live: isLiveFoldingEnabled, end: isEndFoldingEnabled)
+        }
+        /// Gate: false means no fold in any state.
+        var any: Bool { live || end }
+    }
+
+    /// Whether ANY folding is on — the cheap gate the list, the loop and the
+    /// share picker ask before planning.
+    static var isEnabled: Bool {
+        isEndFoldingEnabled || isLiveFoldingEnabled
     }
 }

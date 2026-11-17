@@ -322,8 +322,15 @@ enum MUStyle {
     /// a label is drawn in. SwiftUI's `.system(size:weight:)` is UIKit's
     /// system font of the same size/weight, so this is the width the glyphs
     /// will occupy — no per-class estimate involved.
-    static func textWidth(_ text: String, size: CGFloat, bold: Bool) -> CGFloat {
-        let font = UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
+    /// - Parameter monospacedDigit: the axis ticks are drawn with
+    ///   `.monospacedDigit()`, whose advances differ from the proportional
+    ///   system font for digits. The x-tick collision test must measure the font
+    ///   that is actually drawn, so it asks for the monospaced-digit variant.
+    static func textWidth(_ text: String, size: CGFloat, bold: Bool = false,
+                          monospacedDigit: Bool = false) -> CGFloat {
+        let font = monospacedDigit
+            ? UIFont.monospacedDigitSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+            : UIFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
         let w = (text as NSString).size(withAttributes: [.font: font]).width
         return ceil(w * 100) / 100
     }
@@ -478,20 +485,32 @@ private struct MUList: View {
 
 private struct MUCallout: View {
     let comp: MUComp
+    /// [T-chart-interaction-theme] The box is chart-card chrome, so its colours
+    /// come from MUChartInteractionTheme (the family the data table in the same
+    /// card uses), never from the chat theme tint. Tone still decides the
+    /// semantic accent: info / warning / danger / success.
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
         let tone = comp.str("tone") ?? "info"
-        let c = MUStyle.tone(tone)
+        let look = MUChartInteractionTheme.resolved(tone: tone,
+                    on: MUSurface.base(inherited, scheme: scheme))
         let icon = ["success": "checkmark.circle.fill", "warning": "exclamationmark.triangle.fill",
                     "danger": "xmark.circle.fill"][tone] ?? "info.circle.fill"
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(c).padding(.top, 1)
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(look.accent.color)
+                .frame(width: 3)
+            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(look.accent.color).padding(.top, 1)
             Text(MUStyle.inline(comp.str("text") ?? "")).font(.system(size: 14))
-                .modifier(MUReadableText(color: ChatColors.primaryText))
+                .foregroundStyle(look.text.color)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(MUCardSurface(fill: c.opacity(0.10), cornerRadius: 10, bordered: false))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(look.fill.color))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(look.border.color, lineWidth: 0.6))
     }
 }
 
@@ -624,6 +643,11 @@ private struct MUChoice: View {
 
 private struct MUTable: View {
     let comp: MUComp
+    /// [T-chart-interaction-theme] The data table and the callouts in the same
+    /// card share one neutral ground token, so an info box can never drift into
+    /// the chat accent while its table stays grey.
+    @Environment(\.muSurface) private var inherited
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
         let headers = comp.strings("headers")
         let rows = comp.rows("rows")
@@ -634,7 +658,8 @@ private struct MUTable: View {
                 row(r, header: false)
             }
         }
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.03)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(MUChartInteractionTheme.panel(on: MUSurface.base(inherited, scheme: scheme)).color))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -1169,6 +1194,15 @@ private struct MUMultiChartBody: View {
                     y: origin.y + frame.minY + p.centerY - size * 0.65, width: columns.labelWidth, height: size * 1.3) },
                 axisBoxes: axisBoxes.map { $0.offsetBy(dx: origin.x, dy: origin.y) },
                 gridYs: gridYs.map { $0 + origin.y })
+            // [T-chart-x-axis] The x tick boxes are placed by the pure layout:
+            // REAL centres from ChartProxy + REAL text widths, thinned out until
+            // no two boxes overlap. The first and the last tick survive.
+            let xTexts = Array(labels.prefix(cols))
+            let xCenters = xTexts.map { text in frame.minX + (proxy.position(forX: text) ?? 0) }
+            let xWidths = xTexts.map { MUStyle.textWidth($0, size: theme.fonts.tick, monospacedDigit: true) }
+            let xLabels = MUChartXAxisLabels.layout(centers: xCenters, widths: xWidths,
+                                                    plotMinX: frame.minX, plotMaxX: frame.maxX,
+                                                    minGap: max(6, theme.fonts.tick * 0.6), maxCount: 6)
             ZStack(alignment: .topLeading) {
                 ForEach(Array(ticks.enumerated()), id: \.offset) { index, value in
                     let box = axisBoxes[index]
@@ -1192,18 +1226,16 @@ private struct MUMultiChartBody: View {
                     path.move(to: CGPoint(x: frame.minX, y: frame.maxY))
                     path.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY))
                 }.stroke(theme.axis, lineWidth: drawing.width(0.5))
-                ForEach(Array(labels.prefix(cols).enumerated()), id: \.offset) { i, text in
-                    if i % max(1, Int(ceil(Double(cols) / 5))) == 0 || i == cols - 1 {
-                        let x = frame.minX + (proxy.position(forX: text) ?? 0)
-                        Path { path in
-                            path.move(to: CGPoint(x: x, y: frame.maxY))
-                            path.addLine(to: CGPoint(x: x, y: frame.maxY + 5))
-                        }.stroke(theme.axis, lineWidth: drawing.width(0.5))
-                        Text(text).font(.system(size: theme.fonts.tick)).monospacedDigit()
-                            .foregroundStyle(theme.axis).lineLimit(1)
-                            .frame(width: min(44, frame.width / 3), height: 14)
-                            .position(x: min(max(x, frame.minX + 22), frame.maxX - 22), y: frame.maxY + 14)
-                    }
+                ForEach(xLabels.placements, id: \.index) { placement in
+                    Path { path in
+                        path.move(to: CGPoint(x: placement.centerX, y: frame.maxY))
+                        path.addLine(to: CGPoint(x: placement.centerX, y: frame.maxY + 5))
+                    }.stroke(theme.axis, lineWidth: drawing.width(0.5))
+                    Text(xTexts[placement.index]).font(.system(size: theme.fonts.tick)).monospacedDigit()
+                        .foregroundStyle(theme.axis).lineLimit(1).truncationMode(.tail)
+                        .frame(width: max(0, placement.width), height: 14)
+                        .clipped()
+                        .position(x: placement.centerX, y: frame.maxY + 14)
                 }
             }
             .preference(key: MUChartRenderGeometryKey.self, value: snapshot)

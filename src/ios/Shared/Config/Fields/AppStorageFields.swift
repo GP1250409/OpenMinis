@@ -31,6 +31,40 @@ struct AppStorageBoolField: ConfigField {
     }
 }
 
+/// [T-fold-two-switches] `AppStorageBoolField` plus one post-write
+/// notification. A setting the message list re-plans on every snapshot (the two
+/// tool-fold switches) cannot rely on `UserDefaults` alone: writing it from
+/// `minis-config` changes nothing on screen until something else forces a
+/// snapshot, so the chat kept the old fold for the rest of the turn. The
+/// Settings UI already posts this notification from its `onChange`; this field
+/// gives the CLI path the same effect.
+struct AppStorageNotifyingBoolField: ConfigField {
+    let path: String
+    let displayName: String
+    let description: String
+    let userDefaultsKey: String
+    let defaultValue: Bool
+    let notification: Notification.Name
+    var access: ConfigAccess = .readwrite
+    var risk: ConfigRisk = .normal
+    var revertable: Bool = true
+    var valueSchema: ConfigValueSchema { .bool }
+    var readable: ConfigReadable { ConfigReadable(.bool()) }
+
+    @MainActor func read() throws -> ConfigValue {
+        if UserDefaults.standard.object(forKey: userDefaultsKey) == nil {
+            return .bool(defaultValue)
+        }
+        return .bool(UserDefaults.standard.bool(forKey: userDefaultsKey))
+    }
+    @MainActor func write(_ value: ConfigValue) throws {
+        try valueSchema.validate(value)
+        guard case .bool(let b) = value else { throw ConfigError.typeMismatch(expected: "bool") }
+        UserDefaults.standard.set(b, forKey: userDefaultsKey)
+        NotificationCenter.default.post(name: notification, object: nil)
+    }
+}
+
 struct AppStorageIntField: ConfigField {
     let path: String
     let displayName: String

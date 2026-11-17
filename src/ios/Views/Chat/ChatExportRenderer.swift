@@ -149,15 +149,21 @@ enum ChatExportContent {
         }
         var folds: [UUID: [ChatShareFold]] = [:]
         if foldTools {
+            // [T-fold-two-switches] The image folds with the same two switches
+            // the chat list reads, so a shared screenshot matches the screen.
+            let settings = ToolFoldPlanner.FoldSettings.current
             for m in messages where m.role == .assistant {
                 let horizon = ToolFoldPlanner.foldHorizon(for: m, runningMessageId: runningMessageId,
-                                                          separators: separators)
+                                                          separators: separators,
+                                                          liveFolding: settings.live)
                 guard horizon > 0 else { continue }
                 // [T-fold-stopped-tools] Same two inputs as the chat list: the
                 // horizon says how far to plan, `ended` whether the task that
                 // wrote these blocks is over (every message but the running one).
                 let runs = ToolFoldPlanner.foldedRuns(in: Array(m.blocks.prefix(horizon)),
-                                                      ended: m.id != runningMessageId)
+                                                      ended: m.id != runningMessageId,
+                                                      liveFolding: settings.live,
+                                                      endFolding: settings.end)
                 if !runs.isEmpty {
                     folds[m.id] = runs.map { run in
                         // [T-fold-lead-gap] A gap keeps its row in the chat, so

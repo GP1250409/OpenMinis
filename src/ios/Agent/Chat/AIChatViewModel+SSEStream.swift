@@ -354,6 +354,12 @@ extension AIChatViewModel {
         var result = StreamResult()
         var currentTextBlockIdx: Int? = nil
         var currentThinkingBlockIdx: Int? = nil
+        // [T-fold-first-thinking-atomic] Deltas of the current thinking segment
+        // that carry no visible character yet. They are held here — never in a
+        // block — so an all-whitespace opener cannot create a blank block that
+        // the list would have to draw for a frame. Folded into the block, in
+        // order, by the first delta that does show something.
+        var pendingThinkingLead: String = ""
         let speakEnabled = await MainActor.run { self.speakEnabled }
         await MainActor.run { VoiceLog.log("stream start: speakEnabled snapshot=\(self.speakEnabled)") }
 
@@ -498,6 +504,9 @@ extension AIChatViewModel {
 
             switch event {
             case .contentBlockStart(let start):
+                // [T-fold-first-thinking-atomic] A block boundary ends whatever
+                // the previous thinking segment was still holding back.
+                pendingThinkingLead = ""
                 // Model started producing output — clear the "thinking" indicator
                 await MainActor.run {
                     guard msgIdx < messages.count else { return }
@@ -1010,11 +1019,50 @@ extension AIChatViewModel {
                 // arrival order so thinking interleaves naturally with text/tool blocks
                 // (matches how messages render after reload from RawMessage history).
                 if currentThinkingBlockIdx == nil {
+                    // [T-fold-first-thinking-atomic] A block must never be born
+                    // BLANK. Appending one and filling it in a SECOND MainActor
+                    // hop left one whole snapshot in which the new thinking block
+                    // had no text: the append fires the list's `blocks.count`
+                    // rebuild before any delta lands, the planner reads the block
+                    // as empty text (never a fold member), and the live-tail
+                    // exemption draws it as a standalone "Deep Thinking" card —
+                    // under the "Ran 2 tools · 9s" row whose group swallows it
+                    // the moment the flush arrives (report §5.1, the 17.0s
+                    // frame). So: create it WITH its first text, flush that
+                    // text, and drop the waiting flag in the SAME transaction.
+                    // The rebuild the append triggers then already sees a
+                    // non-blank block, which folds into the run above instead of
+                    // sitting alone for a frame.
+                    let lead = pendingThinkingLead + text
+                    // A whitespace-only opener has nothing visible in it yet, so
+                    // it gets no block and no snapshot at all (providers do send
+                    // a bare "\n" first). Wait for a visible character.
+                    guard !ToolFoldPlanner.isBlank(lead) else {
+                        pendingThinkingLead = lead
+                        continue
+                    }
+                    pendingThinkingLead = ""
                     let idx = await MainActor.run { () -> Int in
                         guard msgIdx < messages.count else { return -1 }
-                        messages[msgIdx].blocks.append(
-                            AssistantBlock(kind: .thinking, content: "")
-                        )
+                        let block = AssistantBlock(kind: .thinking, content: "")
+                        block.appendThinkingDelta(lead)
+                        // The first text of a segment is always flushed at
+                        // birth — one body re-eval per segment, not per token.
+                        // Leaving it to the 0.3s throttle would leave `content`
+                        // empty while only the non-published buffer held the
+                        // text, i.e. a block that still looks blank to every
+                        // reader except the planner.
+                        block.flushThinkingBuffer()
+                        messages[msgIdx].blocks.append(block)
+                        // [T-fold-first-thinking-atomic] Nothing cleared this
+                        // before the first `.contentBlockStart`, and no provider
+                        // sends one ahead of a thinking delta — so the footer
+                        // kept drawing its typing indicator under the thinking
+                        // row: the other half of the double placeholder in the
+                        // recording. Thinking on screen ends the wait.
+                        if messages[msgIdx].isAwaitingModelResponse {
+                            messages[msgIdx].isAwaitingModelResponse = false
+                        }
                         // [T-bka-continued-card-status] So the Live Activity
                         // and the continued-processing card say "thinking"
                         // instead of the previous tool or reply.
@@ -1025,8 +1073,11 @@ extension AIChatViewModel {
                     }
                     guard idx >= 0 else { continue }
                     currentThinkingBlockIdx = idx
-                    // Reset accumulator — each thinking block has its own text.
-                    result.thinkingText = ""
+                    // Reset accumulator — each thinking block has its own text;
+                    // `lead` is this block's first text and is already in it.
+                    result.thinkingText = lead
+                    lastThinkingDeltaFlush = Date()
+                    continue
                 }
                 result.thinkingText += text
                 // Append to the block's non-published buffer (O(1) for SwiftUI).

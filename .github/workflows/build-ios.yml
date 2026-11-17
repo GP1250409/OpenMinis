@@ -83,6 +83,7 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/thinking_transaction_regression.py 2>&1 | tee thinking-transaction-regression.log
+          python3 scripts/toolfold_live_thinking_flash_regression.py 2>&1 | tee fold-flash-regression.log
       - name: Chart layout regression tests
         if: steps.scope.outputs.run_chart_layout == 'true'
         run: |
@@ -178,7 +179,9 @@ jobs:
             bundle-identity-source.log
             bundle-identity-ipa.log
             thinking-transaction-regression.log
+            fold-flash-regression.log
             build/thinking-transaction/
+            build/toolfold-live-thinking-flash/
             card-dark-baseline.log
             build/card-dark-baseline/*.png
             build/card-dark-baseline/*.log

@@ -25,6 +25,54 @@ import UniformTypeIdentifiers
 /// here it would resolve to SwiftUI.Section.
 private typealias Section = CollectionViewMessageListV3.Section
 
+/// [T-fold-blank-thinking-atomic] Who owns the "the model is working" row.
+///
+/// Two places used to answer that question and disagreed: the footer drew a
+/// typing indicator while `isAwaitingModelResponse` was set, and the tail blank
+/// thinking block claimed a row of its own because `liveTailBlockId` exempted it
+/// from the blank-thinking rule. In live folding the previous round's calls are
+/// already a "Ran 2 tools · 9s" row, so that row was a SECOND, empty "Deep
+/// Thinking" card under it — on screen for exactly one frame, until the first
+/// flushed delta let the planner fold it into the run above (report
+/// setting-flicker-review-20261117 §5.1, the 17.0s frame).
+///
+/// Pure, and the single place that answers it, so the list and the regression
+/// harness ask the same question instead of restating the rule.
+enum LivePlaceholderPolicy {
+    /// Whether a blank thinking block still gets a row of its own.
+    ///
+    /// - Parameters:
+    ///   - hasFoldRowAbove: a `.toolGroup` row was already emitted above this
+    ///     block for the same message — i.e. there is a run this block joins
+    ///     once its text arrives.
+    ///   - footerOwnsPlaceholder: `shouldShowTypingIndicator` is true, so the
+    ///     footer already draws the "waiting for the model" row.
+    ///   - isLiveTail: it is the block the agent loop is still writing into.
+    static func blankThinkingKeepsRow(hasFoldRowAbove: Bool,
+                                      footerOwnsPlaceholder: Bool,
+                                      isLiveTail: Bool) -> Bool {
+        // A settled blank block can never receive a character: no row (the
+        // long-standing [T-fold-blank-thinking] rule).
+        guard isLiveTail else { return false }
+        // A fold row above already says the turn is running, and the planner
+        // folds this block INTO that run the moment its text arrives. Drawing
+        // it first is the one-frame card the recording caught.
+        if hasFoldRowAbove { return false }
+        // The footer's typing indicator is the same placeholder: two of them
+        // is the double image the recording shows.
+        if footerOwnsPlaceholder { return false }
+        // Nothing else speaks for the turn: the opening wait of a turn with no
+        // calls yet. That row IS what the user waits on.
+        return true
+    }
+
+    /// Whether a fold row and a blank thinking row would both claim the
+    /// "working" slot — the double placeholder of the same report frame.
+    static func isDoublePlaceholder(hasFoldRow: Bool, blankThinkingKeepsRow: Bool) -> Bool {
+        hasFoldRow && blankThinkingKeepsRow
+    }
+}
+
 extension CollectionViewMessageListV3.Coordinator {
 
         /// The actual `.minisAttachmentSizeChanged` work, run at most once per
@@ -349,6 +397,9 @@ extension CollectionViewMessageListV3.Coordinator {
             if toolFoldSessionId != vm.sessionId {
                 toolFoldSessionId = vm.sessionId
                 expandedToolGroups.removeAll()
+                // [T-fold-two-switches] Same lifetime as the open rows: the
+                // manual closes belong to the session the user made them in.
+                toolGroupManuallyFolded.removeAll()
                 presentedToolGroupKeys.removeAll()
             }
             let toolFolds = planToolFolds(messages: messages)
@@ -368,6 +419,13 @@ extension CollectionViewMessageListV3.Coordinator {
                 if aliases.contains(where: { expandedToolGroups.contains($0) }) {
                     for k in aliases { expandedToolGroups.remove(k) }
                     expandedToolGroups.insert(run.key)
+                }
+                if aliases.contains(where: { toolGroupManuallyFolded.contains($0) }) {
+                    // [T-fold-two-switches] A manual close follows the run when
+                    // its leading-thinking key is promoted to the first tool's
+                    // `toolUseId`, exactly like the open state above.
+                    for k in aliases { toolGroupManuallyFolded.remove(k) }
+                    toolGroupManuallyFolded.insert(run.key)
                 }
                 if aliases.contains(where: { presentedToolGroupKeys.contains($0) }) {
                     presentedToolGroupKeys.formUnion(aliases)
@@ -472,6 +530,11 @@ extension CollectionViewMessageListV3.Coordinator {
                     }
                     hiddenMemberIds.subtract(gapBlockIds)
                     var bi = 0
+                    // [T-fold-blank-thinking-atomic] Has a `.toolGroup` row
+                    // already been emitted above the walk position for THIS
+                    // message? A blank tail thinking under one of them is that
+                    // row's placeholder, not a row of its own.
+                    var foldRowEmitted = false
                     let blocks = message.blocks
                     // [T-fold-blank-thinking] The one block that may still grow:
                     // the last block of the message the agent loop is writing
@@ -482,6 +545,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     while bi < blocks.count {
                         if let run = runByAnchor[blocks[bi].id] {
                             newItems.append(.toolGroup(message.id, run.firstBlockId))
+                            foldRowEmitted = true
                             if expandedToolGroups.contains(run.key) {
                                 // [T-fold-blank-thinking] A blank thinking block
                                 // inside the run keeps no row either: expanded,
@@ -515,9 +579,18 @@ extension CollectionViewMessageListV3.Coordinator {
                         // its row — that placeholder IS the "thinking…" the
                         // user is waiting on. Skipped rather than drawn empty:
                         // a cell with no content still measures a row.
+                        // [T-fold-blank-thinking-atomic] ...unless a folded
+                        // run is already on screen above it: that row is the
+                        // placeholder, and this block joins it on the first
+                        // flush. Drawing it anyway is the one-frame card the
+                        // 17.0s recording caught. The whole decision lives in
+                        // `LivePlaceholderPolicy`, shared with the regression.
                         if blocks[bi].kind == .thinking,
-                           blocks[bi].id != liveTailBlockId,
-                           ToolFoldPlanner.isBlankThinking(blocks[bi]) {
+                           ToolFoldPlanner.isBlankThinking(blocks[bi]),
+                           !LivePlaceholderPolicy.blankThinkingKeepsRow(
+                                hasFoldRowAbove: foldRowEmitted,
+                                footerOwnsPlaceholder: message.shouldShowTypingIndicator,
+                                isLiveTail: blocks[bi].id == liveTailBlockId) {
                             bi += 1
                             continue
                         }

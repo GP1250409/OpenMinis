@@ -501,6 +501,232 @@ for bg in realSurfaces {
           "2017 text colours >= 4.5 and 6/6 distinct on \(bg)")
 }
 
+// MARK: - 7. [T-chart-x-axis] X-axis tick labels are placed, not stacked
+//
+// Device report (photo_B923E3B4): a 2026-09-02 … 09-16 date axis printed
+// "9/15" and "9/16" on top of each other. The old rule kept every tick whose
+// index was a multiple of ceil(n/5) PLUS the last tick, with a fixed
+// min(44, width/3) box; nothing looked at the text width, so the forced last
+// tick landed next to a stride tick and the two boxes overlapped.
+func xNoOverlap(_ layout: MUChartXAxisLabels.Layout, gap: CGFloat, span: CGFloat) -> Bool {
+    let placed = layout.placements
+    let ordered = zip(placed, placed.dropFirst()).allSatisfy { $1.minX - $0.maxX >= gap - 1e-6 }
+    let inside = placed.allSatisfy { $0.minX >= -1e-6 && $0.maxX <= span + 1e-6 && $0.width >= 0 }
+    let ascending = placed.map(\.index) == placed.map(\.index).sorted()
+    return ordered && inside && ascending
+}
+func xCenters(_ n: Int, _ span: CGFloat) -> [CGFloat] {
+    n <= 1 ? [0] : (0..<n).map { CGFloat($0) * span / CGFloat(n - 1) }
+}
+func xWidths(_ texts: [String], _ size: CGFloat = 11) -> [CGFloat] {
+    texts.map { MUChartLabelMetrics.width($0, fontSize: size) }
+}
+
+// The exact reported case: 15 daily dates on a phone-width plot.
+let dateAxis = (2...16).map { "9/\($0)" }
+let dateLayout = MUChartXAxisLabels.layout(centers: xCenters(dateAxis.count, 250),
+                                           widths: xWidths(dateAxis), plotMinX: 0, plotMaxX: 250)
+check(xNoOverlap(dateLayout, gap: 6, span: 250),
+      "9/2…9/16 on a 250pt plot: no two date labels overlap")
+check(dateLayout.placements.first?.index == 0 && dateLayout.placements.last?.index == dateAxis.count - 1,
+      "the date axis keeps its first and last tick")
+check(dateLayout.placements.count >= 3 && dateLayout.placements.count <= 6,
+      "the date axis thins out instead of printing all 15 labels")
+check(dateLayout.dropped.contains(12) && !dateLayout.dropped.contains(dateAxis.count - 1),
+      "the tick next to the end (9/14) is the one that gets dropped, never the end (9/16)")
+check(!dateLayout.placements.contains { a in dateLayout.placements.contains { b in
+        a.index != b.index && abs(a.centerX - b.centerX) < max(a.width, b.width) } },
+      "no two kept date labels share a centre band")
+
+// Two ticks that used to collide on a narrow phone: 9/15 + 9/16.
+for span: CGFloat in [60, 80, 120, 200] {
+    let pair = ["9/15", "9/16"]
+    let l = MUChartXAxisLabels.layout(centers: xCenters(2, span), widths: xWidths(pair),
+                                      plotMinX: 0, plotMaxX: span)
+    check(xNoOverlap(l, gap: 6, span: span), "9/15 + 9/16 never overlap at span \(span)")
+    check(l.placements.map(\.index) == [0, 1], "9/15 + 9/16 both survive at span \(span)")
+}
+
+// Freeze the old algorithm against the new one on the reported axis: the
+// stride tick 12 and the forced last tick 14 are 2 data steps apart, so the
+// fixed 44pt boxes used to intersect.
+let oldStep = max(1, Int(ceil(Double(dateAxis.count) / 5)))
+let oldKept = (0..<dateAxis.count).filter { $0 % oldStep == 0 || $0 == dateAxis.count - 1 }
+let oldBoxes = oldKept.map { i -> (CGFloat, CGFloat) in
+    let x = xCenters(dateAxis.count, 250)[i]
+    let clamped = min(max(x, 0 + 22), 250 - 22)
+    return (clamped - 22, clamped + 22)
+}
+let oldCollides = zip(oldBoxes, oldBoxes.dropFirst()).contains { $1.0 - $0.1 < 0 }
+check(oldCollides, "the previous fixed-44pt rule really did overlap on this axis (regression anchor)")
+check(Set(dateLayout.placements.map(\.index)).isSubset(of: Set(0..<dateAxis.count)),
+      "kept ticks are real data indices, in data order, with no invented label")
+
+// Category axis with short labels keeps everything that fits.
+let quarters = ["Q1", "Q2", "Q3", "Q4"]
+let qLayout = MUChartXAxisLabels.layout(centers: xCenters(4, 300), widths: xWidths(quarters),
+                                        plotMinX: 0, plotMaxX: 300)
+check(qLayout.placements.map(\.index) == [0, 1, 2, 3] && !qLayout.truncated,
+      "four short category labels all fit and are never truncated")
+check(qLayout.dropped.isEmpty, "nothing is dropped when the labels fit")
+
+// Long CJK dates on a narrow phone: keep both ends, truncate rather than overlap.
+let cjkDates = ["2024年9月15日", "2024年10月15日"]
+let cjkWidths = xWidths(cjkDates)
+for span: CGFloat in [150, 180, 240] {
+    let l = MUChartXAxisLabels.layout(centers: xCenters(2, span), widths: cjkWidths,
+                                      plotMinX: 0, plotMaxX: span)
+    check(xNoOverlap(l, gap: 6, span: span), "narrow CJK date ends never overlap at span \(span)")
+    check(l.placements.count == 2, "narrow CJK date keeps BOTH ends at span \(span)")
+    check(l.placements.allSatisfy { $0.width <= ceil(max(cjkWidths[0], cjkWidths[1])) + 1e-6 },
+          "a shrink never widens a CJK box beyond its measured text at span \(span)")
+    check(l.placements.allSatisfy { $0.width >= min(12, (span - 6) / 2) - 1e-6 },
+          "a truncated CJK box keeps a readable minimum width at span \(span)")
+}
+let cjkNarrow = MUChartXAxisLabels.layout(centers: xCenters(2, 150), widths: cjkWidths,
+                                          plotMinX: 0, plotMaxX: 150)
+check(cjkNarrow.truncated, "a truncated CJK end is flagged as truncated")
+
+// Degenerate strips: never blank, never inverted.
+let tiny = MUChartXAxisLabels.layout(centers: [0], widths: [80], plotMinX: 0, plotMaxX: 20)
+check(tiny.placements.count == 1 && tiny.placements[0].width <= 20 + 1e-6,
+      "a single label wider than the plot is clamped to the plot, not dropped")
+let none = MUChartXAxisLabels.layout(centers: [], widths: [], plotMinX: 0, plotMaxX: 200)
+check(none.placements.isEmpty && none.dropped.isEmpty, "an empty axis produces no placements")
+let one = MUChartXAxisLabels.layout(centers: [120], widths: [26], plotMinX: 0, plotMaxX: 240)
+check(one.placements == [MUChartXAxisLabels.Placement(index: 0, minX: 107, width: 26)],
+      "a single tick is centred on its mark")
+
+// Matrix: every axis width, label width, count and density keeps the invariants.
+for n in [1, 2, 3, 5, 8, 15, 23, 40] {
+    for span: CGFloat in [60, 120, 200, 300, 500] {
+        for textWidth: CGFloat in [8, 18, 26, 40, 64, 88] {
+            let widths = [CGFloat](repeating: textWidth, count: n)
+            let l = MUChartXAxisLabels.layout(centers: xCenters(n, span), widths: widths,
+                                              plotMinX: 0, plotMaxX: span)
+            check(!l.placements.isEmpty, "n=\(n) w=\(textWidth) span=\(span): the axis is never blank")
+            check(xNoOverlap(l, gap: 6, span: span), "n=\(n) w=\(textWidth) span=\(span): no overlap")
+            check(l.placements.first?.index == 0, "n=\(n) w=\(textWidth) span=\(span): first tick kept")
+            if n > 1 && span >= 2 * textWidth + 6 {
+                check(l.placements.last?.index == n - 1,
+                      "n=\(n) w=\(textWidth) span=\(span): last tick kept when the ends fit")
+            }
+            check(l.placements.count <= 7,
+                  "n=\(n) w=\(textWidth) span=\(span): density stays at the 6-tick cap plus the reserved end tick")
+            check(Set(l.placements.map(\.index)).count == l.placements.count,
+                  "n=\(n) w=\(textWidth) span=\(span): no duplicate tick")
+            check(l.dropped.count + l.placements.count == n,
+                  "n=\(n) w=\(textWidth) span=\(span): every tick is placed or reported as dropped")
+        }
+    }
+}
+let detA = MUChartXAxisLabels.layout(centers: xCenters(15, 250), widths: xWidths(dateAxis),
+                                     plotMinX: 0, plotMaxX: 250)
+let detB = MUChartXAxisLabels.layout(centers: xCenters(15, 250), widths: xWidths(dateAxis),
+                                     plotMinX: 0, plotMaxX: 250)
+check(detA == detB, "x-axis placement is deterministic across calls")
+// A translated plot (Charts insets the strip) shifts every box by the same amount.
+let shifted = MUChartXAxisLabels.layout(centers: xCenters(15, 250).map { $0 + 12 }, widths: xWidths(dateAxis),
+                                        plotMinX: 12, plotMaxX: 262)
+check(shifted.placements.map(\.index) == detA.placements.map(\.index)
+      && zip(shifted.placements, detA.placements).allSatisfy { abs(($0.minX - 12) - $1.minX) < 1e-6 },
+      "a plot inset shifts the tick boxes without changing which ticks are kept")
+
+// MARK: - 8. [T-chart-interaction-theme] Callout colours come from the chart card
+//
+// Device report (photo_533C7419): the info box inside a card was filled with
+// the CHAT accent, so it turned black/graphite under ChatGPT, clay under
+// Claude and indigo under DeepSeek, while the data table right above it stayed
+// neutral. The box now shares the table's ground token and takes only its
+// semantic accent from the chart palette.
+let calloutTones = ["info", "warning", "danger", "success"]
+let lightCards = ["#FFFFFF", "#F7F7F8", "#FAF9F5", "#F0EEE6", "#EBF0FF"]
+let darkCards = ["#1C1C1E", "#212121", "#262624", "#1E1F22", "#161B1F"]
+
+check(MUChartInteractionTheme.accent("error") == MUChartInteractionTheme.danger
+      && MUChartInteractionTheme.accent("caution") == MUChartInteractionTheme.warning
+      && MUChartInteractionTheme.accent("ok") == MUChartInteractionTheme.success,
+      "error/caution/ok aliases keep the info-warning-danger-success semantics")
+check(MUChartInteractionTheme.accent("WARNING") == MUChartInteractionTheme.warning,
+      "tone lookup is case-insensitive")
+check(MUChartInteractionTheme.accent("whatever") == MUChartInteractionTheme.info,
+      "an unknown tone falls back to the informational accent")
+
+// Hue identity of the base tokens: blue info, amber warning, red danger, green success.
+func channelOrder(_ c: MUMapRGB) -> (Double, Double, Double) { c.rgb }
+for (name, pair) in [("info", MUChartInteractionTheme.info), ("warning", MUChartInteractionTheme.warning),
+                     ("danger", MUChartInteractionTheme.danger), ("success", MUChartInteractionTheme.success)] {
+    for dark in [false, true] {
+        let (r, g, b) = channelOrder(pair.rgb(forDarkSurface: dark))
+        switch name {
+        case "info": check(b > r && b > g, "info stays blue in \(dark ? "dark" : "light")")
+        case "warning": check(r > b && g > b, "warning stays amber in \(dark ? "dark" : "light")")
+        case "danger": check(r > g && r > b, "danger stays red in \(dark ? "dark" : "light")")
+        default: check(g > r && g > b, "success stays green in \(dark ? "dark" : "light")")
+        }
+    }
+}
+check(MUChartInteractionTheme.info.rgb(forDarkSurface: true) != MUChartInteractionTheme.info.rgb(forDarkSurface: false),
+      "every tone carries an independent day/night pair")
+
+for surfaceHex in lightCards + darkCards {
+    let surface = MUMapRGB(hex: surfaceHex)
+    let dark = surface.luminance < 0.179
+    let panel = MUChartInteractionTheme.panel(on: surface)
+    check(MUChartInteractionTheme.isDark(surface) == dark, "day/night is read from the real surface \(surfaceHex)")
+    // The table ground adds no new hue: it is the card surface, deepened by a
+    // neutral ink composite, so a warm (Claude), cool (DeepSeek) or dark card
+    // keeps its own family instead of importing the chat accent.
+    func hueSignature(_ c: MUMapRGB) -> [Double] {
+        let (r, g, b) = c.rgb
+        func sign(_ v: Double) -> Double { abs(v) < 0.004 ? 0 : (v > 0 ? 1 : -1) }
+        return [sign(r - g), sign(g - b), sign(r - b)]
+    }
+    check(hueSignature(panel) == hueSignature(surface), "chart panel keeps the card's own hue on \(surfaceHex)")
+    check(rgbDistance(panel, surface) <= 40, "chart panel is a neutral deepening of the card on \(surfaceHex)")
+    if dark {
+        check(panel.luminance > surface.luminance, "dark card: the panel lifts above the card \(surfaceHex)")
+        check(panel.luminance < 0.30, "dark card: the panel stays dark \(surfaceHex)")
+    } else {
+        check(panel.luminance < surface.luminance, "light card: the panel sits below the card \(surfaceHex)")
+        check(panel.luminance > 0.70, "light card: the panel stays light \(surfaceHex)")
+    }
+    var fills: [String] = []
+    var accents: [String] = []
+    for tone in calloutTones {
+        let box = MUChartInteractionTheme.resolved(tone: tone, on: surface)
+        fills.append(box.fill.hex); accents.append(box.accent.hex)
+        check(box.isDark == dark, "\(tone) on \(surfaceHex): resolved scheme matches the surface")
+        // Same family as the data table: the fill is the panel ground plus a
+        // bounded accent wash, never a full-strength brand colour.
+        check(rgbDistance(box.fill, panel) < rgbDistance(box.fill, MUChartInteractionTheme.accent(tone).rgb(forDarkSurface: dark)),
+              "\(tone) on \(surfaceHex): the fill is closer to the table ground than to the raw accent")
+        check(rgbDistance(box.fill, panel) <= 90, "\(tone) on \(surfaceHex): the accent wash stays bounded")
+        // Contrast contract, measured on the real fill.
+        check(box.accent.contrast(on: box.fill) >= 3.0 - 1e-9, "\(tone) on \(surfaceHex): icon/bar >= 3:1")
+        check(box.text.contrast(on: box.fill) >= 7.0 - 1e-9, "\(tone) on \(surfaceHex): body text >= 7:1")
+        check(box.muted.contrast(on: box.fill) >= 4.5 - 1e-9, "\(tone) on \(surfaceHex): secondary text >= 4.5:1")
+        check(box.border.contrast(on: box.fill) > 1.0 && box.border.contrast(on: box.fill) < box.accent.contrast(on: box.fill),
+              "\(tone) on \(surfaceHex): the border is a hairline, quieter than the icon")
+        // Readability direction follows the scheme.
+        if dark {
+            check(box.text.luminance > 0.55, "\(tone) on \(surfaceHex): dark card uses light text")
+        } else {
+            check(box.text.luminance < 0.20, "\(tone) on \(surfaceHex): light card uses dark text")
+        }
+    }
+    check(Set(fills).count == calloutTones.count, "the four tones are visually distinct on \(surfaceHex)")
+    check(Set(accents).count == calloutTones.count, "the four accent colours stay distinct after adaptation on \(surfaceHex)")
+}
+
+// The same tone on a light and on a dark card of the SAME family must invert.
+let lightBox = MUChartInteractionTheme.resolved(tone: "info", on: MUMapRGB(hex: "#FFFFFF"))
+let darkBox = MUChartInteractionTheme.resolved(tone: "info", on: MUMapRGB(hex: "#1C1C1E"))
+check(lightBox.fill != darkBox.fill && lightBox.accent != darkBox.accent && lightBox.text != darkBox.text,
+      "info adapts independently for day and night cards")
+check(lightBox.fill.luminance > 0.75 && darkBox.fill.luminance < 0.30,
+      "info fill inverts between a white and a black card")
+
 print("CHART_LAYOUT_PASS checks=\(passed)")
 if failed > 0 {
     print("CHART_LAYOUT_FAILED \(failed)")

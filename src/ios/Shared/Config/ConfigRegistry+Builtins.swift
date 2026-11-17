@@ -1345,12 +1345,30 @@ extension ConfigRegistry {
             defaultValue: true
         ))
         // [T-fold-consecutive-tools] Settings → Appearance → Tool Calls.
-        r.register(AppStorageBoolField(
+        // [T-fold-two-switches] "Fold after the reply": a run a finished reply
+        // closed becomes one row. Independent of `chat.foldToolsWhileReplying`;
+        // both write through the notifying field so `minis-config set` re-plans
+        // an open chat immediately.
+        r.register(AppStorageNotifyingBoolField(
             path: "chat.foldTools",
             displayName: "Fold Consecutive Tool Calls",
-            description: "Show consecutive tool calls as one tappable line.",
+            description: "Show consecutive tool calls as one tappable line. Applies to a run a finished reply closed.",
             userDefaultsKey: "chat.foldConsecutiveTools",
-            defaultValue: false
+            defaultValue: false,
+            notification: .messageListNeedsResnapshot
+        ))
+        // [T-fold-two-switches] "Fold while replying": the run still growing
+        // (running tools, thinking) folds too. Default false, independent of
+        // `chat.foldTools` — all four combinations are meaningful: both off
+        // never folds, only this one on folds while the model works and expands
+        // when the reply lands, both on keeps everything folded.
+        r.register(AppStorageNotifyingBoolField(
+            path: "chat.foldToolsWhileReplying",
+            displayName: "Fold Tools While Replying",
+            description: "Fold running tool calls and thinking into the live summary row while the reply is still being written. Off by default. When ON and chat.foldTools is OFF, a run folds while the model works and opens again once its reply ends.",
+            userDefaultsKey: "chat.foldToolsWhileReplying",
+            defaultValue: false,
+            notification: .messageListNeedsResnapshot
         ))
         // [T-stop-mode-longpress] Settings → Appearance → Confirm Before
         // Stopping; same key the stop button's long-press menu writes.

@@ -338,6 +338,12 @@ print("hbShownRows=\(hb(true, false, false, true))")
 print("hbFreshSession=\(hb(true, false, false, false))")
 probed = 0; _ = hb(false, false, false, true); _ = hb(true, true, false, true); _ = hb(true, false, true, true)
 print("hbLazy=\(probed)")
+// [T-fold-two-switches] The same probe with "fold while replying" off: the
+// running message is held back again (the pre-live rule).
+func hb2(_ b: Bool, _ f: Bool, _ r: Bool, _ shown: Bool, _ live: Bool) -> Bool {
+    ToolFoldPlanner.holdsBack(browsing: b, alreadyFolded: f, inRunningMessage: r,
+                              liveFolding: live, shownAsRows: { shown })
+}
 print("stShortOnly=\(running("TToTTo", 6)),\(show("TToTTo"))")
 // [T-fold-card-boundary] A card is the boundary while its answer is pending AND
 // after it: the run before it is closed by the card, not by the end of the task.
@@ -346,6 +352,42 @@ print("stCardKinds=\(kinds("KTTKQK"))")
 print("stCardText=\(show("tQt"))|\(live("tQt"))")
 print("off=\(show("TTTTt", enabled: false))")
 print("min=\(ToolFoldPlanner.minimumToolCount)")
+// [T-fold-two-switches] The two independent switches. `sw(s, live:end:ended:)`
+// is what the list folds with those settings in that state of the reply:
+// lo-hi:tools/running/live|done per group, or "none".
+func sw(_ s: String, live: Bool, end: Bool, ended: Bool) -> String {
+    let chars = Array(s)
+    let inputs = ToolFoldPlanner.markingNotes(parse(s)) { chars[$0] == "o" }
+    let g = ToolFoldPlanner.plan(inputs, enabled: true, ended: ended,
+                                 liveFolding: live, endFolding: end)
+    if g.isEmpty { return "none" }
+    return g.map { "\($0.range.lowerBound)-\($0.range.upperBound):\($0.toolCount)/\($0.runningCount)/\($0.isLive ? "live" : "done")" }
+        .joined(separator: ",")
+}
+// While the reply is still being written (ended: false) -> while it has ended.
+print("swGrowOffOff=\(sw("KTR", live: false, end: false, ended: false))|\(sw("KTR", live: false, end: false, ended: true))")
+print("swGrowOffOn=\(sw("KTR", live: false, end: true, ended: false))|\(sw("KTR", live: false, end: true, ended: true))")
+print("swGrowOnOn=\(sw("KTR", live: true, end: true, ended: false))|\(sw("KTR", live: true, end: true, ended: true))")
+print("swGrowOnOff=\(sw("KTR", live: true, end: false, ended: false))|\(sw("KTR", live: true, end: false, ended: true))")
+print("swClosedOffOff=\(sw("KTTt", live: false, end: false, ended: false))|\(sw("KTTt", live: false, end: false, ended: true))")
+print("swClosedOffOn=\(sw("KTTt", live: false, end: true, ended: false))|\(sw("KTTt", live: false, end: true, ended: true))")
+print("swClosedOnOn=\(sw("KTTt", live: true, end: true, ended: false))|\(sw("KTTt", live: true, end: true, ended: true))")
+print("swClosedOnOff=\(sw("KTTt", live: true, end: false, ended: false))|\(sw("KTTt", live: true, end: false, ended: true))")
+print("swStopOffOn=\(sw("KTT", live: false, end: true, ended: false))|\(sw("KTT", live: false, end: true, ended: true))")
+print("swStopOffOff=\(sw("KTT", live: false, end: false, ended: true))")
+print("swStopOnOff=\(sw("KTT", live: true, end: false, ended: false))|\(sw("KTT", live: true, end: false, ended: true))")
+print("swStopOnOn=\(sw("KTT", live: true, end: true, ended: true))")
+print("swSoftOffOn=\(sw("TToR", live: false, end: true, ended: false))|\(sw("TToR", live: false, end: true, ended: true))")
+print("swSoftOnOff=\(sw("TToR", live: true, end: false, ended: false))|\(sw("TToR", live: true, end: false, ended: true))")
+print("swCardOffOn=\(sw("TTQ", live: false, end: true, ended: false))")
+print("swCardOnOff=\(sw("TTQ", live: true, end: false, ended: false))|\(sw("TTQ", live: true, end: false, ended: true))")
+// The run the user closed by hand is not a planner state: the list keeps the
+// row, and only a settings-independent `endFolding: true` plan can find it.
+print("swManualOffOn=\(sw("KTTt", live: false, end: true, ended: true))")
+print("swManualOnOff=\(sw("KTTt", live: true, end: true, ended: true))")
+print("swHoldOff=\(hb2(true, false, true, false, false))|\(hb2(true, false, false, true, false))")
+print("swHoldOn=\(hb2(true, false, true, false, true))|\(hb2(true, false, false, true, true))")
+print("swHorizon=\(ToolFoldPlanner.foldHorizon(blockIds: ["a", "b", "c", "d"], separators: ["b"]))")
 """#
 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("tfp-\(UUID().uuidString)")
 try! FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -712,7 +754,7 @@ check("the separator decision uses the request's whole text and the shared rule"
 check("re-plan only applies when the plan changed",
       body(of: "func resnapshotIfToolFoldsChanged(caller: String) {").contains("guard planned.runs != toolFoldRunsByMessage else {"))
 check("the list plans from inputs(for:), so remarks become notes [T-fold-tool-notes]",
-      plannerSrc.contains("plan(inputs(for: blocks), enabled: true, ended: ended).map { group in")
+      plannerSrc.contains("plan(inputs(for: blocks), enabled: true, ended: ended,")
       && plannerSrc.contains("markingNotes(blocks.map(input(for:))) { isSingleLine(blocks[$0].content) }"))
 check("the vm signals the turn's end twice where `isProcessing` cannot: loop unwound, stop cleaned up",
       vmSrc.contains("let toolFoldTurnEndedSignal = PassthroughSubject<Void, Never>()")
@@ -743,9 +785,44 @@ check("the setting is read with a default of OFF",
       plannerSrc.contains("(UserDefaults.standard.object(forKey: settingsKey) as? Bool) ?? false")
       && plannerSrc.contains("static let settingsKey = \"chat.foldConsecutiveTools\""))
 
+print("▶️  two independent switches [T-fold-two-switches]")
+check("both switches off folds nothing in any state (growing and ended)", has("swGrowOffOff=none|none")
+      && has("swClosedOffOff=none|none") && has("swStopOffOff=none"))
+check("only 'after the reply' (the original behavior): a reply-closed run folds, the growing one stays open",
+      has("swClosedOffOn=0-2:2/0/done|0-2:2/0/done") && has("swGrowOffOn=none|none"))
+check("only 'after the reply': a finished message with no reply folds its calls; a running call at the tail keeps them open",
+      has("swStopOffOn=none|0-2:2/0/done"))
+check("both switches on is live folding: the growing run folds while the reply streams and settles when it ends",
+      has("swGrowOnOn=0-2:2/1/live|0-2:2/1/done") && has("swClosedOnOn=0-2:2/0/done|0-2:2/0/done")
+      && has("swStopOnOn=0-2:2/0/done"))
+check("only 'while replying': a run a reply closes opens again — the requested 'fold while working, expand at the end'",
+      has("swClosedOnOff=none|none") && has("swGrowOnOff=0-2:2/1/live|none")
+      && has("swStopOnOff=0-2:2/0/live|none"))
+check("only 'while replying': a card-closed run opens at once too (the card is that run's reply)",
+      has("swCardOffOn=0-1:2/0/done") && has("swCardOnOff=none|none"))
+check("a remark's soft end folds in both states (it belongs to the generation, as before); with only 'while replying' on the finished message has no row at all",
+      has("swSoftOffOn=0-2:2/0/done|0-2:2/0/done") && has("swSoftOnOff=0-3:3/1/live|none"))
+check("the manual close survives the turn end: the settled plan still contains the run the list keeps folded",
+      has("swManualOnOff=0-2:2/0/done") && has("swManualOffOn=0-2:2/0/done"))
+check("browse hold: with 'while replying' off the running message is held back again, with it on it folds at once",
+      has("swHoldOff=true|true") && has("swHoldOn=false|true"))
+check("the planner still plans a running message only through its latest reply separator when live folding is off [T-fold-two-switches]",
+      has("swHorizon=2") && plannerSrc.contains("guard !liveFolding else { return message.blocks.count }"))
+check("the two keys are separate and both default OFF",
+      plannerSrc.contains("static let liveSettingsKey = \"chat.foldToolsWhileReplying\"")
+      && plannerSrc.contains("static var isEnabled: Bool {\n        isEndFoldingEnabled || isLiveFoldingEnabled\n    }"))
+
 print("▶️  settings")
 check("Appearance has the toggle, default off",
       content.contains("@AppStorage(\"chat.foldConsecutiveTools\") private var foldConsecutiveTools: Bool = false"))
+check("[T-fold-two-switches] Appearance has the second toggle too, independent and default off",
+      content.contains("@AppStorage(\"chat.foldToolsWhileReplying\") private var foldToolsWhileReplying: Bool = false")
+      && content.contains("Toggle(AppLocalized(\"Fold Tools While Replying\"), isOn: $foldToolsWhileReplying)")
+      && content.contains("Toggle(AppLocalized(\"Fold Consecutive Tool Calls\"), isOn: $foldConsecutiveTools)"))
+check("[T-fold-two-switches] both toggles re-plan the open chat, and the CLI path does too",
+      content.components(separatedBy: "NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)").count - 1 >= 2
+      && registry.contains("path: \"chat.foldToolsWhileReplying\"")
+      && registry.contains("notification: .messageListNeedsResnapshot"))
 check("the toggle re-lays the open chat out",
       content.contains("NotificationCenter.default.post(name: .messageListNeedsResnapshot, object: nil)"))
 check("ConfigRegistry registers it, default false",
@@ -776,6 +853,12 @@ check("the share picker hides a thinking run under Hide Thinking, next to the th
 check("the export follows the same split: tool runs with the tools, thinking runs with the thinking",
       exportRenderer.contains("return (cell.fold?.toolCount ?? 0) > 0 ? includeTools : includeThinking"))
 
+check("[T-fold-two-switches] the list passes both switches into every plan call, and keeps a run the user closed by hand",
+      v3.contains("let settings = ToolFoldPlanner.FoldSettings.current")
+      && v3.contains("liveFolding: settings.live")
+      && v3.contains("endFolding: settings.end")
+      && v3.contains("toolGroupManuallyFolded.insert(run.key)")
+      && v3.contains("run.matchKeys.contains(where: { toolGroupManuallyFolded.contains($0) })"))
 check("live group updates disable animations and preserve manual expansion keys [T-fold-live-process]",
       v3.contains("expandedToolGroups.insert(run.key)")
       && v3.contains("aliases.contains(where: { expandedToolGroups.contains($0) })")

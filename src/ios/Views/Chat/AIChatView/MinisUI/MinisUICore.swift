@@ -1545,6 +1545,79 @@ enum MUChartPaletteTokens {
     }
 }
 
+/// [T-chart-interaction-theme] One token family for the interactive chrome of a
+/// chart card: the data table, the callouts and the info notes inside a card.
+///
+/// The device report showed a blue info box that took its fill from
+/// `ChatColors.tint`, so it changed colour with the CHAT theme (system blue /
+/// ChatGPT black / Claude clay / DeepSeek indigo) while the table next to it
+/// stayed neutral — the card read as two different designs.
+///
+/// The interaction ground is therefore built from the card's own surface (the
+/// same neutral ink composite the data table uses), and the semantic accents
+/// are the chart palette tokens, not the chat tint. info stays blue, warning
+/// stays amber, danger stays red, success stays green in every chat theme and
+/// in both day and night, and global `ChatColors.tint` is untouched.
+enum MUChartInteractionTheme {
+    /// Semantic accents, taken from the chart guide ramps (never the chat tint).
+    static let info = MUChartColorPair(light: 0x00588D, dark: 0x7BBFFC)     // guide blue ramp
+    static let warning = MUChartColorPair(light: 0x8D6300, dark: 0xF2C85E)  // guide gold ramp
+    static let danger = MUChartColorPair(light: 0xA81829, dark: 0xE0525E)   // guide dark red
+    static let success = MUChartColorPair(light: 0x005F52, dark: 0x86E5D4)  // guide green ramp
+
+    /// Neutral ground shared by the data table and every callout in the card.
+    /// An ink composite on the ACTUAL card surface, so a warm (Claude) or dark
+    /// card gets a panel of its own family instead of a fixed grey.
+    static func panel(on surface: MUMapRGB) -> MUMapRGB {
+        surface.ink.composited(over: surface, alpha: isDark(surface) ? 0.10 : 0.045)
+    }
+    /// Hairline rules/dividers in the same neutral family.
+    static func rule(on surface: MUMapRGB) -> MUMapRGB {
+        surface.ink.composited(over: surface, alpha: isDark(surface) ? 0.20 : 0.10)
+    }
+    static func isDark(_ surface: MUMapRGB) -> Bool { surface.luminance < 0.179 }
+
+    /// Tone names accepted from the program (`tone:` prop) plus the status
+    /// words the prompt already teaches. Unknown tones stay informational.
+    static func accent(_ tone: String) -> MUChartColorPair {
+        switch tone.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "warning", "caution", "warn": return warning
+        case "danger", "error", "critical": return danger
+        case "success", "ok", "positive": return success
+        default: return info
+        }
+    }
+
+    /// Final, OPAQUE tokens for one callout on one real surface. Nothing here
+    /// depends on the chat theme; the body text is the surface ink (`Color.primary`
+    /// equivalent) so it keeps >= 7:1 on the panel it is painted on.
+    struct Resolved: Equatable {
+        let fill: MUMapRGB
+        let border: MUMapRGB
+        /// Icon / 3pt leading bar: >= 3:1 on the fill.
+        let accent: MUMapRGB
+        /// Body text and icon glyph: >= 4.5:1 (text 7:1) on the fill.
+        let text: MUMapRGB
+        let muted: MUMapRGB
+        let isDark: Bool
+    }
+
+    static func resolved(tone: String, on surface: MUMapRGB) -> Resolved {
+        let dark = isDark(surface)
+        let ground = panel(on: surface)
+        let base = accent(tone).rgb(forDarkSurface: dark)
+        // A light accent wash keeps the info/warning/error reading while the
+        // box stays in the table's colour family: same ground, <= 16% accent.
+        let fill = base.composited(over: ground, alpha: dark ? 0.16 : 0.08)
+        return Resolved(fill: fill,
+                        border: base.composited(over: fill, alpha: dark ? 0.55 : 0.40),
+                        accent: base.readable(on: fill, minimum: 3.0),
+                        text: surface.ink.readable(on: fill, minimum: 7.0),
+                        muted: surface.ink.composited(over: fill, alpha: 0.75).readable(on: fill, minimum: 4.5),
+                        isDark: dark)
+    }
+}
+
 /// Colour role of one series in a multi-series chart.
 ///
 /// `normal` — no emphasis in this chart: the series keeps its palette colour.
@@ -1992,6 +2065,132 @@ struct MUChartColumns: Equatable {
         return Self(width: w, inset: innerInset,
                     plotWidth: max(0, w - 2 * innerInset - l - a - gaps),
                     labelWidth: l, axisWidth: a)
+    }
+}
+
+// MARK: - [T-chart-x-axis] Owned X-axis tick labels (Foundation only)
+/// The device report: a date axis printed "9/15" and "9/16" on top of each
+/// other. The old rule was `i % ceil(count / 5) == 0 || i == last`, which knows
+/// nothing about how wide the text is: the forced last tick lands one slot away
+/// from the stride tick, both boxes are `min(44, width / 3)` wide, and their
+/// centres are then clamped to the plot, so they collide.
+///
+/// This is the replacement. It takes the REAL tick centres (ChartProxy) and the
+/// REAL text widths (measured by the caller) and returns boxes that never
+/// overlap:
+///
+///   * the first and the last tick are kept whenever the strip can hold them
+///     (the ends are what a reader anchors a time axis on),
+///   * the ticks in between are thinned out by the widest stride that fits,
+///   * when the last tick collides with the previous kept tick, the MIDDLE one
+///     is dropped — never the end,
+///   * when even the two ends cannot fit at their natural width, both boxes are
+///     shrunk (the label truncates with an ellipsis) as long as at least half of
+///     the text still shows; otherwise only the first tick survives, so the axis
+///     is never left blank,
+///   * data order is never changed and no label text is hard-coded: dates,
+///     quarters, months, categories and long CJK labels all use this one path.
+enum MUChartXAxisLabels {
+    struct Placement: Equatable {
+        let index: Int
+        /// Leading edge and width in the plot's own coordinate space.
+        let minX: CGFloat
+        let width: CGFloat
+        var maxX: CGFloat { minX + width }
+        var centerX: CGFloat { minX + width / 2 }
+    }
+
+    struct Layout: Equatable {
+        let placements: [Placement]
+        /// A kept box is narrower than the measured text (tail truncation).
+        let truncated: Bool
+        /// Indices that were thinned out or could not fit.
+        let dropped: [Int]
+    }
+
+    /// - Parameters:
+    ///   - centers: tick centres in plot coordinates, in data order.
+    ///   - widths: measured text widths of the same labels.
+    ///   - plotMinX/plotMaxX: the plot strip the boxes must stay inside.
+    ///   - minGap: blank strip between two neighbouring boxes.
+    ///   - maxCount: density cap, so a very wide card does not print 20 ticks.
+    static func layout(centers: [CGFloat], widths: [CGFloat],
+                       plotMinX: CGFloat, plotMaxX: CGFloat,
+                       minGap: CGFloat = 6, maxCount: Int = 6) -> Layout {
+        let count = min(centers.count, widths.count)
+        guard count > 0 else { return Layout(placements: [], truncated: false, dropped: []) }
+        let lo = min(plotMinX, plotMaxX), hi = max(plotMinX, plotMaxX)
+        let span = hi - lo
+        guard span.isFinite, span > 0 else {
+            let width = max(0, min(widths[0], max(0, span)))
+            return Layout(placements: [Placement(index: 0, minX: lo, width: width)],
+                          truncated: width + 1e-6 < widths[0], dropped: Array(1..<count))
+        }
+        let gap = max(0, minGap)
+
+        // Box width and the natural centre clamped so the box stays in the strip.
+        var boxWidth = [CGFloat](repeating: 0, count: count)
+        var boxCenter = [CGFloat](repeating: 0, count: count)
+        for i in 0..<count {
+            let w = min(max(0, widths[i].isFinite ? ceil(widths[i]) : 0), span)
+            boxWidth[i] = w
+            boxCenter[i] = min(max(centers[i].isFinite ? centers[i] : lo + span / 2, lo + w / 2), hi - w / 2)
+        }
+
+        // How many of these boxes fit side by side, then the widest stride that
+        // produces at most that many ticks.
+        let meanWidth = boxWidth.reduce(0, +) / CGFloat(count)
+        let perTick = meanWidth + gap
+        let fitted = perTick > 0 ? Int(((span + gap) / perTick).rounded(.down)) : count
+        let capacity = max(1, min(count, min(max(1, maxCount), fitted)))
+        let stride = max(1, Int((Double(count) / Double(capacity)).rounded(.up)))
+        var candidates: [Int] = [0]
+        var i = stride
+        while i < count - 1 { candidates.append(i); i += stride }
+        if count > 1, candidates.last != count - 1 { candidates.append(count - 1) }
+
+        func minX(_ index: Int) -> CGFloat { boxCenter[index] - boxWidth[index] / 2 }
+        func maxX(_ index: Int) -> CGFloat { boxCenter[index] + boxWidth[index] / 2 }
+        func fits(_ index: Int, after previous: Int) -> Bool { minX(index) - maxX(previous) >= gap - 1e-6 }
+
+        var kept: [Int] = []
+        for candidate in candidates {
+            guard let previous = kept.last else { kept.append(candidate); continue }
+            if fits(candidate, after: previous) { kept.append(candidate); continue }
+            let isEnd = candidate == count - 1
+            if isEnd, previous != 0 {
+                // The end outranks the middle tick it collided with.
+                kept.removeLast()
+                if let before = kept.last, !fits(candidate, after: before) { continue }
+                kept.append(candidate)
+                continue
+            }
+            if isEnd, previous == 0 {
+                // Only the two ends are left and they touch. Shrink both boxes
+                // towards the strip instead of dropping an end — but only when
+                // the collision is caused by the TEXT being wide (not by two
+                // ticks that sit almost on top of each other, where shrinking
+                // would slide a label away from its mark), and never below half
+                // of the measured text.
+                let room = (span - gap) / 2
+                let wide = boxWidth[0] + boxWidth[count - 1] > span - gap + 1e-6
+                let first = min(boxWidth[0], room), last = min(boxWidth[count - 1], room)
+                if wide, first >= 12, last >= 12, first >= boxWidth[0] / 2, last >= boxWidth[count - 1] / 2 {
+                    boxWidth[0] = first; boxCenter[0] = lo + first / 2
+                    boxWidth[count - 1] = last; boxCenter[count - 1] = hi - last / 2
+                    kept.append(candidate)
+                }
+            }
+        }
+        if kept.isEmpty { kept = [0] }
+
+        let placements = kept.sorted().map { index in
+            Placement(index: index, minX: minX(index), width: boxWidth[index])
+        }
+        let keptSet = Set(kept)
+        let truncated = placements.contains { p in p.width + 1e-6 < (widths[p.index].isFinite ? widths[p.index] : 0) }
+        return Layout(placements: placements, truncated: truncated,
+                      dropped: (0..<count).filter { !keptSet.contains($0) })
     }
 }
 

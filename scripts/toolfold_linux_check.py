@@ -92,5 +92,69 @@ print(wiring_run.stdout)
 if wiring_run.returncode:
     print('WIRING_RUN_FAILED', wiring_run.stderr[-4000:]); sys.exit(1)
 print('TOOLFOLD_WIRING_OK')
+
+# [T-fold-two-switches] Source gate for the two INDEPENDENT switches and for the
+# manual-close state that survives the turn end. The Swift stages above prove
+# the four combinations; this stage proves every surface is wired to them, so a
+# later edit cannot silently reconnect only one of the two.
+coord = (ios / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator')
+coord_src = '\n'.join((coord / f).read_text() for f in sorted(__import__('os').listdir(coord)) if f.endswith('.swift'))
+appearance = (ios / 'Views/Settings/AppearanceSettingsView.swift').read_text()
+registry_src = (ios / 'Shared/Config/ConfigRegistry+Builtins.swift').read_text()
+adapter_src = (root / 'scripts/toolfold-adapter-tests.swift').read_text()
+import json as _json
+catalog = _json.loads((ios / 'Localizable.xcstrings').read_text())['strings']
+LIVE_TITLE = 'Fold Tools While Replying'
+END_FOOTER = ('Fold Consecutive Tool Calls: once a reply has ended, the tool calls '
+              'before it fold into one summary line. Tap the line to see each call.')
+LIVE_FOOTER = ('Fold Tools While Replying: also fold the tool calls and thinking of a reply '
+               'that is still being written. With this one on and the first one off, a run '
+               'folds while the model works and opens again when its reply ends. A line you '
+               'open or close by hand stays that way until the chat is reloaded.')
+switch_checks = [
+    ('planner gates on both switches', 'guard enabled, liveFolding || endFolding else { return [] }' in planner),
+    ('planner takes both switches, defaulting to the live behavior',
+     'liveFolding: Bool = true, endFolding: Bool = true) -> [Group]' in planner),
+    ('planner restores the pre-live unfinished-tool branch',
+     'case .tool(.unfinished) where !liveFolding:' in planner),
+    ('planner restores the pre-live horizon',
+     'guard !liveFolding else { return message.blocks.count }' in planner),
+    ('planner restores the pre-live browse hold', 'guard liveFolding else { return inRunningMessage || shownAsRows() }' in planner),
+    ('share/export pass both switches', 'endFolding: settings.end' in (ios / 'Views/Chat/ChatExportRenderer.swift').read_text()),
+    ('list passes both switches', 'liveFolding: settings.live' in coord_src and 'endFolding: settings.end' in coord_src),
+    ('manual close state exists and survives the session reset and key promotion',
+     'var toolGroupManuallyFolded: Set<String> = []' in coord_src
+     and 'toolGroupManuallyFolded.removeAll()' in coord_src
+     and 'aliases.contains(where: { toolGroupManuallyFolded.contains($0) })' in coord_src),
+    ('manual close and open are recorded by the tap',
+     'toolGroupManuallyFolded.insert(run.key)' in coord_src
+     and 'toolGroupManuallyFolded.remove(run.key)' in coord_src),
+    ('settings shows two independent toggles with accurate copy',
+     '@AppStorage("chat.foldConsecutiveTools") private var foldConsecutiveTools: Bool = false' in appearance
+     and '@AppStorage("chat.foldToolsWhileReplying") private var foldToolsWhileReplying: Bool = false' in appearance
+     and 'Toggle(AppLocalized("Fold Consecutive Tool Calls"), isOn: $foldConsecutiveTools)' in appearance
+     and 'Toggle(AppLocalized("Fold Tools While Replying"), isOn: $foldToolsWhileReplying)' in appearance
+     and END_FOOTER in appearance and LIVE_FOOTER in appearance),
+    ('both toggles re-plan the open chat', appearance.count('.messageListNeedsResnapshot, object: nil') >= 2),
+    ('config registry registers both, with a notification on write',
+     'path: "chat.foldToolsWhileReplying"' in registry_src
+     and 'userDefaultsKey: "chat.foldToolsWhileReplying"' in registry_src
+     and registry_src.count('notification: .messageListNeedsResnapshot') >= 2),
+    ('18-language copy for the three new strings',
+     all(len(catalog[k].get('localizations', {})) == 18 for k in (LIVE_TITLE, END_FOOTER, LIVE_FOOTER))),
+    ('the adapter suite covers all four combinations and the manual close',
+     'liveFolding: true, endFolding: false' in adapter_src
+     and 'liveFolding: false, endFolding: true' in adapter_src
+     and 'liveFolding: false, endFolding: false' in adapter_src
+     and 'liveFolding: true, endFolding: true' in adapter_src
+     and 'the settled plan a manual close re-uses' in adapter_src),
+]
+bad = [label for label, ok in switch_checks if not ok]
+for label in bad:
+    print(f'SWITCH WIRING MISSING: {label}')
+print(f'CHECKED {len(switch_checks)} two-switch wiring checks, {len(bad)} missing')
+print('TOOLFOLD_SWITCHES_OK' if not bad else 'TOOLFOLD_SWITCHES_FAIL')
+if bad:
+    sys.exit(1)
 print('TOOLFOLD_LINUX_OK' if not missing else 'TOOLFOLD_LINUX_FAIL')
 sys.exit(0 if not missing else 1)

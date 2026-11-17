@@ -79,6 +79,20 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'src/ios/Agent/MessageList/',
     'src/ios/Views/Chat/AssistantBlockView.swift',
     'src/ios/MinisTests/Standalone/ToolFoldPlannerTests.swift',
+    # showui-fold-settings-20261117: the three merged patch surfaces. These files
+    # are the *inputs* of the chart_layout / card_dark / theme_suite / map /
+    # chart_render specs above, so touching them makes those modules RUN (their
+    # tree hash changes) instead of inheriting the baseline — allowing the paths
+    # here only keeps an incremental dispatch from degrading to a full run for a
+    # reason the hash already decides. No spec list is narrowed by this.
+    'scripts/chart-layout-tests/',
+    'scripts/chart_layout_regression.py',
+    'src/ios/Views/Chat/AIChatView/MinisUI/',
+    'src/ios/Views/Settings/',
+    'src/ios/Localizable.xcstrings',
+    'src/ios/Shared/Config/',
+    'src/ios/Views/Chat/ChatExportRenderer.swift',
+    'src/ios/Agent/Chat/AIChatViewModel+SSEStream.swift',
 )
 
 

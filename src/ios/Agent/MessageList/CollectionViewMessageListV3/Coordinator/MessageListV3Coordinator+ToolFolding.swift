@@ -74,6 +74,11 @@ extension CollectionViewMessageListV3.Coordinator {
         func planToolFolds(messages: [ChatMessage])
             -> (runs: [UUID: [ToolFoldRun]], deferred: Bool) {
             guard ToolFoldPlanner.isEnabled, let vm else { return ([:], false) }
+            // [T-fold-two-switches] The two independent switches, read once per
+            // plan: `live` folds the run still growing, `end` folds a run a
+            // reply or card closed. Downstream passes them on unchanged, so the
+            // chat list, the share export and the planner can never disagree.
+            let settings = ToolFoldPlanner.FoldSettings.current
             let browsing = scrollMode == .userBrowsing
             let runningId = vm.toolFoldRunningMessageId
             var runsByMessage: [UUID: [ToolFoldRun]] = [:]
@@ -89,7 +94,8 @@ extension CollectionViewMessageListV3.Coordinator {
             for message in messages where message.role == .assistant {
                 let isRunning = message.id == runningId
                 let horizon = ToolFoldPlanner.foldHorizon(for: message, runningMessageId: runningId,
-                                                          separators: vm.toolFoldSeparators)
+                                                          separators: vm.toolFoldSeparators,
+                                                          liveFolding: settings.live)
                 guard horizon > 0 else { continue }
                 // [T-share-fold-tools] The same runs the share export folds.
                 // [T-fold-stopped-tools] `ended` is the TASK's end, not the
@@ -97,8 +103,29 @@ extension CollectionViewMessageListV3.Coordinator {
                 // run that has no reply after it. A running message whose
                 // horizon stops on a tool must leave it open — those calls are
                 // about to run.
-                let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),
-                                                        ended: !isRunning)
+                var folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),
+                                                        ended: !isRunning,
+                                                        liveFolding: settings.live,
+                                                        endFolding: settings.end)
+                // [T-fold-two-switches] With "fold after the reply" off, a run a
+                // reply closed is dropped from the plan — that IS the expansion
+                // the user asked for once the reply lands. The one exception is
+                // a run the user closed BY HAND: the manual close is theirs, so
+                // the row stays (and stays closed) until they open it again or
+                // the session changes. Planning it with `endFolding: true` finds
+                // exactly the runs the automatic rule would have folded.
+                if !settings.end {
+                    let settled = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),
+                                                             ended: !isRunning,
+                                                             liveFolding: settings.live,
+                                                             endFolding: true)
+                    let planned = Set(folded.map(\.firstBlockId))
+                    folded += settled.filter { run in
+                        !planned.contains(run.firstBlockId)
+                            && run.matchKeys.contains(where: { toolGroupManuallyFolded.contains($0) })
+                    }
+                    folded.sort { $0.group.range.lowerBound < $1.group.range.lowerBound }
+                }
                 guard !folded.isEmpty else { continue }
                 var runs: [ToolFoldRun] = []
                 for run in folded {
@@ -108,6 +135,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     if ToolFoldPlanner.holdsBack(browsing: browsing,
                                                  alreadyFolded: alreadyFolded,
                                                  inRunningMessage: isRunning,
+                                                 liveFolding: settings.live,
                                                  shownAsRows: { isShownUnfolded(message.id, run.firstBlockId) }) {
                         deferred = true
                         continue
@@ -197,8 +225,17 @@ extension CollectionViewMessageListV3.Coordinator {
                               || run.matchKeys.contains(where: { expandedToolGroups.contains($0) }))
             if expanding {
                 expandedToolGroups.insert(run.key)
+                // [T-fold-two-switches] Opening the row is a manual decision too:
+                // it must not be closed again by the next automatic plan.
+                for k in run.matchKeys { toolGroupManuallyFolded.remove(k) }
+                toolGroupManuallyFolded.remove(run.key)
             } else {
                 for k in run.matchKeys { expandedToolGroups.remove(k) }
+                // [T-fold-two-switches] Remember the close across the turn end:
+                // with "fold after the reply" off the plan drops this run once
+                // its reply lands, and only this key brings the row back.
+                toolGroupManuallyFolded.insert(run.key)
+                for k in run.matchKeys { toolGroupManuallyFolded.insert(k) }
             }
             // Without this, a list pinned to the bottom keeps the bottom in
             // place and the newly opened calls push the row up and out of

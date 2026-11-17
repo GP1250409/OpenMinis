@@ -1583,6 +1583,345 @@
         }
       }
     },
+    "Fold Consecutive Tool Calls: once a reply has ended, the tool calls before it fold into one summary line. Tap the line to see each call." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufeinanderfolgende Tool-Aufrufe zusammenfassen: Sobald eine Antwort beendet ist, werden die Tool-Aufrufe davor zu einer Sammelzeile zusammengefasst. Tippe auf die Zeile, um jeden Aufruf zu sehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fold Consecutive Tool Calls: once a reply has ended, the tool calls before it fold into one summary line. Tap the line to see each call."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar llamadas a herramientas consecutivas: cuando una respuesta termina, las llamadas anteriores se agrupan en una sola línea de resumen. Toca la línea para ver cada llamada."
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pagsamahin ang magkakasunod na tool call: kapag natapos na ang isang sagot, ang mga tool call bago nito ay pinagsasama sa isang linyang buod. I-tap ang linya para makita ang bawat call."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regrouper les appels d’outils consécutifs : une fois une réponse terminée, les appels qui la précèdent sont regroupés sur une seule ligne de résumé. Touchez la ligne pour voir chaque appel."
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sažmi uzastopne pozive alata: kad odgovor završi, pozivi prije njega sažimaju se u jedan sažeti redak. Dodirnite redak za prikaz svakog poziva."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringkas panggilan alat berturut-turut: setelah balasan selesai, panggilan alat sebelumnya digabung menjadi satu baris ringkasan. Ketuk baris untuk melihat setiap panggilan."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連続したツール呼び出しをまとめる: 応答が終わると、その前のツール呼び出しが 1 行の要約にまとまります。行をタップすると各呼び出しを確認できます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "연속된 도구 호출 접기: 응답이 끝나면 그 앞의 도구 호출이 한 줄 요약으로 접힙니다. 줄을 탭하면 각 호출을 볼 수 있습니다."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lipat panggilan alat berturut-turut: apabila balasan tamat, panggilan alat sebelumnya digabungkan menjadi satu baris ringkasan. Ketik baris untuk melihat setiap panggilan."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwijaj kolejne wywołania narzędzi: po zakończeniu odpowiedzi wywołania przed nią są zwijane w jeden wiersz podsumowania. Dotknij wiersza, aby zobaczyć każde wywołanie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar chamadas de ferramentas consecutivas: quando uma resposta termina, as chamadas anteriores são agrupadas em uma linha de resumo. Toque na linha para ver cada chamada."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restrânge apelurile consecutive de instrumente: după ce un răspuns se încheie, apelurile dinaintea lui se restrâng într-un singur rând de rezumat. Atinge rândul pentru a vedea fiecare apel."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сворачивать подряд идущие вызовы инструментов: после завершения ответа вызовы перед ним сворачиваются в одну строку-сводку. Коснитесь строки, чтобы увидеть каждый вызов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยุบการเรียกใช้เครื่องมือที่ต่อเนื่องกัน: เมื่อคำตอบจบลง การเรียกใช้เครื่องมือก่อนหน้าจะถูกยุบเป็นบรรทัดสรุปบรรทัดเดียว แตะที่บรรทัดเพื่อดูแต่ละรายการ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Araç çağrılarını katla: bir yanıt bittiğinde, ondan önceki araç çağrıları tek bir özet satırında katlanır. Her çağrıyı görmek için satıra dokunun."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折叠连续的工具调用：回复结束后，它前面的工具调用会折叠成一行摘要。点击该行可查看每次调用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "摺疊連續的工具呼叫：回覆結束後，它前面的工具呼叫會摺疊成一行摘要。點一下該行即可查看每次呼叫。"
+          }
+        }
+      }
+    },
+    "Fold Tools While Replying" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tools während der Antwort zusammenfassen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fold Tools While Replying"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar herramientas mientras responde"
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pagsamahin ang mga tool habang sumasagot"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regrouper les outils pendant la réponse"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sažmi alate tijekom odgovora"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringkas alat saat membalas"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "応答中もツールをまとめる"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "응답 중 도구 접기"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lipat alat semasa membalas"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwijaj narzędzia podczas odpowiedzi"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar ferramentas durante a resposta"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restrânge instrumentele în timpul răspunsului"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сворачивать инструменты во время ответа"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยุบเครื่องมือขณะตอบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıtlarken araçları katla"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回复生成时折叠工具调用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回覆生成時摺疊工具呼叫"
+          }
+        }
+      }
+    },
+    "Fold Tools While Replying: also fold the tool calls and thinking of a reply that is still being written. With this one on and the first one off, a run folds while the model works and opens again when its reply ends. A line you open or close by hand stays that way until the chat is reloaded." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tools während der Antwort zusammenfassen: Auch die Tool-Aufrufe und das Denken einer noch laufenden Antwort werden zusammengefasst. Ist nur dieser Schalter an, wird während der Arbeit des Modells zusammengefasst und beim Ende der Antwort wieder aufgeklappt. Eine Zeile, die du selbst auf- oder zuklappst, bleibt so, bis der Chat neu geladen wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fold Tools While Replying: also fold the tool calls and thinking of a reply that is still being written. With this one on and the first one off, a run folds while the model works and opens again when its reply ends. A line you open or close by hand stays that way until the chat is reloaded."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar herramientas mientras responde: también agrupa las llamadas a herramientas y el razonamiento de una respuesta que aún se está escribiendo. Con esta opción activada y la primera desactivada, el bloque se agrupa mientras el modelo trabaja y se abre de nuevo al terminar su respuesta. Una línea que abras o cierres a mano se mantiene así hasta que se recargue el chat."
+          }
+        },
+        "fil" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pagsamahin ang mga tool habang sumasagot: pagsamahin din ang mga tool call at pag-iisip ng sagot na isinusulat pa. Kapag ito lang ang naka-on, nagsasama ang isang run habang nagtatrabaho ang modelo at muling bumubukas kapag natapos ang sagot. Ang linyang binuksan o isinara mo mismo ay mananatiling ganoon hanggang i-reload ang chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regrouper les outils pendant la réponse : regroupe aussi les appels d’outils et la réflexion d’une réponse encore en cours d’écriture. Avec cette option activée et la première désactivée, le bloc se replie pendant le travail du modèle et se rouvre à la fin de sa réponse. Une ligne que vous ouvrez ou fermez à la main reste ainsi jusqu’au rechargement de la conversation."
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sažmi alate tijekom odgovora: sažima i pozive alata i razmišljanje odgovora koji se još piše. Ako je uključena samo ova opcija, niz se sažima dok model radi i ponovno otvara kad odgovor završi. Redak koji sami otvorite ili zatvorite ostaje takav dok se razgovor ne učita ponovno."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringkas alat saat membalas: ringkas juga panggilan alat dan pemikiran dari balasan yang masih ditulis. Jika hanya ini yang aktif, rangkaian diringkas saat model bekerja dan terbuka lagi saat balasannya selesai. Baris yang Anda buka atau tutup sendiri tetap begitu sampai chat dimuat ulang."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "応答中もツールをまとめる: まだ書き込み中の応答のツール呼び出しと思考もまとめます。こちらだけをオンにすると、モデルが作業している間はまとまり、応答が終わると再び開きます。手動で開閉した行は、チャットを再読み込みするまでその状態を保ちます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "응답 중 도구 접기: 아직 작성 중인 응답의 도구 호출과 사고 과정도 접습니다. 이 항목만 켜면 모델이 작업하는 동안 접히고 응답이 끝나면 다시 펼쳐집니다. 직접 열거나 닫은 줄은 채팅을 다시 불러올 때까지 그대로 유지됩니다."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lipat alat semasa membalas: lipat juga panggilan alat dan pemikiran bagi balasan yang masih ditulis. Jika hanya ini dihidupkan, rangkaian dilipat semasa model bekerja dan terbuka semula apabila balasan tamat. Baris yang anda buka atau tutup sendiri kekal begitu sehingga chat dimuat semula."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwijaj narzędzia podczas odpowiedzi: zwija także wywołania narzędzi i rozumowanie odpowiedzi, która wciąż jest zapisywana. Gdy włączona jest tylko ta opcja, ciąg zwija się podczas pracy modelu i rozwija po zakończeniu odpowiedzi. Wiersz otwarty lub zamknięty ręcznie pozostaje taki do ponownego wczytania czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupar ferramentas durante a resposta: também agrupa as chamadas de ferramentas e o raciocínio de uma resposta ainda sendo escrita. Com esta opção ativada e a primeira desativada, o bloco é agrupado enquanto o modelo trabalha e se abre de novo quando a resposta termina. Uma linha que você abrir ou fechar manualmente permanece assim até o chat ser recarregado."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restrânge instrumentele în timpul răspunsului: restrânge și apelurile de instrumente și gândirea unui răspuns încă în scriere. Dacă este activată doar aceasta, grupul se restrânge cât timp modelul lucrează și se deschide din nou când răspunsul se încheie. Un rând deschis sau închis manual rămâne așa până la reîncărcarea conversației."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сворачивать инструменты во время ответа: сворачиваются также вызовы инструментов и размышления ещё записываемого ответа. Если включён только этот переключатель, блок сворачивается, пока модель работает, и снова раскрывается по завершении ответа. Строка, открытая или закрытая вручную, остаётся такой до перезагрузки чата."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยุบเครื่องมือขณะตอบ: ยุบการเรียกใช้เครื่องมือและการคิดของคำตอบที่ยังเขียนอยู่ด้วย หากเปิดเฉพาะตัวนี้ กลุ่มจะถูกยุบขณะโมเดลทำงานและเปิดอีกครั้งเมื่อคำตอบจบ บรรทัดที่คุณเปิดหรือปิดเองจะคงอยู่เช่นนั้นจนกว่าจะโหลดแชทใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yanıtlarken araçları katla: hâlâ yazılmakta olan yanıtın araç çağrılarını ve düşünmesini de katlar. Yalnızca bu açıkken, model çalışırken grup katlanır ve yanıt bitince yeniden açılır. Elle açtığınız veya kapattığınız satır, sohbet yeniden yüklenene kadar öyle kalır."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回复生成时折叠工具调用：回复还在生成时，也把其中的工具调用与思考折叠起来。只打开这一项时，模型工作期间会折叠，回复结束后重新展开。你手动展开或收起的那一行会保持原状，直到重新打开该会话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回覆生成時摺疊工具呼叫：回覆還在生成時，也把其中的工具呼叫與思考摺疊起來。只開啟這一項時，模型工作期間會摺疊，回覆結束後重新展開。你手動展開或收起的那一行會保持原狀，直到重新開啟該對話。"
+          }
+        }
+      }
+    },
     "Running %lld tools" : {
       "extractionState" : "manual",
       "localizations" : {

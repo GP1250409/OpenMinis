@@ -222,6 +222,14 @@ extension CollectionViewMessageListV3 {
         /// Keys of runs that have been shown folded at least once. Once a run
         /// is folded it stays folded; only a run's FIRST fold may be held back.
         var presentedToolGroupKeys: Set<String> = []
+        /// [T-fold-two-switches] Keys of the runs the user CLOSED by hand. Only
+        /// meaningful while "fold after the reply" is off: then the automatic
+        /// rule opens a run as soon as its reply closes it, and this set is the
+        /// one thing that keeps a row the user closed folded. A run the user
+        /// opens again leaves the set. In memory only, per session — the same
+        /// lifetime as `expandedToolGroups` above: reopening the session applies
+        /// the settings from scratch.
+        var toolGroupManuallyFolded: Set<String> = []
         /// [T-fold-tool-notes] `.toolGroup` rows whose run changed in the latest
         /// plan while keeping their identity; reconfigured on the next apply.
         var changedToolGroupItems: [MessageListItem] = []

@@ -153,6 +153,44 @@ need('MUChartEmphasis.styles(' in view_text and 'forLabel: true' in view_text,
 need('surface.luminance < 0.179' in view_text and 'seriesLabels: series.map(text)' in view_text,
      'theme adaptation resolves light/dark from actual surface and separates text vs graphic contrast')
 
+# --- [T-chart-x-axis] the x tick boxes are PLACED, not stacked --------------
+need('enum MUChartXAxisLabels' in core_text and 'static func layout(centers: [CGFloat]' in core_text,
+     'x tick placement is a pure function of real centres + measured widths')
+need('plotMinX: frame.minX, plotMaxX: frame.maxX' in view_text,
+     'the x tick layout receives the real plot strip')
+need('MUChartXAxisLabels.layout(centers: xCenters, widths: xWidths' in view_text,
+     'the view hands REAL tick centres and REAL text widths to the x-tick layout')
+need('i % max(1, Int(ceil(Double(cols) / 5)))' not in view_text,
+     'the old index-stride tick rule (which could not see the text width) is gone')
+need('min(44, frame.width / 3)' not in view_text,
+     'the fixed 44pt tick box that overlapped its neighbour is gone')
+need('UIFont.monospacedDigitSystemFont' in view_text and 'monospacedDigit: true' in view_text,
+     'tick width is measured in the monospaced-digit font that is actually drawn')
+need('truncationMode(.tail)' in view_text,
+     'a shrunk tick box ellipsizes instead of painting over the next label')
+
+# --- [T-chart-interaction-theme] callouts follow the chart card tokens ------
+need('enum MUChartInteractionTheme' in core_text,
+     'one interaction token set (table + callouts) is defined in the pure core')
+need('static func panel(on surface: MUMapRGB)' in core_text
+     and 'MUChartInteractionTheme.panel(on:' in view_text,
+     'the data table and every callout share one ground token')
+need('MUChartInteractionTheme.resolved(tone: tone' in view_text,
+     'the callout resolves its colours from the interaction tokens')
+callout_body = view_text[view_text.index('private struct MUCallout: View'):]
+callout_body = callout_body[:callout_body.index('\n}\n')]
+need('ChatColors.' not in callout_body,
+     'the callout takes no colour from the chat theme tint')
+need('MUChartInteractionTheme.resolved' in callout_body and 'look.accent' in callout_body,
+     'the callout paints its icon and leading bar from the semantic chart accent')
+theme_block = core_text[core_text.index('enum MUChartInteractionTheme'):]
+theme_block = theme_block[:theme_block.index('\n}\n')]
+need('ChatColors' not in theme_block,
+     'the interaction tokens never read the chat palette')
+for symbol in ['static let info = MUChartColorPair', 'static let warning = MUChartColorPair',
+               'static let danger = MUChartColorPair', 'static let success = MUChartColorPair']:
+    need(symbol in theme_block, symbol.split(' = ')[0] + ' keeps its semantic accent token')
+
 # --- the prompt still teaches the charting rules ---------------------------
 for phrase, why in [
     ('Prefer show_ui for an ordinary data chart', 'show_ui is the preferred path for ordinary data charts'),

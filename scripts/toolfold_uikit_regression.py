@@ -74,6 +74,16 @@ def prepare():
     assert 'safeAreaLayoutGuide' in fixture
     assert 'suppressContentOffsetAdjustment' in fixture
     (OUT / 'ProductionToolGroupRow.swift').write_text(fixture + '\n' + row_slice + '\n')
+    # [T-fold-blank-thinking-atomic] The intermediate-frame checks in the
+    # fixture ask the PRODUCTION placeholder policy, sliced out of the snapshot
+    # coordinator (the coordinator itself is not linkable here).
+    snap = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/'
+            'MessageListV3Coordinator+Snapshot.swift').read_text()
+    start = snap.index('enum LivePlaceholderPolicy {')
+    end = snap.index('\nextension CollectionViewMessageListV3.Coordinator {', start)
+    (OUT / 'ProductionLivePlaceholderPolicy.swift').write_text(
+        'import Foundation\n\n' + snap[start:end] + '\n')
+    assert 'blankThinkingKeepsRow' in (OUT / 'ProductionLivePlaceholderPolicy.swift').read_text()
     print(f'TOOLFOLD_UIKIT_SLICE_OK bytes={len(row_slice)} cell_bytes={len(cell_slice)}', flush=True)
 
 
@@ -118,6 +128,7 @@ sources = [
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/MessageListV3Cells.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/BridgedToolGroupV3.swift',
     IOS / 'Views/Chat/AIChatView/Support/ChatColors.swift',
+    OUT / 'ProductionLivePlaceholderPolicy.swift',
     OUT / 'ProductionToolGroupRow.swift',
 ]
 cmd = [
