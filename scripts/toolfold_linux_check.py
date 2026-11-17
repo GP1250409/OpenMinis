@@ -118,7 +118,9 @@ switch_checks = [
     ('planner restores the pre-live unfinished-tool branch',
      'case .tool(.unfinished) where !liveFolding:' in planner),
     ('planner restores the pre-live horizon',
-     'guard !liveFolding else { return message.blocks.count }' in planner),
+     # foldHorizon(for: ChatMessage) is in the production adapter, outside
+     # the Foundation-only enum slice named `planner` above.
+     'guard !liveFolding else { return message.blocks.count }' in planner_src),
     ('planner restores the pre-live browse hold', 'guard liveFolding else { return inRunningMessage || shownAsRows() }' in planner),
     ('share/export pass both switches', 'endFolding: settings.end' in (ios / 'Views/Chat/ChatExportRenderer.swift').read_text()),
     ('list passes both switches', 'liveFolding: settings.live' in coord_src and 'endFolding: settings.end' in coord_src),
