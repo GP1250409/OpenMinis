@@ -276,15 +276,20 @@ final class ThinkingTransactionApp: UIResponder, UIApplicationDelegate {
         w.rootViewController = UIViewController()
         w.makeKeyAndVisible()
         let start = Timer(timeInterval: 0.4, repeats: false) { _ in
+            ThinkingPhaseTrace.reset()
+            ThinkingPhaseTrace.mark("suite-begin")
             let suite = ThinkingTransactionTests()
             suite.run()
             print("THINKING_TRANSACTION_UIKIT_CHECKS \(CheckLog.passed)")
             if CheckLog.failed > 0 {
                 print("THINKING_TRANSACTION_UIKIT_FAIL \(CheckLog.failed)")
+                fflush(stdout)
+                ThinkingPhaseTrace.mark("before-exit 2 failed=\(CheckLog.failed)")
                 exit(2)
             }
             print("THINKING_TRANSACTION_UIKIT_PASS checks=\(CheckLog.passed)")
             fflush(stdout)
+            ThinkingPhaseTrace.mark("before-exit 0 checks=\(CheckLog.passed)")
             exit(0)
         }
         RunLoop.main.add(start, forMode: .common)

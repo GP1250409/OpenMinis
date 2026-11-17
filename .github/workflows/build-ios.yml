@@ -178,6 +178,7 @@ jobs:
             bundle-identity-source.log
             bundle-identity-ipa.log
             thinking-transaction-regression.log
+            build/thinking-transaction/
             card-dark-baseline.log
             build/card-dark-baseline/*.png
             build/card-dark-baseline/*.log

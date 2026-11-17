@@ -58,21 +58,30 @@ final class ThinkingTransactionTests {
 
     // MARK: - Suite
 
+    private func runCase(_ name: String, _ body: () -> Void) {
+        ThinkingPhaseTrace.mark("case-begin " + name)
+        body()
+        ThinkingPhaseTrace.mark("case-end " + name)
+    }
+
     func run() {
+        ThinkingPhaseTrace.mark("case-begin asyncPumpGate")
         guard asyncPumpGate() else {
+            ThinkingPhaseTrace.mark("case-abort asyncPumpGate")
             print("THINKING_TXN_ASYNC_PUMP_FAILED — harness cannot deliver main-queue blocks/timers; later cases would be meaningless")
             return
         }
-        anchorMath()
-        twentyRoundToggle()
-        rapidTaps()
-        lateMeasurement()
-        userInterruptions()
-        anchorOwnership()
-        txnAnchorOnRealLayout()
-        receiptMissingStillFixesHeight()
-        offscreenProbeBudgetStops()
-        ThinkingToggleTxnMathTests.run()
+        ThinkingPhaseTrace.mark("case-end asyncPumpGate")
+        runCase("anchorMath", anchorMath)
+        runCase("twentyRoundToggle", twentyRoundToggle)
+        runCase("rapidTaps", rapidTaps)
+        runCase("lateMeasurement", lateMeasurement)
+        runCase("userInterruptions", userInterruptions)
+        runCase("anchorOwnership", anchorOwnership)
+        runCase("txnAnchorOnRealLayout", txnAnchorOnRealLayout)
+        runCase("receiptMissingStillFixesHeight", receiptMissingStillFixesHeight)
+        runCase("offscreenProbeBudgetStops", offscreenProbeBudgetStops)
+        runCase("ThinkingToggleTxnMathTests") { ThinkingToggleTxnMathTests.run() }
     }
 
     /// Proves the pump delivers main-queue blocks and timers before any test
@@ -423,8 +432,10 @@ final class ThinkingTransactionTests {
         h.layoutNow()
         h.warmUp()
         check(h.targetCell == nil, "the toggled row is off screen for this case")
+        ThinkingPhaseTrace.mark("offscreen-before-toggle")
         let request = ToggleRequest { [weak h] in h?.rows[20].expanded = true }
         h.transactionToggle(index: 20, request: request)
+        ThinkingPhaseTrace.mark("offscreen-after-toggle probing=\(h.coordinator.thinkingToggleTxn?.probing ?? false)")
         let offsetBefore = h.collection.contentOffset.y
         var frames = 0
         while frames < 40 {
@@ -433,7 +444,9 @@ final class ThinkingTransactionTests {
             if h.coordinator.thinkingToggleTxn?.probing != true { break }
         }
         let live = h.coordinator.thinkingToggleTxn
+        ThinkingPhaseTrace.mark("offscreen-after-pump frames=\(frames) probes=\(live?.probes ?? -1) probing=\(live?.probing ?? false)")
         print("THINKING_TXN_OFFSCREEN_FRAMES \(frames) probes \(live?.probes ?? -1) probing \(live?.probing ?? false)")
+        fflush(stdout)
         check(live?.probing != true, "an off-screen transaction stops probing (no 60 Hz poll)")
         check((live?.probes ?? 0) <= ThinkingToggleTxnMath.maxProbes,
               "off-screen rounds spend the finite budget (\(live?.probes ?? 0) ≤ \(ThinkingToggleTxnMath.maxProbes))")

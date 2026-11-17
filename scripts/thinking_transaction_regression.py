@@ -17,6 +17,7 @@ import json
 import pathlib
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -227,9 +228,17 @@ def syntax_gate(extra):
 
 
 def main():
+    source_only = '--source-only' in sys.argv[1:]
     cell_src, item_src = extract_slices()
     txn_src, txn_block = production_transaction_block()
     source_checks(txn_block)
+    if source_only:
+        if failures:
+            raise SystemExit('source checks failed: ' + '; '.join(failures))
+        if contract_pending:
+            raise SystemExit('contract pending: ' + '; '.join(contract_pending))
+        note('THINKING_TRANSACTION_SOURCE_ONLY_OK')
+        return
 
     gate_files = [tests / 'ProductionStubs.swift', tests / 'ThinkingHarness.swift',
                   tests / 'TxCoordinatorStub.swift', tests / 'ThinkingTransactionTests.swift',
@@ -298,11 +307,34 @@ def main():
     (app / 'Info.plist').write_bytes(plistlib.dumps(info))
     subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
     subprocess.run(['xcrun', 'simctl', 'install', uid, str(app)], check=True)
-    run = subprocess.run(['xcrun', 'simctl', 'launch', '--console', uid, info['CFBundleIdentifier']],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=360)
+    # --console's pipe transport can return before draining the app's last
+    # writes on Xcode 26 simulators. Use simctl's PTY transport; still require
+    # the ACTUAL complete console PASS marker, never synthesize it.
+    try:
+        run = subprocess.run(['xcrun', 'simctl', 'launch', '--console-pty', uid, info['CFBundleIdentifier']],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=360)
+    except subprocess.TimeoutExpired as e:
+        partial = e.stdout or ''
+        if isinstance(partial, bytes):
+            partial = partial.decode(errors='replace')
+        (out / 'results-timeout.log').write_text(partial)
+        note(partial[-20000:])
+        note('THINKING_TXN_LAUNCH_TIMEOUT 360s; partial console saved')
+        subprocess.run(['xcrun', 'simctl', 'terminate', uid, info['CFBundleIdentifier']],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        raise SystemExit('thinking transaction fixture did not finish; partial console retained')
     print(run.stdout, flush=True)
     (out / 'results.log').write_text(run.stdout)
     note('LAUNCH_RETURN_CODE ' + str(run.returncode))
+    container = subprocess.run(['xcrun', 'simctl', 'get_app_container', uid, info['CFBundleIdentifier'], 'data'],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    if container.returncode == 0:
+        phase = pathlib.Path(container.stdout.strip()) / 'Documents/thinking-phase.log'
+        if phase.exists():
+            journal = phase.read_text()
+            (out / 'phase-journal.log').write_text(journal)
+            note('THINKING_PHASE_JOURNAL_TAIL\n' + '\n'.join(journal.splitlines()[-20:]))
+    # A complete phase journal alone NEVER substitutes for the stdout PASS.
 
     for key, pattern in (('ANCHORED_20R_DRIFT', r'THINKING_TXN_20R_DRIFT (-?[\d.]+)'),
                          ('PLAIN_PATH_DRIFT', r'THINKING_TXN_PLAIN_PATH_DRIFT (-?[\d.]+)'),
@@ -318,9 +350,23 @@ def main():
             note(f'REPORT_{key} {m.group(1)}')
 
     if 'THINKING_TRANSACTION_UIKIT_PASS' not in run.stdout:
+        crash_dir = out / 'crash-reports'
+        crash_dir.mkdir(exist_ok=True)
+        copied = 0
+        for directory in [pathlib.Path.home() / 'Library/Logs/DiagnosticReports',
+                          pathlib.Path.home() / ('Library/Developer/CoreSimulator/Devices/' + uid + '/data/Library/Logs/CrashReporter')]:
+            if not directory.exists():
+                continue
+            paths = [p for p in directory.rglob('*ThinkingTransaction*')
+                     if p.is_file() and p.suffix in ('.ips', '.crash')]
+            for p in sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)[:5]:
+                shutil.copyfile(p, crash_dir / p.name)
+                copied += 1
+        note('THINKING_CRASH_REPORTS_COPIED ' + str(copied))
         try:
             log = subprocess.run(['xcrun', 'simctl', 'spawn', uid, 'log', 'show', '--style', 'compact',
-                                  '--last', '2m', '--predicate', 'process == "ThinkingTransaction"'],
+                                  '--last', '3m', '--predicate',
+                                  'process == "ThinkingTransaction" OR process == "ReportCrash" OR eventMessage CONTAINS "ThinkingTransaction"'],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
             (out / 'diagnostic.log').write_text(log.stdout)
         except subprocess.TimeoutExpired:
