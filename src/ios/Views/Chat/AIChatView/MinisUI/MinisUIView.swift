@@ -1279,7 +1279,7 @@ private struct MUButton: View {
     var body: some View {
         let primary = comp.str("style") != "secondary"
         let surface = MUSurface.base(inherited, scheme: scheme)
-        let base = MUSurface.rgb(ChatColors.tint, over: surface, scheme: scheme)
+        let base = MUSurface.rgb(ChatColors.tintUIColor, over: surface, scheme: scheme)
         let label = MUActionText.on(base)
         let wash = base.composited(over: surface, alpha: 0.12)
         let secondaryLabel = MUActionText.secondaryInk(tint: base, wash: wash)

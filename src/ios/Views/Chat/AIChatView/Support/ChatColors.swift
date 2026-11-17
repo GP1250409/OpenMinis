@@ -193,6 +193,14 @@ enum ChatColors {
     // Native tokens for surfaces: never round-trip a dynamic UIColor through Color.
     static var backgroundUIColor: UIColor { ChatThemeStore.current?.background.uiColor ?? .systemBackground }
     static var secondaryBgUIColor: UIColor { ChatThemeStore.current?.secondaryBg.uiColor ?? .secondarySystemBackground }
+    /// The tint as a UIKit colour, for maths that must agree with the pixels the
+    /// renderer paints. `Color.accentColor` bridged back to UIKit came back in
+    /// Display P3, so a component read from the SwiftUI value disagreed with the
+    /// accent the view actually draws; the bundled asset resolves in sRGB on
+    /// both paths. The Default Theme therefore keeps using the app accent.
+    static var tintUIColor: UIColor {
+        ChatThemeStore.current?.tint.uiColor ?? (UIColor(named: "AccentColor") ?? .tintColor)
+    }
     private static func pick(_ f: (ChatTheme) -> ChatThemePair, _ fallback: Color) -> Color {
         ChatThemeStore.current.map { f($0).color } ?? fallback
     }

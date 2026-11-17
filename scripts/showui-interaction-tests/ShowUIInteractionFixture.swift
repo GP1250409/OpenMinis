@@ -262,7 +262,7 @@ import UIKit
         // MUButton inherits the real Card surface (MUSurface.base of the mounted
         // tree), not systemBackground: reuse the cardFill sampled for THIS case.
         let surface = cardFill
-        let tint = MUSurface.rgb(ChatColors.tint, over: surface, scheme: scheme)
+        let tint = MUSurface.rgb(ChatColors.tintUIColor, over: surface, scheme: scheme)
         if app.isEmpty {
             // Two separate facts, so a failure says WHICH one moved: the bundled
             // asset is still the documented blue, and the Default chat theme's
