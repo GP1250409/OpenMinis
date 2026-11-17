@@ -104,6 +104,12 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/chart-layout-tests/',
     'scripts/chart_layout_regression.py',
     'src/ios/Views/Chat/AIChatView/MinisUI/',
+    # [T-showui-interaction-theme] the action tint token now lives beside the
+    # other native surface tokens. ChatColors.swift is already an input of the
+    # card_dark / theme_suite / map / chart_render specs, so editing it makes
+    # those modules RUN through their tree hash; allowing the path here only
+    # keeps the dispatch from degrading to full for a reason the hash decides.
+    'src/ios/Views/Chat/AIChatView/Support/ChatColors.swift',
     'src/ios/Views/Settings/',
     'src/ios/Localizable.xcstrings',
     'src/ios/Shared/Config/',
