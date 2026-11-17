@@ -27,6 +27,7 @@ SKIPPABLE_MODULES = {
         # cannot skip a module whose compiled surface includes MinisUI.
         'scripts/showui_interaction_regression.py',
         'scripts/showui-interaction-tests/',
+        'src/ios/Assets.xcassets/AccentColor.colorset/',
         'scripts/image_geometry_regression.py',
         'scripts/image_reflow_fixture.py',
         'scripts/image-geometry-tests/',

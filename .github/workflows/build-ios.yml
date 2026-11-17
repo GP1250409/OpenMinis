@@ -203,6 +203,8 @@ jobs:
             build/showui-interaction/pure.log
             build/showui-interaction/launch.log
             build/showui-interaction/compile.log
+            build/showui-interaction/asset-compile.log
+            build/showui-interaction/asset-info.plist
             build/showui-interaction/png/*.png
             build/showui-interaction/png/result.log
             build/showui-interaction/ProductionRenderer.swift

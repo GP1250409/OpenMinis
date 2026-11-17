@@ -15,6 +15,7 @@ day/night = 24 cases into build/showui-interaction/png/ (24 PNGs) and prints
 `SHOWUI_INTERACTION_ARTIFACT_OK png=24` after it has copied exactly those files.
 """
 import pathlib
+import json
 import platform
 import plistlib
 import shutil
@@ -178,6 +179,28 @@ info = {'CFBundleIdentifier': 'com.minismod.showui.interaction', 'CFBundleExecut
         'CFBundleName': 'ShowUIInteraction', 'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1',
         'CFBundleShortVersionString': '1', 'LSRequiresIPhoneOS': True, 'MinimumOSVersion': '16.0',
         'UIDeviceFamily': [1], 'UILaunchScreen': {}}
+# Compile only the exact production AccentColor catalog, not a hand-drawn
+# replacement. Match Xcode's GLOBAL_ACCENT_COLOR_NAME via actool metadata.
+assets = OUT / 'FixtureAssets.xcassets'
+if assets.exists():
+    shutil.rmtree(assets)
+assets.mkdir()
+(assets / 'Contents.json').write_text(json.dumps({'info': {'version': 1, 'author': 'xcode'}}))
+accent_source = ROOT / 'src/ios/Assets.xcassets/AccentColor.colorset'
+shutil.copytree(accent_source, assets / 'AccentColor.colorset')
+asset_info = OUT / 'asset-info.plist'
+r = subprocess.run(['xcrun', 'actool', '--compile', str(APP), '--platform', 'iphonesimulator',
+                    '--minimum-deployment-target', '16.0', '--target-device', 'iphone',
+                    '--accent-color', 'AccentColor', '--output-partial-info-plist', str(asset_info),
+                    str(assets)], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+(OUT / 'asset-compile.log').write_text(r.stdout)
+if r.returncode or not asset_info.exists() or not (APP / 'Assets.car').exists():
+    print(r.stdout, flush=True)
+    print('SHOWUI_INTERACTION_ASSET_FAILED', flush=True)
+    raise SystemExit(1)
+info.update(plistlib.loads(asset_info.read_bytes()))
+info['UIAccentColorName'] = 'AccentColor'
+print('SHOWUI_INTERACTION_ASSET_OK exact=AccentColor.colorset', flush=True)
 (APP / 'Info.plist').write_bytes(plistlib.dumps(info))
 subprocess.check_call(['codesign', '--force', '--sign', '-', str(APP)])
 devices = json_load = None
@@ -196,12 +219,15 @@ if (container / 'tmp/showui-interaction').exists():
     shutil.rmtree(container / 'tmp/showui-interaction')
 if PNG.exists():
     shutil.rmtree(PNG)
+launch_failed = False
 try:
     output = subprocess.check_output(['xcrun', 'simctl', 'launch', '--console-pty', uid,
                                       info['CFBundleIdentifier']], text=True, timeout=600)
 except subprocess.CalledProcessError as e:
+    launch_failed = True
     output = e.output or ''
 except subprocess.TimeoutExpired as e:
+    launch_failed = True
     output = (e.output or b'').decode('utf-8', 'replace') if isinstance(e.output, bytes) else (e.output or '')
     print('SHOWUI_INTERACTION_TIMEOUT simulator launch exceeded 600s', flush=True)
 (OUT / 'launch.log').write_text(output)
@@ -213,6 +239,9 @@ if not produced.exists() or not any(produced.iterdir()):
 PNG.mkdir(parents=True, exist_ok=True)
 for p in produced.iterdir():
     shutil.copy2(p, PNG / p.name)
+if launch_failed:
+    print('SHOWUI_INTERACTION_LAUNCH_FAILED diagnostics copied; signing blocked', flush=True)
+    raise SystemExit(1)
 if not (PNG / 'result.log').exists():
     print('SHOWUI_INTERACTION_RESULT_LOG_MISSING launch produced no result.log', flush=True)
     raise SystemExit(1)
