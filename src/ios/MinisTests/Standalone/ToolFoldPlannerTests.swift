@@ -687,20 +687,27 @@ check("running message plans all current blocks live, while each run keeps folde
       plan.contains("let isRunning = message.id == runningId")
       && plan.contains("let runningId = vm.toolFoldRunningMessageId")
       && plan.contains("let horizon = ToolFoldPlanner.foldHorizon(for: message, runningMessageId: runningId,")
-      && plan.contains("separators: vm.toolFoldSeparators)")
+      && plan.contains("separators: vm.toolFoldSeparators,")
+      && plan.contains("liveFolding: settings.live)")
       && plannerSrc.contains("static func foldHorizon(for message: ChatMessage, runningMessageId: UUID?,")
       && plannerSrc.contains("message.blocks.count")
-      && plan.contains("let folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
-      && plan.contains("ended: !isRunning)"))
+      && plan.contains("var folded = ToolFoldPlanner.foldedRuns(in: Array(message.blocks.prefix(horizon)),")
+      && plan.contains("ended: !isRunning,")
+      && plan.contains("liveFolding: settings.live,")
+      && plan.contains("endFolding: settings.end)"))
 check("the planner supports live tail folding (ended: false -> isLive) and ended closing [T-fold-stopped-tools] [T-fold-live-process]",
-      plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false) -> [Group] {")
-      && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool) -> [FoldedRun] {")
-      && plannerSrc.contains("if let s = start, foldsAtClose() {")
+      plannerSrc.contains("static func plan(_ blocks: [Input], enabled: Bool, ended: Bool = false,")
+      && plannerSrc.contains("liveFolding: Bool = true, endFolding: Bool = true) -> [Group] {")
+      && plannerSrc.contains("static func foldedRuns(in blocks: [AssistantBlock], ended: Bool,")
+      && plannerSrc.contains("liveFolding: Bool = true, endFolding: Bool = true) -> [FoldedRun] {")
+      && plannerSrc.contains("if endFolding, let s = start, foldsAtClose() {")
       && plannerSrc.contains("qualifies(tools, thinks) && !(tools == 0 && !leadGaps.isEmpty)")
       && plannerSrc.contains("[T-fold-live-process]"))
 check("the share export passes the same two inputs (horizon + task end)",
       read("Views/Chat/ChatExportRenderer.swift")
-        .contains("ended: m.id != runningMessageId)"))
+        .contains("ended: m.id != runningMessageId,")
+        && read("Views/Chat/ChatExportRenderer.swift").contains("liveFolding: settings.live,")
+        && read("Views/Chat/ChatExportRenderer.swift").contains("endFolding: settings.end)"))
 check("the list re-plans on the vm's turn-ended signal, not only on the isProcessing edge",
       v3.contains("caller: \"toolFold-turnEnded\"") && v3.contains("vm.toolFoldTurnEndedSignal"))
 
@@ -713,7 +720,7 @@ check("user_ask and a rendered show_ui are cards; info rows and delegations stay
 check("a card closes the run like a reply and is never a member",
       plannerSrc.contains("case .card, .text(isEmpty: false):")
       && ordered(plannerSrc, ["case .card, .text(isEmpty: false):",
-                              "if let s = start, foldsAtClose() {", "reset()"]))
+                              "if endFolding, let s = start, foldsAtClose() {", "reset()"]))
 let vmSrc = chatViewModelSource()
 check("a request ending on a card registers a fold separator, so the run before it closes while the answer waits",
       ordered(vmSrc, ["if ToolFoldPlanner.isCard(lastBlock) {",
@@ -724,8 +731,11 @@ check("generic foldHorizon helper still runs over settled cards only when invoke
       plannerSrc.contains("while horizon < blockIds.count, isCard(blockIds[horizon]) { horizon += 1 }"))
 check("the list gives a settled blank thinking no row and keeps the block still being written",
       v3.contains("let liveTailBlockId: UUID? = (vm.isProcessing && message.id == vm.toolFoldRunningMessageId)")
-      && v3.contains("blocks[bi].id != liveTailBlockId,")
-      && v3.contains("ToolFoldPlanner.isBlankThinking(blocks[bi]) {"))
+      && v3.contains("ToolFoldPlanner.isBlankThinking(blocks[bi]),")
+      && v3.contains("!LivePlaceholderPolicy.blankThinkingKeepsRow(")
+      && v3.contains("hasFoldRowAbove: foldRowEmitted,")
+      && v3.contains("footerOwnsPlaceholder: message.shouldShowTypingIndicator,")
+      && v3.contains("isLiveTail: blocks[bi].id == liveTailBlockId)"))
 check("an expanded run leaves blank thinking members out too",
       v3.contains(".filter { !($0.kind == .thinking && ToolFoldPlanner.isBlankThinking($0)) }")
       && v3.contains("blocks[run.group.range]"))
