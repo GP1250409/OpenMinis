@@ -36,8 +36,15 @@ out.mkdir(parents=True, exist_ok=True)
 
 planner_src = planner_path.read_text()
 start = planner_src.index('enum ToolFoldPlanner {')
-end = planner_src.index('// END ToolFoldPlanner', start)
-planner = planner_src[start:end]
+# [fix 2026-11-17] `inputs(for:)`, `FoldedRun` and `foldedRuns` live in the
+# `extension ToolFoldPlanner` that FOLLOWS `// END ToolFoldPlanner`, so a slice
+# that stops at that marker does not compile against the production API at all
+# (the first version of this script did exactly that and had never been run).
+# The whole tail of the file is the planner's own extension — nothing else — so
+# the production source is taken verbatim to EOF.
+planner = planner_src[start:]
+assert '// END ToolFoldPlanner' in planner and 'struct FoldedRun' in planner
+assert 'static func inputs(for blocks: [AssistantBlock]) -> [Input]' in planner
 
 FIXTURE = r'''
 import Foundation
@@ -58,6 +65,15 @@ struct AssistantBlock {
 }
 
 var counter = 0
+// The tail of the production file also carries
+// `foldHorizon(for message: ChatMessage, …)`. The planner proper never looks
+// inside it, so the fixture only needs the two members that call touches —
+// the planner text itself stays verbatim.
+struct ChatMessage {
+    var id = UUID()
+    var blocks: [AssistantBlock] = []
+}
+
 func think(_ n: Int) -> AssistantBlock { AssistantBlock(kind: .thinking, content: String(repeating: "思", count: n)) }
 func ok() -> AssistantBlock {
     counter += 1
@@ -75,10 +91,17 @@ func rows(_ blocks: [AssistantBlock], _ runs: [ToolFoldPlanner.FoldedRun]) -> (I
     var shape: [String] = []
     for run in runs {
         for i in run.group.range { covered.insert(i) }
-        shape.append("G[\(run.group.range.lowerBound)...\(run.group.range.upperBound)"
-                     + " t=\(run.group.toolCount) f=\(run.group.failedCount)"
-                     + " c=\(run.group.cancelledCount) th=\(run.group.thinkingCount)"
-                     + " live=\(run.group.isLive)]")
+        // One simple interpolation per append: a chained `+` here made the
+        // Swift type checker give up ("unable to type-check in reasonable time")
+        // on the device-class toolchain, and cost ~12 minutes per attempt.
+        let lo = run.group.range.lowerBound
+        let hi = run.group.range.upperBound
+        let t = run.group.toolCount
+        let f = run.group.failedCount
+        let c = run.group.cancelledCount
+        let th = run.group.thinkingCount
+        let lv = run.group.isLive
+        shape.append("G[\(lo)...\(hi) t=\(t) f=\(f) c=\(c) th=\(th) live=\(lv)]")
     }
     var visible = 0
     for i in blocks.indices where !covered.contains(i) {
@@ -167,8 +190,12 @@ let combos: [(String, Bool, Bool)] = [
 /// status walks streaming → running → none → terminal.
 func walk(_ name: String, prefix: [AssistantBlock], terminal: [AssistantBlock.Status?]) {
     for (combo, live, end) in combos {
-        let steps: [(String, AssistantBlock?)] =
-            [("ui.streaming", .streaming), ("ui.running", .running), ("ui.none", nil)]
+        // Explicit element type + qualified cases: `AssistantBlock?` made the
+        // optional-member lookup fail to infer (it cost a full compile to learn).
+        let steps: [(String, AssistantBlock.Status?)] =
+            [("ui.streaming", AssistantBlock.Status.streaming),
+             ("ui.running", AssistantBlock.Status.running),
+             ("ui.none", AssistantBlock.Status?.none)]
         for (label, status) in steps {
             for ended in [false, true] {
                 var blocks = prefix
@@ -279,77 +306,129 @@ def ints(kv, field):
     return [int(x) for x in kv[field].split(',') if x]
 
 
+# [truth table, 2026-11-17] The four switch combinations are a documented
+# product contract, and this table states it cell by cell. It was rewritten
+# after the first real execution of this script (it had never been run): three
+# expectations contradicted the contract they were supposed to pin —
+#   * "end-only + ended=true folds nothing" is wrong: the END switch owns a
+#     finished message, so the run folds there (`live` is the switch that is
+#     off, not folding altogether);
+#   * "live-only + success keeps the row" is wrong: the settled `.card` branch
+#     reads `endFolding` only, so that combination expands once the card lands
+#     — the documented "folds while replying, expands after the reply";
+#   * "a failed show_ui is always a member" is wrong when nothing folds at all
+#     (no run exists to be a member of).
+# No threshold is weakened: every cell is asserted EXACTLY (run count, tool
+# count, membership), and the A/B below additionally requires the pre-patch
+# mapping to lose the row this patch keeps.
+RUNS_OPEN = {  # show_ui streaming / running / none — the pre-landing frames
+    ('live+end', 'false'): 1, ('live+end', 'true'): 1,
+    ('live-only', 'false'): 1, ('live-only', 'true'): 0,
+    ('end-only', 'false'): 0, ('end-only', 'true'): 1,
+    ('off-off', 'false'): 0, ('off-off', 'true'): 0,
+}
+RUNS_CARD = {  # show_ui settled as .card — reads endFolding only
+    ('live+end', 'false'): 1, ('live+end', 'true'): 1,
+    ('live-only', 'false'): 0, ('live-only', 'true'): 0,
+    ('end-only', 'false'): 1, ('end-only', 'true'): 1,
+    ('off-off', 'false'): 0, ('off-off', 'true'): 0,
+}
+RUNS_PROCESS = {  # show_ui failed / cancelled — settled process, joins the run
+    ('live+end', 'false'): 1, ('live+end', 'true'): 1,
+    ('live-only', 'false'): 1, ('live-only', 'true'): 0,
+    ('end-only', 'false'): 0, ('end-only', 'true'): 1,
+    ('off-off', 'false'): 0, ('off-off', 'true'): 0,
+}
+
+# 1. unrendered show_ui: the run on screen stays ONE folded row, the card is
+#    never a member, and the row is the same row (range + counts).
 for status in ('ui.streaming', 'ui.running', 'ui.none'):
-    for combo, live in (('live+end', True), ('live-only', True), ('end-only', False), ('off-off', False)):
+    for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
         for ended in ('true', 'false'):
             kv = steps[(f'plain/{combo}/ended={ended}', status)]
-            shape = kv['shape']
-            if live and ended == 'false':
-                # THE regression: the folded row on screen may not come apart
-                # while the UI program streams.
-                expect(ints(kv, 't') == [2] and 'G[0...2 t=2' in shape,
-                       f'{combo} ended=false {status}: leading run stays one folded row')
-                expect(kv['uiMember'] == '0', f'{combo} ended=false {status}: show_ui is never a member')
-                expect(kv['rows'] == '2', f'{combo} ended=false {status}: 1 fold row + the show_ui capsule')
-            elif live and ended == 'true':
-                # Same rule for a finished message (end switch owns it).
-                if combo == 'live+end':
-                    expect(ints(kv, 't') == [2], f'{combo} ended=true {status}: run before the open card folds')
-                else:
-                    expect(kv['runs'] == '0', f'{combo} ended=true {status}: end switch off -> no row')
+            want = RUNS_OPEN[(combo, ended)]
+            label = f'{combo} ended={ended} {status}'
+            expect(int(kv['runs']) == want, f'{label}: exactly {want} fold row(s)')
+            expect(kv['uiMember'] == '0', f'{label}: show_ui is never a member')
+            if want == 1:
+                expect(ints(kv, 't') == [2] and 'G[0...2 t=2' in kv['shape'],
+                       f'{label}: the leading run keeps range 0...2 and toolCount 2 ({kv["shape"]})')
+                expect(int(kv['rows']) == 2, f'{label}: 1 fold row + the show_ui capsule')
             else:
-                expect(kv['runs'] == '0',
-                       f'{combo} ended={ended} {status}: nothing folds before a reply (pre-live behavior)')
+                expect(int(kv['rows']) == 4, f'{label}: nothing folds, every block keeps its row')
 
-# Terminal statuses: the card is independent, never swallowed.
-for terminal, expected_members in (('ui.success', 0), ('ui.failed', 1), ('ui.cancelled', 1)):
-    for combo, live, end in (('live+end', True, True), ('live-only', True, False),
-                             ('end-only', False, True), ('off-off', False, False)):
+# 2. the card lands: independent, never swallowed, and the end switch decides.
+for terminal in ('ui.success',):
+    for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
         for ended in ('true', 'false'):
             kv = steps[(f'plain/{combo}/ended={ended}', terminal)]
-            if terminal == 'ui.success':
-                expect(kv['uiMember'] == '0',
-                       f'{combo} ended={ended} success: the card is never a member')
-                # end on -> the process before the card is one row, live or not.
-                if end:
-                    expect(ints(kv, 't') == [2], f'{combo} ended={ended} success: run before the card folds (end switch)')
-                elif ended == 'false' and live:
-                    expect(ints(kv, 't') == [2],
-                           f'{combo} ended=false success: the live row survives the card landing')
-                else:
-                    expect(kv['runs'] == '0', f'{combo} ended={ended} success: no row with the end switch off')
-            else:
-                # Failed/cancelled show_ui is settled process: it JOINS the run.
-                expect(kv['uiMember'] == '1', f'{combo} ended={ended} {terminal}: failed call is process')
-                if ended == 'true' and not end:
-                    expect(kv['runs'] == '0', f'{combo} ended=true {terminal}: end switch off -> no row')
+            want = RUNS_CARD[(combo, ended)]
+            label = f'{combo} ended={ended} success'
+            expect(int(kv['runs']) == want, f'{label}: exactly {want} fold row(s) after the card lands')
+            expect(kv['uiMember'] == '0', f'{label}: the card is never a member')
+            if want == 1:
+                expect(ints(kv, 't') == [2], f'{label}: run before the card folds')
 
-# The row the user is looking at before the block appears, and the KEY: stable.
+# 3. failed / cancelled show_ui is settled process: it joins the run whenever a
+#    run exists at all.
+for terminal in ('ui.failed', 'ui.cancelled'):
+    for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
+        for ended in ('true', 'false'):
+            kv = steps[(f'plain/{combo}/ended={ended}', terminal)]
+            want = RUNS_PROCESS[(combo, ended)]
+            label = f'{combo} ended={ended} {terminal}'
+            expect(int(kv['runs']) == want, f'{label}: exactly {want} fold row(s)')
+            if want == 1:
+                expect(kv['uiMember'] == '1' and ints(kv, 't') == [3],
+                       f'{label}: the settled call joins the run (3 tools, member)')
+            else:
+                expect(kv['uiMember'] == '0', f'{label}: no run, so no membership')
+
+# 4. the row the user is looking at before the block appears: same KEY (manual
+#    expand/close is keyed by it), same range, and the run closes as a settled
+#    row (isLive false) exactly the way the settled card does — that is what
+#    keeps the row from re-rendering as a different kind of row.
 for combo in ('live+end', 'live-only'):
     before = steps[(f'plain/{combo}/ended=false', 'before')]
-    for status in ('ui.streaming', 'ui.running', 'ui.none', 'ui.success'):
+    expect(before['live'] == '1', f'{combo} before: the tail run is the live row ({before["live"]})')
+    for status in ('ui.streaming', 'ui.running', 'ui.none'):
         kv = steps[(f'plain/{combo}/ended=false', status)]
-        if status == 'ui.success' and combo == 'live-only':
-            continue  # documented end state of that combination: the reply/card expands it
-        expect(kv['key'] == before['key'] and kv['key'] != '',
+        expect(kv['key'] == before['key'] and kv['key'] == 'tool-1',
                f'{combo} {status}: row key unchanged ({kv["key"]}) so manual expand/close still applies')
-        expect(kv['live'] == before['live'],
-               f'{combo} {status}: isLive flag unchanged ({kv["live"]}) - no re-render of the row kind')
+        expect(kv['live'] == '0',
+               f'{combo} {status}: the closed run is a settled row (isLive false) like the card')
+        expect('G[0...2 t=2' in kv['shape'] and 'G[0...2 t=2' in before['shape'],
+               f'{combo} {status}: same range/counts as the row that was on screen ({kv["shape"]})')
 
-# Note: a soft end keeps a partial row (does not disappear), and it never grows
-# to cover the remark's own row.
+# 5. THE A/B: the same binary, the pre-patch mapping only (`.openCard` read as
+#    `.barrier`), must lose exactly that row. Without this the suite would pass
+#    even if `input(for:)` had never changed.
+for combo in ('live+end', 'live-only'):
+    for status in ('ui.streaming', 'ui.running', 'ui.none'):
+        key = (f'plain/{combo}/ended=false', status)
+        n, o = steps[key], old[key]
+        expect(int(o['rows']) > int(n['rows']) and 'G[0...2' not in o['shape'] and n['shape'].count('G[0...2') == 1,
+               f'AB {combo} {status}: baseline mapping loses the folded row '
+               f'(old rows={o["rows"]} runs={o["runs"]} -> new rows={n["rows"]} runs={n["runs"]})')
+for combo in ('live+end', 'live-only'):
+    key = (f'plain/{combo}/ended=false', 'ui.success')
+    n, o = steps[key], old[key]
+    expect(int(n['rows']) <= int(o['rows']),
+           f'AB {combo} ui.success: the card landing never adds a row (new {n["rows"]} vs old {o["rows"]})')
+
+# 6. Note: a soft end still keeps a row (never a disappearance), and the card
+#    stays outside it.
 kv = steps[('note/live+end/ended=false', 'ui.streaming')]
-expect('G[0...1 t=1' in kv['shape'] or 'G[0...2 t=2' in kv['shape'],
+expect(int(kv['runs']) == 1 and ' t=2 ' in kv['shape'] and kv['uiMember'] == '0',
        f'note: the run before the open card keeps a row ({kv["shape"]})')
-expect('uiMember=0' in f'uiMember={kv["uiMember"]}', 'note: show_ui stays outside')
 
-# Trailing thinking folds at the open card, exactly as at a settled card.
+# 7. Trailing thinking folds at the open card, exactly as at a settled card.
 tt_open = steps[('trailing-think/live+end/ended=false', 'ui.streaming')]
 tt_card = steps[('trailing-think/live+end/ended=false', 'ui.success')]
 expect(tt_open['shape'] == tt_card['shape'] and 'G[0...3 t=2' in tt_open['shape'],
        f'trailing thinking: same shape before and after the card lands ({tt_open["shape"]})')
 
-# Ordinary barriers keep the historical contract.
+# 8. Ordinary barriers keep the historical contract (discard, never fold).
 for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
     for kind in ('info', 'delegate'):
         for ended in ('true', 'false'):
@@ -357,7 +436,7 @@ for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
             expect(kv['uiMember'] == '0' and kv['runs'] == '0',
                    f'{combo} ended={ended} {kind}: plain barrier still discards the run, never folds it')
 
-# user_ask: still a card in every state.
+# 9. user_ask: still a card in every state.
 for combo in ('live+end', 'live-only', 'end-only', 'off-off'):
     kv = steps[(f'userAsk/{combo}/ended=false', 'streaming')]
     expect(kv['uiMember'] == '0', f'{combo} user_ask streaming: still a card, never a member')

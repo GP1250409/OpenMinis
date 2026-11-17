@@ -76,6 +76,10 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/thinking_transaction_regression.py',
     'scripts/genui-height-tests/',
     'scripts/genui_height_regression.py',
+    # [T-fold-open-card] the show_ui A/B regression is an input of the
+    # toolfold step only; it is not part of any skippable module spec, so
+    # touching it cannot make chart/map/theme inherit or run twice.
+    'scripts/genui_fold_barrier_regression.py',
     'src/ios/Agent/MessageList/',
     'src/ios/Views/Chat/AssistantBlockView.swift',
     'src/ios/MinisTests/Standalone/ToolFoldPlannerTests.swift',

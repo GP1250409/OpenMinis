@@ -99,6 +99,10 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/toolfold_linux_check.py 2>&1 | tee toolfold-regression.log
+          # [T-fold-open-card] The genui A/B regression, FULL logic (compiles the
+          # production planner and walks show_ui streaming/running/none x the four
+          # switch combinations). It had never been executed before this run.
+          python3 scripts/genui_fold_barrier_regression.py 2>&1 | tee genui-fold-barrier-regression.log
           python3 scripts/toolfold_uikit_regression.py 2>&1 | tee toolfold-uikit-regression.log
       - name: AOJIT images
         if: steps.prebuilt_deps.outputs.hit != 'true'

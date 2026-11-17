@@ -93,6 +93,13 @@ def source_audit():
          'a whitespace-only opener creates no block at all')
     need('result.thinkingText = lead' in sse and 'lastThinkingDeltaFlush = Date()' in sse,
          'the per-block accumulator starts with the lead and the throttle clock resets')
+    # [deterministic clock, 2026-11-17] The intermediate flush is decided by a
+    # wall-clock timer in the body this fixture compiles verbatim; the logic run
+    # therefore asserts the CLOCK-FREE facts (birth transaction, prefix) and this
+    # audit pins the production predicate, so deleting the throttle fails here.
+    need('thinkNow.timeIntervalSince(lastThinkingDeltaFlush) >= flushInterval' in sse
+         and 'AssistantBlock.thinkingFlushInterval(forLength: result.thinkingText.count)' in sse,
+         'the intermediate flush is still the adaptive production timer (not re-implemented)')
     delta_body = slice_between(sse, 'case .thinkingDelta(let text):', 'case .reasoningContent(let rc):',
                               'thinkingDelta')
     need('asyncAfter' not in delta_body and 'Task.sleep' not in delta_body,
@@ -356,9 +363,16 @@ func run() async {
         let blockCountBefore = s.message.blocks.count
 
         var frameIndex = 0
+        // The frame in which the block is born: the one place the throttle cannot
+        // reach, so it is where "born with its text, flushed once" is asserted.
+        var birthState: (content: String, buffer: String, flushes: Int)? = nil
         for delta in ["\n", "", "  \t\n", "思", "考", "\n思考更深"] {
             let f = await s.stepText(delta)
             frameIndex += 1
+            if s.message.blocks.count == blockCountBefore + 1, birthState == nil {
+                let born = s.message.blocks.last!
+                birthState = (born.content, born.thinkingContentBuffer, born.flushCount)
+            }
             check(f.blankRows == 0, "S1 step \(frameIndex) (\(delta.debugDescription)): no standalone blank thinking row")
             check(f.groupCount == 1, "S1 step \(frameIndex): the fold row above survives (no unfold/refold)")
             check(f.rows.filter { if case .block = $0 { return true }; return false }.count == 0,
@@ -375,10 +389,27 @@ func run() async {
         check(tail.kind == .thinking, "S1: the new block is thinking")
         check(tail.thinkingContentBuffer == "\n  \t\n思考\n思考更深",
               "S1: the buffer carries every delta in order, whitespace opener included (\(tail.thinkingContentBuffer.debugDescription))")
-        check(tail.content == "\n  \t\n思",
-              "S1: content is the birth flush — non-blank from the first visible delta (\(tail.content.debugDescription))")
+        // [deterministic clock, 2026-11-17] Production flushes `content` on a
+        // Date()-based adaptive timer (0.3s while the thinking is under 1K
+        // chars). One step of this timeline can take longer than that on an
+        // emulated runner, so a second/third flush DURING the timeline is the
+        // production throttle working, not a regression — the same tree failed
+        // these two assertions on one run and passed them on the next. They are
+        // now split into the facts that hold on every clock, with no behaviour
+        // threshold relaxed: the birth transaction still flushes exactly once
+        // WITH the first visible text, and `content` is only ever a flush of the
+        // buffer (a prefix), so it can never be invented, reordered or blank.
+        if let born = birthState {
+            check(born.content == "\n  \t\n思",
+                  "S1: the block is BORN flushed — non-blank from the first visible delta (\(born.content.debugDescription))")
+            check(born.flushes == 1, "S1: exactly one flush in the birth transaction (\(born.flushes))")
+        } else {
+            check(false, "S1: the thinking block is born inside the delta timeline")
+        }
+        check(tail.content == "\n  \t\n思" || tail.thinkingContentBuffer.hasPrefix(tail.content),
+              "S1: content is always a flush of the buffer, never invented text (\(tail.content.debugDescription))")
         check(!ToolFoldPlanner.isBlankThinking(tail), "S1: the planner never sees it empty")
-        check(tail.flushCount == 1, "S1: exactly one flush at birth, then the throttle takes over")
+        check(tail.flushCount >= 1, "S1: the birth flush landed, then the throttle owns later flushes (\(tail.flushCount))")
         check(!s.message.isAwaitingModelResponse, "S1: the waiting flag was cleared by the first delta")
         check(!s.message.shouldShowTypingIndicator, "S1: the footer typing indicator is no longer drawn")
         check(s.result.thinkingText == tail.thinkingContentBuffer, "S1: accumulator matches the block text")
