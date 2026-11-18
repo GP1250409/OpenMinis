@@ -144,6 +144,39 @@ def wiring_guards():
     check('layout: the visible-cell compensation still skips the anchored row',
           '!ToggleAnchorMath.skipsVisibleCompensation(index: index, anchored: topAnchoredIndex)' in layout)
 
+    # ---- CROSS: the answered-question card vs the system status-bar flight ----
+    # Combined candidate (mod-ask-card-statusbar-combined-20261119). Both
+    # features write `contentOffset`; these guards pin WHO owns it when they
+    # meet, so a later edit cannot re-introduce two writers.
+    delegate = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/'
+                'MessageListV3Coordinator+ScrollViewDelegate.swift').read_text()
+    bindings = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/'
+                'MessageListV3Coordinator+Bindings.swift').read_text()
+    lifecycle = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/'
+                 'StatusBarScrollToTop.swift').read_text()
+    b0 = delegate.find('func beginStatusBarScrollToTop(')
+    b1 = delegate.find('private func resumeAfterStatusBarScrollToTop')
+    flight_begin = delegate[b0:b1] if 0 <= b0 < b1 else ''
+    d0 = delegate.find('func scrollViewWillBeginDragging(')
+    d1 = delegate.find('func scrollViewWillEndDragging(')
+    drag = delegate[d0:d1] if 0 <= d0 < d1 else ''
+    check('cross: the flight start abandons the card anchor + probe chain',
+          'abandonTopAnchor()' in flight_begin)
+    check('cross: a real drag abandons the card anchor too', 'abandonTopAnchor()' in drag)
+    check('cross: both session-change paths drop the card anchor',
+          bindings.count('abandonTopAnchor()') >= 2)
+    check('cross: a card toggle ends the flight BEFORE it touches the offset',
+          'finishStatusBarScrollToTop(reason: .askToggle' in body
+          and 0 <= body.find('finishStatusBarScrollToTop(reason: .askToggle')
+                   < body.find('layout.beginTopAnchor(index: i)'))
+    check('cross: the verifier refuses to probe while the flight owns the viewport',
+          'guard !statusBarScrollToTop.isActive, !layout.isSystemScrollToTopActive else' in verify)
+    check('cross: the token-less takeover clears the anchor AND the chain',
+          'func abandonTopAnchor() -> Bool' in layout
+          and '_topAnchorToken = 0' in layout and '_verifyChainToken = 0' in layout)
+    check('cross: the flight lifecycle names the ask-toggle reason',
+          'case askToggle' in lifecycle)
+
 
 def main():
     block, block_path = extract_block()

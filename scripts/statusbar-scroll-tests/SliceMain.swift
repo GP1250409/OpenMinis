@@ -38,6 +38,7 @@ check(coord.scrollBottomJumpToken == 8, "production begin invalidates the bottom
 check(coord.scrollBottomRealigns == 0, "production begin clears the re-align budget")
 check(coord.lastJumpedUserId == nil, "production begin clears the jump cursor")
 check(coord.thinkingReleased == 1, "production begin releases the thinking anchor once")
+check(layout.abandonCount == 1, "production begin abandons the answered-question card anchor")
 check(coord.statusBarScrollToTop.isActive, "production begin opens the flight")
 check(layout.isSystemScrollToTopActive, "production begin marks the layout")
 check(layout.deferSelfSizing, "production begin defers self-sizing")

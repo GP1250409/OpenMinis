@@ -138,7 +138,13 @@ print(out.joined(separator: "\n"))
 
 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("toggle-anchor-\(UUID().uuidString)")
 try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-let files = [("ToggleAnchorMath.swift", block), ("main.swift", harness)]
+#if os(Linux)
+// No CoreGraphics module on Linux; CGFloat comes from Foundation.
+let blockForPlatform = block.replacingOccurrences(of: "import CoreGraphics\n", with: "")
+#else
+let blockForPlatform = block
+#endif
+let files = [("ToggleAnchorMath.swift", blockForPlatform), ("main.swift", harness)]
 for (name, text) in files { try? text.write(to: tmp.appendingPathComponent(name), atomically: true, encoding: .utf8) }
 func run(_ exe: String, _ args: [String]) -> (Int32, String) {
     let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
@@ -148,7 +154,17 @@ func run(_ exe: String, _ args: [String]) -> (Int32, String) {
     return (p.terminationStatus, String(decoding: d, as: UTF8.self))
 }
 let bin = tmp.appendingPathComponent("t")
-let (cc, ccOut) = run("/usr/bin/xcrun", ["swiftc"] + files.map { tmp.appendingPathComponent($0.0).path } + ["-o", bin.path])
+/// [T-standalone-no-macos] `xcrun` only exists on macOS. The block under test is
+/// pure Swift + CGFloat (no UIKit), so a plain `swiftc` runs it on Linux too -
+/// which is where this repo is edited, and why the file had been dead weight.
+func swiftcCommand() -> [String] {
+    if FileManager.default.isExecutableFile(atPath: "/usr/bin/xcrun") { return ["/usr/bin/xcrun", "swiftc"] }
+    for candidate in ["/usr/local/bin/swiftc", "/usr/bin/swiftc"]
+    where FileManager.default.isExecutableFile(atPath: candidate) { return [candidate] }
+    return ["/usr/bin/env", "swiftc"]
+}
+let compiler = swiftcCommand()
+let (cc, ccOut) = run(compiler[0], Array(compiler.dropFirst()) + files.map { tmp.appendingPathComponent($0.0).path } + ["-o", bin.path])
 print("0. Compile")
 check("shipping ToggleAnchorMath compiles standalone", cc == 0)
 if cc != 0 { print(ccOut); exit(1) }
@@ -206,7 +222,11 @@ if let r0 = v3.range(of: "func remeasureKeepingTop("),
     let measure = body.range(of: "cv.layoutIfNeeded()")
     check("list: browse mode is set BEFORE the re-measure (no bottom re-pin)",
           browse != nil && measure != nil && browse!.lowerBound < measure!.lowerBound)
-    check("list: the top is restored with anchoredOffset", body.contains("ToggleAnchorMath.anchoredOffset("))
+    // [T-user-ask-anchor-clamp] The top is restored through the pre-clamp plan
+    // (cardAnchorPlan), not the legacy bare anchoredOffset call: the clamp has
+    // to be predicted BEFORE the destructive layout pass.
+    check("list: the top is restored through the pre-clamp card plan",
+          body.contains("ToggleAnchorMath.preResizeOffset(") && body.contains("ToggleAnchorMath.cardAnchorPlan("))
     check("list: the reveal only runs when the cell grew", body.contains("if frame.height > oldHeight + 0.5 {"))
     // [T-user-ask-expand-anim] one pass: state flip + new height + anchored offset, animated together
     check("anim: everything runs in ONE UIView.animate (0.2 s ease-out, interruptible, no spring)",
@@ -217,7 +237,7 @@ if let r0 = v3.range(of: "func remeasureKeepingTop("),
           body.contains("ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)")
           && body.contains("} else {\n                changes()\n                finish()"))
     check("anim: the cell's height goes straight to the new measure (no drop to the estimate)",
-          body.contains("layout.setMeasuredHeight(fitted.size.height, at: i)"))
+          body.contains("layout.setMeasuredHeight(fittedHeight, at: i)"))
     // [T-user-ask-expand-overlap] streaming: the measure must see the NEW state
     if let flip = body.range(of: "_ = request?.run()"),
        let conf = body.range(of: "self.configureCell(cell, item: item, indexPath: ip)"),
@@ -230,8 +250,16 @@ if let r0 = v3.range(of: "func remeasureKeepingTop("),
     }
     check("overlap: neighbours animate - the list lets exactly this pass animate",
           body.contains("(cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = duration != nil\n                cv.layoutIfNeeded()\n                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false"))
-    check("list: following resumes only when the list ends at the bottom", body.contains("if self.isNearBottom() { self.scrollMode = .autoScrolling }"))
-    check("list: the anchor is released afterwards", body.contains("layout?.topAnchoredIndex = nil"))
+    // [T-user-ask-anchor-clamp] ...and only when the user is not holding the
+    // list: a clamped collapse already sits on the legal bottom.
+    check("list: following resumes only when the list ends at the bottom and the user is not holding it",
+          body.contains("if !cv.isTracking, !cv.isDecelerating, self.isNearBottom() {\n                    self.scrollMode = .autoScrolling"))
+    // [T-user-ask-anchor-token] Released by TOKEN (a bare-index clear could drop
+    // a newer tap's anchor), and the token API exists on the layout.
+    check("list: the anchor is released by token afterwards",
+          body.contains("layout?.endTopAnchor(token: anchorToken)")
+          && layoutSrc.contains("func endTopAnchor(token: Int) -> Bool")
+          && layoutSrc.contains("func beginTopAnchor(index: Int) -> Int"))
 } else {
     check("remeasureKeepingTop found", false)
 }

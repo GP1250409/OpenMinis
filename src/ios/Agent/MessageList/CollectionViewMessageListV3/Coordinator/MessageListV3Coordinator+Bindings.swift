@@ -38,6 +38,10 @@ extension CollectionViewMessageListV3.Coordinator {
             // switch; a flight from the old list must not gate the new one.
             finishStatusBarScrollToTop(reason: .sessionChange,
                                        offset: viewController?.collectionView?.contentOffset.y)
+            // [T-user-ask-anchor-flight] The card's row belongs to the OLD
+            // session: drop its anchor + probe chain here instead of letting a
+            // delayed verify fire into the new list.
+            _ = viewController?.messageListLayout?.abandonTopAnchor()
             let hadOld = vm != nil
             #if DEBUG
             ScrollMetricsRecorder.shared.record(
@@ -246,6 +250,10 @@ extension CollectionViewMessageListV3.Coordinator {
                     self.finishStatusBarScrollToTop(
                         reason: .sessionChange,
                         offset: self.viewController?.collectionView?.contentOffset.y)
+                    // [T-user-ask-anchor-flight] Same takeover for the card:
+                    // the toggled row is gone, so neither its anchor nor its
+                    // probe chain may survive into the new list.
+                    _ = self.viewController?.messageListLayout?.abandonTopAnchor()
                     guard !isLoading else { return }
                     // Switching into a session resets the up-button turn-walk.
                     self.lastJumpedUserId = nil

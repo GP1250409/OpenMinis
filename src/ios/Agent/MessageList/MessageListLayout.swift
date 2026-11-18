@@ -186,6 +186,25 @@ final class MessageListLayout: UICollectionViewLayout {
         return true
     }
 
+    /// [T-user-ask-anchor-flight] A takeover that does not carry a token - the
+    /// system status-bar scroll-to-top flight, a real drag, a session switch.
+    /// Those paths own the viewport and cannot know which toggle token is
+    /// parked, so they clear the anchor AND the probe chain wholesale: a late
+    /// `verifyToggledHeight` then finds no ownership and neither re-anchors nor
+    /// writes an offset underneath the running animation. Returns true when
+    /// something was actually parked (logged by the caller).
+    @discardableResult
+    func abandonTopAnchor() -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        let hadAnchor = _topAnchoredIndex != nil
+        let hadChain = _verifyChainToken != 0
+        _topAnchoredIndex = nil
+        _topAnchorToken = 0
+        _verifyChainToken = 0
+        return hadAnchor || hadChain
+    }
+
     /// [T-thinking-toggle-txn] A MANUAL thinking-row open/close owns its own
     /// anchor, keyed by the transaction's token.
     /// Why not reuse `topAnchoredIndex`: the answered-question card's

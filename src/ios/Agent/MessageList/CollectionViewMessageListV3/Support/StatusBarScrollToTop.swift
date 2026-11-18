@@ -43,6 +43,9 @@ final class StatusBarScrollToTopLifecycle {
         case search
         case screenshot
         case superseded
+        /// [T-user-ask-anchor-flight] An answered-question card toggle took the
+        /// viewport: it ends the flight first, then re-measures the card.
+        case askToggle
         case watchdog
     }
 

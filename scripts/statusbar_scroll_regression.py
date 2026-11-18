@@ -81,6 +81,11 @@ def wiring_checks() -> int:
          'a drag must transfer the status-bar flight')
     need('finishStatusBarScrollToTop(reason: .superseded' in prev,
          'the up-button jump must supersede the flight')
+    # [T-user-ask-anchor-flight] CROSS with the answered-question card: the
+    # flight and the card toggle both write contentOffset, so the takeover has
+    # to be explicit in both directions.
+    need('abandonTopAnchor()' in begin, 'flight start abandons the card anchor + probe chain')
+    need('abandonTopAnchor()' in drag, 'a real drag abandons the card anchor too')
     need('settleAfterInteraction(' not in begin, 'Should must not call settle (auto re-acquire)')
     need('resumeAfterStatusBarScrollToTop' in finish, 'end must run the restoration pass')
     for api in ('applyDeferredHeights', 'consumeDeferredCorrectionIfNeeded',
@@ -158,8 +163,10 @@ final class StubLayout {
     var suppressContentOffsetAdjustment = false
     var applyCount = 0
     var invalidateCount = 0
+    var abandonCount = 0
     func applyDeferredHeights() { applyCount += 1 }
     func invalidateLayout() { invalidateCount += 1 }
+    func abandonTopAnchor() -> Bool { abandonCount += 1; return true }
 }
 final class StubVC {
     var collectionView: StubCV? = StubCV()

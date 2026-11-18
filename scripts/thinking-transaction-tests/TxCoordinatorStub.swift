@@ -74,6 +74,29 @@ enum CollectionViewMessageListV3 {
         var snapshotMessages: [TxMessage] = []
         var vm: TxViewModel?
 
+        // [T-user-ask-anchor-flight] The system status-bar flight this list
+        // shares the viewport with. The SHIPPING lifecycle + policy
+        // (Support/StatusBarScrollToTop.swift) is compiled into the fixture, so
+        // the toggle path meets the real state machine; only the coordinator's
+        // resume pass (layout flush, streaming thaw) is stubbed.
+        let statusBarScrollToTop = StatusBarScrollToTopLifecycle()
+        var statusBarEndReasons: [StatusBarScrollToTopLifecycle.EndReason] = []
+        var statusBarRestoredOwnership = 0
+
+        @discardableResult
+        func finishStatusBarScrollToTop(reason: StatusBarScrollToTopLifecycle.EndReason,
+                                        offset: CGFloat? = nil) -> Bool {
+            guard statusBarScrollToTop.isActive else { return false }
+            let end = statusBarScrollToTop.end(reason)
+            statusBarEndReasons.append(reason)
+            if end.restoreSelfSizing {
+                statusBarRestoredOwnership += 1
+                viewController?.messageListLayout?.deferSelfSizing = false
+            }
+            viewController?.messageListLayout?.isSystemScrollToTopActive = false
+            return true
+        }
+
         /// Fixture hook: how the real `configureCell` builds a cell's hosting
         /// configuration. Set by the harness.
         var applyConfiguration: ((SelfSizingCell, MessageListItem, IndexPath) -> Void)?

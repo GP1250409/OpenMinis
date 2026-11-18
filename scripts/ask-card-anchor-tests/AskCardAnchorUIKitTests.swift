@@ -140,6 +140,32 @@ func runAskCardUIKitCases() {
               abs(fx.cv.contentOffset.y - offset) <= 1.0,
               "\(f(offset))->\(f(fx.cv.contentOffset.y))")
         check("S6 no out-of-range offset after the swap", fx.spy.outOfRange == 0, "\(fx.spy.outOfRange)")
+
+        // [T-user-ask-anchor-flight] CROSS with the status-bar scroll-to-top
+        // flight: a card tap that lands mid-flight is fresh user intent, so it
+        // ENDS the flight (reason .askToggle) instead of writing the offset
+        // underneath the system animation, releases the layout's ownership and
+        // the borrowed self-sizing, and leaves nothing behind that could move
+        // the list later.
+        let crossCard = fx.cardIds[1]
+        _ = fx.coordinator.statusBarScrollToTop.begin()
+        fx.vc.messageListLayout?.isSystemScrollToTopActive = true
+        check("S6 cross: fixture flight is running", fx.coordinator.statusBarScrollToTop.isActive)
+        fx.toggleCard(crossCard)
+        check("S6 cross: the card toggle ended the flight",
+              !fx.coordinator.statusBarScrollToTop.isActive
+              && fx.coordinator.statusBarEndReasons.contains(.askToggle),
+              "\(fx.coordinator.statusBarEndReasons)")
+        check("S6 cross: the layout is no longer system-owned",
+              fx.vc.messageListLayout?.isSystemScrollToTopActive == false)
+        check("S6 cross: the flight handed its borrowed self-sizing back",
+              fx.coordinator.statusBarRestoredOwnership >= 1)
+        check("S6 cross: the offset stayed legal", fx.spy.outOfRange == 0, "\(fx.spy.outOfRange)")
+        let crossOffset = fx.cv.contentOffset.y
+        fx.pump(0.8)
+        check("S6 cross: no probe wrote the offset after the flight ended",
+              abs(fx.cv.contentOffset.y - crossOffset) <= 1.0,
+              "\(f(crossOffset))->\(f(fx.cv.contentOffset.y))")
         snapshot("s6-snapshot-swap", fx.vc)
     }
 

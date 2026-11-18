@@ -97,6 +97,10 @@ def main():
     main_file = OUT / 'main.swift'
     main_file.write_text('import UIKit\n\nrunAskCardUIKitCases()\n')
     sources = [IOS / 'Agent/MessageList/MessageListLayout.swift',
+               # [T-user-ask-anchor-flight] The shipping flight state machine:
+               # the toggle path ends a live flight, so the fixture must drive
+               # the real lifecycle (Foundation-only, no UIKit).
+               IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
                OUT / 'ProductionMessageListItem.swift', OUT / 'ProductionSelfSizingCell.swift',
                block, THINK / 'ProductionStubs.swift', THINK / 'TxCoordinatorStub.swift',
                TESTS / 'AskCardUIKitHarness.swift', TESTS / 'AskCardAnchorUIKitTests.swift',
@@ -140,8 +144,12 @@ def main():
     note('ASK_CARD_ANCHOR_UIKIT_PNG ' + str(len(pngs)))
     for p in pngs:
         note('  ' + p.name)
-    if len(pngs) < 7:
+    # [T-ask-uikit-artifact] Exactly the seven case images: a missing PNG means
+    # a case did not render, an extra one means the fixture grew a case without
+    # the marker / root-gate contract being updated.
+    if len(pngs) != 7:
         raise SystemExit('ASK_CARD_ANCHOR_UIKIT_FAIL png=' + str(len(pngs)))
+    note('ASK_CARD_ANCHOR_UIKIT_ARTIFACT_OK dir=build/ask-card-uikit png=7')
 
 
 if __name__ == '__main__':

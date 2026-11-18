@@ -57,6 +57,12 @@ extension CollectionViewMessageListV3.Coordinator {
             // suspends streaming and defers self-sizing immediately below, and
             // `settleAfterInteraction` flushes/restores both exactly once.
             finishStatusBarScrollToTop(reason: .drag, restoring: false)
+            // [T-user-ask-anchor-flight] The finger takes the viewport: the
+            // answered-question card's parked anchor and its probe chain must
+            // not keep suppressing compensation or write an offset under the
+            // drag (its own toggle already released the token when it landed
+            // mid-drag; this covers a drag that STARTS inside the 0.6s hold).
+            _ = viewController?.messageListLayout?.abandonTopAnchor()
             #if DEBUG
             // [DecelDisplayLink] Safety: if the user grabs again mid-decel, stop
             // the previous link so it doesn't keep ticking under the new gesture.
@@ -367,6 +373,11 @@ extension CollectionViewMessageListV3.Coordinator {
             // 5. A parked thinking-toggle anchor is user-intent state from
             //    before the tap; release it without pulling the offset.
             releaseThinkingToggleOnUserScroll()
+            // 5b. [T-user-ask-anchor-flight] Same for the answered-question
+            //     card: its anchor suppresses the visible-cell compensation and
+            //     its verify chain would probe/write the offset mid-flight, so
+            //     the flight clears both (token-less takeover).
+            let abandonedCardAnchor = viewController?.messageListLayout?.abandonTopAnchor() ?? false
             lastJumpedUserId = nil
             // 6. Borrow the drag's two ownership flags. Unlike the drag, no
             //    settle follows, so `finish...` below restores them on EVERY

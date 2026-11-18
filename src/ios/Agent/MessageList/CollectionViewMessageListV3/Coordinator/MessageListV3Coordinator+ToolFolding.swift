@@ -295,6 +295,17 @@ extension CollectionViewMessageListV3.Coordinator {
                 return
             }
             let log = AppLogger(category: "ThinkingCollapse")
+            // [T-user-ask-anchor-flight] A system status-bar flight owns the
+            // viewport until it ends. This toggle is fresh user intent and MUST
+            // move the card, so it takes ownership instead of writing offsets
+            // underneath a running system animation: end the flight first (its
+            // resume pass thaws self-sizing, pays the deferred correction debt
+            // and only then puts the offset back where the animation left it),
+            // and read the row's frame AFTER that settles.
+            if statusBarScrollToTop.isActive {
+                finishStatusBarScrollToTop(reason: .askToggle, offset: cv.contentOffset.y)
+                _ = layout.abandonTopAnchor()
+            }
             let ip = IndexPath(item: i, section: 0)
             let oldFrame = cv.layoutAttributesForItem(at: ip)?.frame
             let anchorY = (oldFrame?.minY ?? cv.contentOffset.y) - cv.contentOffset.y
@@ -528,6 +539,16 @@ extension CollectionViewMessageListV3.Coordinator {
                   let cv = viewController?.collectionView,
                   let layout = cv.collectionViewLayout as? MessageListLayout,
                   layout.topAnchorOwned(by: token) else { return }
+            // [T-user-ask-anchor-flight] Never probe - and never write the
+            // offset - while the system status-bar animation owns the viewport:
+            // the correction would land underneath a running animation and
+            // re-anchor against a moving viewport. The chain is dropped; the
+            // flight ends on its own and the next tap starts a fresh one.
+            guard !statusBarScrollToTop.isActive, !layout.isSystemScrollToTopActive else {
+                layout.endTopAnchor(token: token)
+                layout.endVerifyChain(token: token)
+                return
+            }
             // [T-user-ask-anchor-token] One chain per token: the completion and
             // the next-runloop hop both arrive with attempt 0, only the first
             // gets the chain, so `attempt < 3` is a per-toggle budget.

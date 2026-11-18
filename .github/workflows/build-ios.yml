@@ -216,6 +216,19 @@ jobs:
             build/theme-matrix/ProductionRenderer.swift
             attachment-url-regression.log
             build/attachment-url/compile.log
+            # [T-user-ask-anchor-flight] Both halves of the combined candidate:
+            # the card anchor gate, and the status-bar flight gate (its own log
+            # is the current-run evidence for STATUSBAR_SCROLL_*).
+            statusbar-scroll-regression.log
+            ask-card-anchor-regression.log
+            ask-card-anchor-uikit.log
+            # Exactly seven case PNGs + compile.log/results.log. The root gate
+            # compares the artifact's *.png names with the log's
+            # `ASK_CARD_ANCHOR_UIKIT_PNG 7` list one by one, so uploading only the
+            # tee'd stdout would leave the run unverifiable.
+            build/ask-card-uikit/*.png
+            build/ask-card-uikit/compile.log
+            build/ask-card-uikit/results.log
             build/attachment-url/result.log
             showui-interaction-regression.log
             build/showui-interaction/pure.log
