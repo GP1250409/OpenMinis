@@ -113,6 +113,10 @@ jobs:
           # switch combinations). It had never been executed before this run.
           python3 scripts/genui_fold_barrier_regression.py 2>&1 | tee genui-fold-barrier-regression.log
           python3 scripts/toolfold_uikit_regression.py 2>&1 | tee toolfold-uikit-regression.log
+          # [T-user-ask-anchor-clamp] Answered-question card collapse: the shipping
+          # ToggleAnchorMath block compiled from MessageListLayout.swift + the wiring
+          # guards (pre-clamp before the resize, token-owned anchor, no drag writes).
+          python3 scripts/ask_card_anchor_regression.py 2>&1 | tee ask-card-anchor-regression.log
       - name: AOJIT images
         if: steps.prebuilt_deps.outputs.hit != 'true'
         env:

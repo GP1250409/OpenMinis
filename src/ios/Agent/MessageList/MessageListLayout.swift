@@ -108,9 +108,62 @@ final class MessageListLayout: UICollectionViewLayout {
         }
     }
 
+    /// [T-user-ask-anchor-token] Owner of `topAnchoredIndex`.
+    ///
+    /// The answered-question card used to park a bare index and release it from
+    /// delayed closures (`asyncAfter(0.6)`, a verify chain that ran up to three
+    /// attempts from two entry points). A second tap inside that window took
+    /// the anchor, and the FIRST tap's late callback then cleared it - the new
+    /// toggle lost its protection exactly while its cell was being re-measured,
+    /// so the visible-cell compensation could drag the row (a jump that is not
+    /// reproducible on a slow single tap). The token makes ownership explicit:
+    /// `beginTopAnchor` hands one out, every late callback must present it, and
+    /// a newer tap invalidates every older chain by taking the next token.
+    private var _topAnchorToken: Int = 0
+    private static var topAnchorTokenSeq: Int = 0
+
+    /// Park `index` and return the token that owns it. A newer token always
+    /// wins; the previous owner's late callbacks become no-ops.
+    @discardableResult
+    func beginTopAnchor(index: Int) -> Int {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        Self.topAnchorTokenSeq += 1
+        _topAnchorToken = Self.topAnchorTokenSeq
+        _topAnchoredIndex = index
+        return _topAnchorToken
+    }
+
+    /// True while `token` still owns the anchor (and the anchor is parked).
+    func topAnchorOwned(by token: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        return token != 0 && _topAnchorToken == token && _topAnchoredIndex != nil
+    }
+
+    /// Keep ownership but point it at the row's CURRENT index (a streaming
+    /// flush above the row renumbers it); only the owner may move it.
+    @discardableResult
+    func retargetTopAnchor(token: Int, index: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        guard token != 0, _topAnchorToken == token, _topAnchoredIndex != nil else { return false }
+        _topAnchoredIndex = index
+        return true
+    }
+
+    /// Release the anchor - only if `token` still owns it.
+    @discardableResult
+    func endTopAnchor(token: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        guard token != 0, _topAnchorToken == token else { return false }
+        _topAnchoredIndex = nil
+        return true
+    }
+
     /// [T-thinking-toggle-txn] A MANUAL thinking-row open/close owns its own
     /// anchor, keyed by the transaction's token.
-    ///
     /// Why not reuse `topAnchoredIndex`: the answered-question card's
     /// `remeasureKeepingTop` / `verifyToggledHeight` release "the" anchor with
     /// a bare-index check (`if layout?.topAnchoredIndex == i { … = nil }`) from
@@ -1379,6 +1432,70 @@ enum ToggleAnchorMath {
     static func anchoredOffset(newMinY: CGFloat, anchorY: CGFloat,
                                minOffset: CGFloat, maxOffset: CGFloat) -> CGFloat {
         min(max(newMinY - anchorY, minOffset), max(minOffset, maxOffset))
+    }
+
+    /// [T-user-ask-anchor-clamp] What an in-place card toggle can do with the
+    /// scroll position. Two different questions live here:
+    ///
+    ///  * can the tapped row's top stay where the user tapped it, or
+    ///  * did the content become SHORTER than the scroll range needs, so the
+    ///    row must slide by the untouched remainder?
+    ///
+    /// The second case is legal and unavoidable (a card is the last thing in
+    /// the list and it shrank: something has to move). What is NOT legal is
+    /// letting UIKit discover it inside its own layout pass - that writes the
+    /// clamp with animations disabled, so a 90-140pt page shift lands in a
+    /// single frame (user recording: one frame moved 103px, the two animated
+    /// moves next to it were smooth). Every offset below is inside
+    /// `[minOffset, maxOffset]`, so the caller never has to invent padding.
+    enum CardAnchorPlan: Equatable {
+        /// The row's top stays at `anchorY`.
+        case holdTop(offset: CGFloat)
+        /// The content above the row needed the offset to shrink past what the
+        /// new content size allows: the list sits at its legal bottom and the
+        /// row moves with it.
+        case clampedToBottom(offset: CGFloat)
+        /// The row's top would be above the top limit (short content / overscroll).
+        case clampedToTop(offset: CGFloat)
+
+        var offset: CGFloat {
+            switch self {
+            case .holdTop(let o), .clampedToBottom(let o), .clampedToTop(let o): return o
+            }
+        }
+
+        /// True when the tapped row's top cannot be held - i.e. the page has to
+        /// move by the remainder and the caller must not pretend otherwise.
+        var isClamped: Bool { self != .holdTop(offset: offset) }
+    }
+
+    static func cardAnchorPlan(newMinY: CGFloat, anchorY: CGFloat,
+                               minOffset: CGFloat, maxOffset: CGFloat) -> CardAnchorPlan {
+        let ideal = newMinY - anchorY
+        let hi = max(minOffset, maxOffset)
+        if ideal > hi { return .clampedToBottom(offset: hi) }
+        let lo = min(minOffset, maxOffset)
+        if ideal < lo { return .clampedToTop(offset: lo) }
+        return .holdTop(offset: ideal)
+    }
+
+    /// [T-user-ask-anchor-preclamp] The content height the list will have once
+    /// `heightDelta` lands. Only the toggled row changes, so the scroll range
+    /// moves by exactly that delta - which is why the clamp can be predicted
+    /// BEFORE the destructive layout pass.
+    static func predictedMaxOffset(currentMaxOffset: CGFloat, heightDelta: CGFloat) -> CGFloat {
+        currentMaxOffset + heightDelta
+    }
+
+    /// The offset that must ALREADY be in effect when the new height lands.
+    /// Writing it first - while the old, taller content still makes the range
+    /// legal - keeps UIScrollView from clamping (`contentOffset` out of range
+    /// during layout is applied with animations off, i.e. a one-frame jump).
+    static func preResizeOffset(idealOffset: CGFloat, predictedMaxOffset predictedMax: CGFloat,
+                                minOffset: CGFloat) -> CGFloat {
+        let hi = max(minOffset, predictedMax)
+        let lo = min(minOffset, predictedMax)
+        return min(max(idealOffset, lo), hi)
     }
 
     /// One scroll after an expansion so the grown cell's bottom becomes

@@ -304,9 +304,25 @@ extension CollectionViewMessageListV3.Coordinator {
             let duration = ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)
 
             scrollMode = .userBrowsing
-            layout.topAnchoredIndex = i
+            // [T-user-ask-anchor-token] The anchor is token-owned: a late
+            // callback from an earlier tap (the 0.6s release, a stale verify
+            // chain) must not release the anchor a NEWER tap is holding.
+            let anchorToken = layout.beginTopAnchor(index: i)
             var newFrame: CGRect?
             var reveal: CGFloat = 0
+            /// Where the row's top ended up on screen after this pass; the
+            /// verify chain restores THIS, never a mid-animation re-read.
+            var settledAnchorY = anchorY
+            /// Whether the pass had to move the page (legal clamp) - logged and
+            /// handed to the verify chain so a later correction does not try to
+            /// re-hold a top that the content size cannot support.
+            var anchorClamped = false
+            // The finger owns the position: a toggle that lands during a drag
+            // or a glide resizes the row and leaves the offset alone (UIKit
+            // keeps a decelerating list in range by itself).
+            let userHoldsOffset = cv.isTracking || cv.isDecelerating
+            let minOff = -cv.adjustedContentInset.top
+            let oldMaxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
 
             // Everything that changes what is on screen happens in this one
             // pass, in one runloop turn: the content switches state AND the
@@ -315,67 +331,9 @@ extension CollectionViewMessageListV3.Coordinator {
             // size a runloop later through the async notification hop), with
             // the content centred in the stale cell for that frame.
             let changes = {
-                if let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
-                   let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes {
-                    // [T-user-ask-expand-clip] The card's content switches and is
-                    // measured with NO animation (UIKit or Core Animation): it
-                    // lands in its final layout at once, pinned to the top of the
-                    // cell, and the cell's clipping bounds are what animates -
-                    // the same reveal as the sidebar groups. Re-rendering the
-                    // card inside the UIView.animate block cross-faded the old
-                    // and new renders (recording: the header drawn twice ~10pt
-                    // apart while the card faded).
-                    UIView.performWithoutAnimation {
-                        CATransaction.begin()
-                        CATransaction.setDisableActions(true)
-                        // [T-user-ask-expand-overlap] Flip the state AND hand the
-                        // cell a fresh hosting configuration in the same step, then
-                        // measure. Measuring right after the flip alone returned the
-                        // OLD height (the hosting view only picks the new state up
-                        // on its next update): that stale height became the cell's
-                        // cache, and while a message streams the cell serves its
-                        // cache to every later pass - so a card opened under a
-                        // streaming/thinking reply kept its collapsed height and
-                        // overlapped the text above and the thinking row below.
-                        // configureCell clears the cell's height cache; the fresh
-                        // root view reads the new state, so the measure is real -
-                        // and that correct height is what streaming passes reuse.
-                        // [T-user-ask-expand-ghost] No SwiftUI animation here: the
-                        // height animation is the UIKit pass around this block. A
-                        // second, SwiftUI-driven animation on the same card moved
-                        // and faded its header on its own clock (recording: the
-                        // header drawn twice ~9pt apart, card half transparent).
-                        var noAnim = Transaction(animation: nil)
-                        noAnim.disablesAnimations = true
-                        withTransaction(noAnim) {
-                            _ = request?.run()
-                            // [T-user-ask-history-seed] Drop this row's cached and
-                            // memoized height BEFORE configureCell. The memo is keyed
-                            // by content, not by expanded state, so configureCell
-                            // would otherwise seed the height measured for the OLD
-                            // state, and the seed makes the measure below return it
-                            // without measuring (device log on a finished message:
-                            // `[MemoSeed] … h=64.0` then `ANCHORED h=64.0→64.0`, the
-                            // opened card overlapping its neighbours). Streaming
-                            // messages are never seeded, which is why this only
-                            // showed up in history. The new height is memoized by
-                            // that measure, so scrolling back still skips it.
-                            layout.invalidateHeight(at: i)
-                            self.configureCell(cell, item: item, indexPath: ip)
-                        }
-                        // The hosting view applies a new root view on its next
-                        // update; run that update now (a layout pass of the cell's
-                        // content) so the measure below sees the new state rather
-                        // than the previous render (device log: measured heights
-                        // lagged one tap behind without this).
-                        cell.contentView.setNeedsLayout()
-                        cell.contentView.layoutIfNeeded()
-                        cell.clearCachedHeight()
-                        let fitted = cell.preferredLayoutAttributesFitting(attrs)
-                        layout.setMeasuredHeight(fitted.size.height, at: i)
-                        CATransaction.commit()
-                    }
-                } else {
+                guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
+                      let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes
+                else {
                     _ = request?.run()
                     // Cell not on screen: the old re-measure path.
                     (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
@@ -383,6 +341,83 @@ extension CollectionViewMessageListV3.Coordinator {
                     var snap = ds.snapshot()
                     snap.reconfigureItems([item])
                     ds.apply(snap, animatingDifferences: false)
+                    layout.invalidateLayout()
+                    cv.layoutIfNeeded()
+                    return
+                }
+
+                // ---- 1. measure with the NEW state, without touching layout ----
+                // [T-user-ask-expand-clip] The card's content switches and is
+                // measured with NO animation (UIKit or Core Animation): it lands
+                // in its final layout at once, pinned to the top of the cell, and
+                // the cell's clipping bounds are what animates.
+                // [T-user-ask-expand-overlap] Flip the state AND hand the cell a
+                // fresh hosting configuration in the same step, then measure:
+                // measuring right after the flip alone returned the OLD height
+                // (the hosting view only picks the new state up on its next
+                // update), and that stale height became the cell's cache - the
+                // opened card then overlapped the text above it.
+                // [T-user-ask-expand-ghost] No SwiftUI animation here either: the
+                // height animation is the UIKit pass around this block.
+                // [T-user-ask-history-seed] Drop this row's cached and memoized
+                // height BEFORE configureCell (the memo is keyed by content, not
+                // by expanded state, so configureCell would seed the height
+                // measured for the OLD state).
+                var fittedHeight: CGFloat = 0
+                UIView.performWithoutAnimation {
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    var noAnim = Transaction(animation: nil)
+                    noAnim.disablesAnimations = true
+                    withTransaction(noAnim) {
+                        _ = request?.run()
+                        layout.invalidateHeight(at: i)
+                        self.configureCell(cell, item: item, indexPath: ip)
+                    }
+                    // The hosting view applies a new root view on its next update;
+                    // run that update now so the measure sees the new state rather
+                    // than the previous render (device log: measured heights lagged
+                    // one tap behind without this).
+                    cell.contentView.setNeedsLayout()
+                    cell.contentView.layoutIfNeeded()
+                    cell.clearCachedHeight()
+                    fittedHeight = cell.preferredLayoutAttributesFitting(attrs).size.height
+                    CATransaction.commit()
+                }
+
+                // ---- 2. put the offset where it must be BEFORE the height ----
+                // [T-user-ask-anchor-preclamp] The row still has its OLD height,
+                // so the scroll range is still the old one and the offset we
+                // need after the resize is legal right now. Writing it here is
+                // what keeps UIScrollView from discovering the clamp inside its
+                // own layout pass - that clamp is applied with animations
+                // disabled and is the ONE-FRAME page shift in the user
+                // recording (a single frame moved 103px; the two animated moves
+                // beside it were smooth).
+                //
+                // The movement itself is unavoidable when the content becomes
+                // shorter than the range allows (a card above a collapsed tool
+                // group, list at the bottom): the plan below says so out loud
+                // (`clampedToBottom`) instead of pretending the top can be
+                // held. What must not happen is a snap.
+                if !userHoldsOffset, fittedHeight.isFinite, fittedHeight > 1 {
+                    let predictedMax = ToggleAnchorMath.predictedMaxOffset(
+                        currentMaxOffset: oldMaxOff, heightDelta: fittedHeight - oldHeight)
+                    let pre = ToggleAnchorMath.preResizeOffset(
+                        idealOffset: cv.contentOffset.y, predictedMaxOffset: predictedMax, minOffset: minOff)
+                    if abs(pre - cv.contentOffset.y) > 0.5 {
+                        cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: pre)
+                    }
+                }
+
+                // ---- 3. install the height and lay out ----
+                UIView.performWithoutAnimation {
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    if fittedHeight.isFinite, fittedHeight > 1 {
+                        layout.setMeasuredHeight(fittedHeight, at: i)
+                    }
+                    CATransaction.commit()
                 }
                 layout.invalidateLayout()
                 // The list strips UIKit animations from its layout passes
@@ -394,38 +429,61 @@ extension CollectionViewMessageListV3.Coordinator {
 
                 guard let frame = cv.layoutAttributesForItem(at: ip)?.frame else { return }
                 newFrame = frame
-                let minOff = -cv.adjustedContentInset.top
-                let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
-                var target = ToggleAnchorMath.anchoredOffset(newMinY: frame.minY, anchorY: anchorY,
-                                                             minOffset: minOff, maxOffset: maxOff)
-                if frame.height > oldHeight + 0.5 {
+
+                // ---- 4. settle the offset inside the NEW legal range ----
+                let newMaxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
+                var plan = ToggleAnchorMath.cardAnchorPlan(newMinY: frame.minY, anchorY: anchorY,
+                                                           minOffset: minOff, maxOffset: newMaxOff)
+                var target = plan.offset
+                if frame.height > oldHeight + 0.5, !userHoldsOffset {
                     let visibleTop = target + cv.adjustedContentInset.top
                     let visibleBottom = target + cv.bounds.height - cv.adjustedContentInset.bottom
                     reveal = ToggleAnchorMath.revealShift(cellMinY: frame.minY, cellMaxY: frame.maxY,
                                                           visibleTop: visibleTop, visibleBottom: visibleBottom)
-                    reveal = min(reveal, max(0, max(minOff, maxOff) - target))
+                    reveal = min(reveal, max(0, max(minOff, newMaxOff) - target))
                     target += reveal
                 }
-                if abs(target - cv.contentOffset.y) > 0.5 {
+                if !userHoldsOffset, abs(target - cv.contentOffset.y) > 0.5 {
                     cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
                 }
+                anchorClamped = plan.isClamped
+                settledAnchorY = frame.minY - cv.contentOffset.y
             }
             let finish = { [weak self, weak layout] in
                 guard let self else { return }
                 // [T-user-ask-expand-verify] Settled: check the height once more.
-                self.verifyToggledHeight(blockId: blockId, attempt: 0)
-                if self.isNearBottom() { self.scrollMode = .autoScrolling }
+                // [T-user-ask-anchor-token] The chain carries THIS toggle's token
+                // and the screen position the row's top actually ended at: a
+                // correction must never re-anchor to a fresh `frame.minY -
+                // contentOffset` read, because inside the 0.2s animation the
+                // model offset already holds the final value while the rows are
+                // still moving - that read produced the "one nudge too far"
+                // corrections. A newer tap invalidates this chain by token.
+                self.verifyToggledHeight(blockId: blockId, attempt: 0,
+                                         anchorY: settledAnchorY, token: anchorToken)
+                // [T-user-ask-anchor-clamp] Follow again only when the user is
+                // not holding the list. A clamped collapse already sits exactly
+                // on the legal bottom, so this pin is an idempotent write, not a
+                // second scroll.
+                if !cv.isTracking, !cv.isDecelerating, self.isNearBottom() {
+                    self.scrollMode = .autoScrolling
+                }
                 // Keep the anchor through the next runloop turns: a late
                 // SwiftUI re-measure of the same cell must not take the
-                // visible-cell compensation either.
+                // visible-cell compensation either. Token-guarded, so this can
+                // no longer clear a newer tap's anchor.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
+                    layout?.endTopAnchor(token: anchorToken)
                 }
             }
             // [T-user-ask-expand-verify] And on the next runloop turn, when the
-            // hosting view has certainly applied the new state.
+            // hosting view has certainly applied the new state. The completion
+            // and this hop both call the verifier; it is token-owned and
+            // idempotent (a settled height makes the second call a no-op), so
+            // two entry points can no longer apply two different corrections.
             DispatchQueue.main.async { [weak self] in
-                self?.verifyToggledHeight(blockId: blockId, attempt: 0)
+                self?.verifyToggledHeight(blockId: blockId, attempt: 0,
+                                          anchorY: settledAnchorY, token: anchorToken)
             }
             if let duration {
                 // Short ease-out, no spring overshoot; a tap during the
@@ -437,11 +495,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 changes()
                 finish()
             }
-            log.info("[ThinkingCollapse] ANCHORED block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", oldHeight, newFrame?.height ?? -1)) anchorY=\(String(format: "%.1f", anchorY)) offset→\(String(format: "%.1f", cv.contentOffset.y)) reveal=\(String(format: "%.1f", reveal)) animated=\(duration != nil) request=\(request != nil)")
+            log.info("[ThinkingCollapse] ANCHORED block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", oldHeight, newFrame?.height ?? -1)) anchorY=\(String(format: "%.1f", anchorY)) offset→\(String(format: "%.1f", cv.contentOffset.y)) reveal=\(String(format: "%.1f", reveal)) clamped=\(anchorClamped ? 1 : 0) token=\(anchorToken) animated=\(duration != nil) request=\(request != nil) drag=\(userHoldsOffset ? 1 : 0)")
             // [T-crash-breadcrumbs] Numbers only. A user toggle / end-of-stream
             // collapse, not a per-frame path.
             CrashBreadcrumbs.record("think.toggle",
-                                    detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) animated=\(duration != nil ? 1 : 0)")
+                                    detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) clamped=\(anchorClamped ? 1 : 0) animated=\(duration != nil ? 1 : 0)")
         }
 
         /// [T-user-ask-expand-verify] The in-pass measure of a toggled card can
@@ -451,10 +509,17 @@ extension CollectionViewMessageListV3.Coordinator {
         /// row below). Measure the visible cell again once things have settled
         /// and, if the list holds a different height, move to the real one with
         /// the card's top kept in place. Bounded retries; logs every fix.
-        func verifyToggledHeight(blockId: UUID, attempt: Int) {
+        ///
+        /// [T-user-ask-anchor-token] `anchorY` and `token` are captured by the
+        /// toggle that started the chain. The chain stops as soon as a newer
+        /// toggle owns the anchor, and a height that is still wrong is STILL
+        /// corrected (a real content change must stay fixable) - it is only the
+        /// authority to move the list that is token-scoped.
+        func verifyToggledHeight(blockId: UUID, attempt: Int, anchorY: CGFloat, token: Int) {
             guard attempt < 3,
                   let cv = viewController?.collectionView,
                   let layout = cv.collectionViewLayout as? MessageListLayout,
+                  layout.topAnchorOwned(by: token),
                   let snapshot = dataSource?.snapshot(),
                   let i = snapshot.itemIdentifiers.firstIndex(where: {
                       if case .assistantBlock(_, let bid) = $0 { return bid == blockId }
@@ -470,10 +535,11 @@ extension CollectionViewMessageListV3.Coordinator {
             let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
             let current = attrs.frame.height
             guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else { return }
-            AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] VERIFY block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", current, fitted)) attempt=\(attempt)")
+            AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] VERIFY block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", current, fitted)) attempt=\(attempt) token=\(token)")
             CrashBreadcrumbs.record("think.verify", detail: "idx=\(i) h=\(Int(current))->\(Int(fitted)) n=\(attempt)")
-            let anchorY = attrs.frame.minY - cv.contentOffset.y
-            layout.topAnchoredIndex = i
+            // The row may have been renumbered by a streaming flush above it.
+            layout.retargetTopAnchor(token: token, index: i)
+            let userHoldsOffset = cv.isTracking || cv.isDecelerating
             let duration = ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)
             let apply = {
                 layout.setMeasuredHeight(fitted, at: i)
@@ -481,21 +547,19 @@ extension CollectionViewMessageListV3.Coordinator {
                 (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = duration != nil
                 cv.layoutIfNeeded()
                 (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
-                guard let frame = cv.layoutAttributesForItem(at: ip)?.frame else { return }
+                guard let frame = cv.layoutAttributesForItem(at: ip)?.frame, !userHoldsOffset else { return }
                 let minOff = -cv.adjustedContentInset.top
                 let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
-                let target = ToggleAnchorMath.anchoredOffset(newMinY: frame.minY, anchorY: anchorY,
-                                                             minOffset: minOff, maxOffset: maxOff)
+                let target = ToggleAnchorMath.cardAnchorPlan(newMinY: frame.minY, anchorY: anchorY,
+                                                             minOffset: minOff, maxOffset: maxOff).offset
                 if abs(target - cv.contentOffset.y) > 0.5 {
                     cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
                 }
             }
-            let done = { [weak self, weak layout] in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    if layout?.topAnchoredIndex == i { layout?.topAnchoredIndex = nil }
-                }
+            let done = { [weak self] in
                 DispatchQueue.main.async {
-                    self?.verifyToggledHeight(blockId: blockId, attempt: attempt + 1)
+                    self?.verifyToggledHeight(blockId: blockId, attempt: attempt + 1,
+                                              anchorY: anchorY, token: token)
                 }
             }
             if duration != nil {
