@@ -117,6 +117,9 @@ jobs:
           # ToggleAnchorMath block compiled from MessageListLayout.swift + the wiring
           # guards (pre-clamp before the resize, token-owned anchor, no drag writes).
           python3 scripts/ask_card_anchor_regression.py 2>&1 | tee ask-card-anchor-regression.log
+          # [T-user-ask-anchor-clamp] Real UICollectionView + UIHostingConfiguration
+          # fixture: shipping MessageListLayout + shipping toggle block, 6 cases.
+          python3 scripts/ask_card_anchor_uikit.py 2>&1 | tee ask-card-anchor-uikit.log
       - name: AOJIT images
         if: steps.prebuilt_deps.outputs.hit != 'true'
         env:
