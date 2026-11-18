@@ -172,6 +172,8 @@ final class AskCardFixture {
         scrollToBottom()
     }
 
+    var contentSizeHeight: CGFloat { cv.contentSize.height }
+
     var maxOffset: CGFloat { cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom }
 
     func scrollToBottom() {

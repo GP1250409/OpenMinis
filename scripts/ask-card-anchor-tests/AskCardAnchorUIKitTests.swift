@@ -143,11 +143,30 @@ func runAskCardUIKitCases() {
         snapshot("s6-snapshot-swap", fx.vc)
     }
 
+    // ---- S7 (P0): content SHORTER than the viewport (maxOff < minOff) ----
+    do {
+        let fx = AskCardFixture(items: 1, tail: false)
+        fx.pump(0.4)
+        let minOff = -fx.cv.adjustedContentInset.top
+        let short = fx.contentSizeHeight - fx.cv.bounds.height + fx.cv.adjustedContentInset.bottom < minOff
+        check("S7 fixture really is shorter than the viewport (maxOff < minOff)", short,
+              "maxOff=\(f(fx.maxOffset)) minOff=\(f(minOff))")
+        let card = fx.cardIds[0]
+        fx.spy.reset()
+        fx.toggleCard(card)
+        fx.pump(1.2)
+        check("S7 every offset stayed at/above the legal floor minOffset",
+              fx.cv.contentOffset.y >= minOff - 1.0, "off=\(f(fx.cv.contentOffset.y)) min=\(f(minOff))")
+        check("S7 no out-of-range offset at any contentSize change",
+              fx.spy.outOfRange == 0, "violations=\(fx.spy.outOfRange) worst=\(f(fx.spy.worst))")
+        snapshot("s7-short-content", fx.vc)
+    }
+
     print("ASK_CARD_ANCHOR_UIKIT_CHECKS checks=\(checks) failures=\(failures) png=\(png)")
     if failures > 0 {
         print("ASK_CARD_ANCHOR_UIKIT_FAIL failures=\(failures)")
         exit(1)
     }
-    print("ASK_CARD_ANCHOR_UIKIT_PASS cases=6 checks=\(checks) png=\(png)")
+    print("ASK_CARD_ANCHOR_UIKIT_PASS cases=7 checks=\(checks) png=\(png)")
     exit(0)
 }

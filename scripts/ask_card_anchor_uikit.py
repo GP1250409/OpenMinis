@@ -16,7 +16,7 @@ the toggle path, the layout and the anchor math are the app's own code.
 Cases (see AskCardAnchorUIKitTests.swift): collapse above a collapsed group,
 collapse above an expanded group, 6-round trip mid-list, rapid double tap,
 drag in flight, snapshot/session swap right after a toggle.
-Prints `ASK_CARD_ANCHOR_UIKIT_PASS cases=6 checks=<n> png=<n>` and writes the
+Prints `ASK_CARD_ANCHOR_UIKIT_PASS cases=7 checks=<n> png=<n>` and writes the
 PNGs to `build/ask-card-uikit/`.
 """
 import json
@@ -140,7 +140,7 @@ def main():
     note('ASK_CARD_ANCHOR_UIKIT_PNG ' + str(len(pngs)))
     for p in pngs:
         note('  ' + p.name)
-    if len(pngs) < 6:
+    if len(pngs) < 7:
         raise SystemExit('ASK_CARD_ANCHOR_UIKIT_FAIL png=' + str(len(pngs)))
 
 

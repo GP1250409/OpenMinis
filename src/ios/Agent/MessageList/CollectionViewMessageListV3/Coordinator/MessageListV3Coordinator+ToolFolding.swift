@@ -476,14 +476,21 @@ extension CollectionViewMessageListV3.Coordinator {
                     layout?.endTopAnchor(token: anchorToken)
                 }
             }
-            // [T-user-ask-expand-verify] And on the next runloop turn, when the
-            // hosting view has certainly applied the new state. The completion
-            // and this hop both call the verifier; it is token-owned and
-            // idempotent (a settled height makes the second call a no-op), so
-            // two entry points can no longer apply two different corrections.
-            DispatchQueue.main.async { [weak self] in
-                self?.verifyToggledHeight(blockId: blockId, attempt: 0,
-                                          anchorY: settledAnchorY, token: anchorToken)
+            // [T-user-ask-anchor-token] A toggle that lands while the finger is
+            // down owns no anchor: the next turn must not probe (and cannot
+            // move a held offset), so the token is released here instead of
+            // being carried into the verify chain.
+            if userHoldsOffset {
+                layout.endTopAnchor(token: anchorToken)
+            } else {
+                // [T-user-ask-expand-verify] And on the next runloop turn, when
+                // the hosting view has certainly applied the new state. The
+                // completion and this hop are two entries for ONE token; the
+                // layout hands the chain to the first of them only.
+                DispatchQueue.main.async { [weak self] in
+                    self?.verifyToggledHeight(blockId: blockId, attempt: 0,
+                                              anchorY: settledAnchorY, token: anchorToken)
+                }
             }
             if let duration {
                 // Short ease-out, no spring overshoot; a tap during the
@@ -515,26 +522,51 @@ extension CollectionViewMessageListV3.Coordinator {
         /// toggle owns the anchor, and a height that is still wrong is STILL
         /// corrected (a real content change must stay fixable) - it is only the
         /// authority to move the list that is token-scoped.
-        func verifyToggledHeight(blockId: UUID, attempt: Int, anchorY: CGFloat, token: Int) {
+        func verifyToggledHeight(blockId: UUID, attempt: Int, anchorY: CGFloat, token: Int,
+                                 continuation: Bool = false) {
             guard attempt < 3,
                   let cv = viewController?.collectionView,
                   let layout = cv.collectionViewLayout as? MessageListLayout,
-                  layout.topAnchorOwned(by: token),
-                  let snapshot = dataSource?.snapshot(),
-                  let i = snapshot.itemIdentifiers.firstIndex(where: {
-                      if case .assistantBlock(_, let bid) = $0 { return bid == blockId }
-                      return false
-                  }) else { return }
+                  layout.topAnchorOwned(by: token) else { return }
+            // [T-user-ask-anchor-token] One chain per token: the completion and
+            // the next-runloop hop both arrive with attempt 0, only the first
+            // gets the chain, so `attempt < 3` is a per-toggle budget.
+            guard continuation || layout.beginVerifyChain(token: token) else { return }
+            guard let snapshot = dataSource?.snapshot() else {
+                layout.endVerifyChain(token: token); return
+            }
+            guard let i = snapshot.itemIdentifiers.firstIndex(where: {
+                if case .assistantBlock(_, let bid) = $0 { return bid == blockId }
+                return false
+            }) else {
+                // [T-user-ask-anchor-token] The row is GONE (session switch, tool
+                // group fold, snapshot replace): the anchor must not stay parked
+                // on a stale index. Release the token - a newer toggle owns its
+                // own token, so this cannot clear one that is still live.
+                layout.endTopAnchor(token: token)
+                layout.endVerifyChain(token: token)
+                return
+            }
             let ip = IndexPath(item: i, section: 0)
             guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
                   let attrs = layout.layoutAttributesForItem(at: ip)?.copy() as? UICollectionViewLayoutAttributes
-            else { return }
+            else {
+                // Not on screen: keep the chain open for the next attempt but do
+                // not spend a height probe.
+                DispatchQueue.main.async { [weak self] in
+                    self?.verifyToggledHeight(blockId: blockId, attempt: attempt + 1,
+                                              anchorY: anchorY, token: token, continuation: true)
+                }
+                return
+            }
             cell.contentView.setNeedsLayout()
             cell.contentView.layoutIfNeeded()
             cell.clearCachedHeight()
             let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
             let current = attrs.frame.height
-            guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else { return }
+            guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else {
+                layout.endVerifyChain(token: token); return
+            }
             AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] VERIFY block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", current, fitted)) attempt=\(attempt) token=\(token)")
             CrashBreadcrumbs.record("think.verify", detail: "idx=\(i) h=\(Int(current))->\(Int(fitted)) n=\(attempt)")
             // The row may have been renumbered by a streaming flush above it.
@@ -557,9 +589,13 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
             }
             let done = { [weak self] in
+                if attempt + 1 >= 3 {
+                    layout.endVerifyChain(token: token)
+                    return
+                }
                 DispatchQueue.main.async {
                     self?.verifyToggledHeight(blockId: blockId, attempt: attempt + 1,
-                                              anchorY: anchorY, token: token)
+                                              anchorY: anchorY, token: token, continuation: true)
                 }
             }
             if duration != nil {

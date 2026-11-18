@@ -152,6 +152,30 @@ final class MessageListLayout: UICollectionViewLayout {
         return true
     }
 
+    /// [T-user-ask-anchor-token] One verify chain per toggle token.
+    ///
+    /// `remeasureKeepingTop` calls the verifier from two places (the animation
+    /// completion and a next-runloop hop). Those are two chains for the SAME
+    /// token; "the second measurement finds nothing to fix" is not a dedupe, it
+    /// is luck with the ordering. Only the first entry may start a chain, and
+    /// the chain ends when it stops scheduling, so the probe budget is spent
+    /// once.
+    private var _verifyChainToken: Int = 0
+
+    func beginVerifyChain(token: Int) -> Bool {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        guard token != 0, _verifyChainToken != token else { return false }
+        _verifyChainToken = token
+        return true
+    }
+
+    func endVerifyChain(token: Int) {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        if _verifyChainToken == token { _verifyChainToken = 0 }
+    }
+
     /// Release the anchor - only if `token` still owns it.
     @discardableResult
     func endTopAnchor(token: Int) -> Bool {
