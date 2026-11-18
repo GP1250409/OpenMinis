@@ -176,6 +176,36 @@ def wiring_guards():
           and '_topAnchorToken = 0' in layout and '_verifyChainToken = 0' in layout)
     check('cross: the flight lifecycle names the ask-toggle reason',
           'case askToggle' in lifecycle)
+    # [T-user-ask-anchor-pending] `finish` only QUEUES the flight's deferred
+    # streaming snapshot (`DispatchQueue.main.async` ->
+    # `flushPendingSnapshotIfNeeded`). A `flushPending` apply with unchanged
+    # items runs `remeasureVisibleCells`, which invalidates every visible row's
+    # cached height - including the one this toggle just installed - and
+    # reconfigures the cell while its 0.2s height animation is running. So the
+    # toggle consumes it BEFORE it reads/measures/anchors its row.
+    consume = body.find('flushPendingSnapshotIfNeeded(caller: "askToggle-beforeMeasure")')
+    check('cross: the toggle consumes the flight\'s deferred snapshot itself',
+          consume >= 0 and 'if hasPendingSnapshot, !isFlushing, vm?.isLoadingSession != true' in body)
+    check('cross: …before the row is read, measured and anchored',
+          consume >= 0
+          and consume < body.find('let ip = IndexPath(item: i, section: 0)')
+          and consume < body.find('layout.beginTopAnchor(index: i)')
+          and consume < body.find('cell.preferredLayoutAttributesFitting(attrs)'),
+          str((consume, body.find('let ip = IndexPath(item: i, section: 0)'),
+               body.find('layout.beginTopAnchor(index: i)'))))
+    # The flush can insert/remove rows ABOVE this one, so the index the toggle
+    # measures must come from the data source, not from the caller's snapshot.
+    remap = body.find('guard let row = ds.snapshot().itemIdentifiers.firstIndex(of: item)')
+    check('cross: the row index is re-read from the data source after the flush',
+          remap >= 0 and consume >= 0 and consume < remap
+          and 'let i = row' in body
+          and remap < body.find('layout.beginTopAnchor(index: i)')
+          and remap < body.find('layout.setMeasuredHeight(fittedHeight, at: i)'))
+    check('cross: a row that is gone still runs the one-shot request',
+          'else {\n                _ = request?.run()\n                return\n            }\n            let i = row' in body)
+    check('cross: the verifier still does not re-anchor to a live read',
+          'frame.minY - cv.contentOffset.y' not in verify
+          and 'anchorY: settledAnchorY' in fold)
 
 
 def main():

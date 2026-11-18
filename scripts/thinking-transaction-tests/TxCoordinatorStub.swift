@@ -59,6 +59,10 @@ enum CollectionViewMessageListV3 {
 
     final class TxViewModel {
         var messages: [TxMessage] = []
+        /// [T-user-ask-anchor-pending] The shipping toggle path refuses to
+        /// consume a deferred snapshot while a session load is in flight
+        /// (`applySnapshot` would drop it). Fixture supplies the flag.
+        var isLoadingSession = false
     }
 
     final class Coordinator {
@@ -82,6 +86,27 @@ enum CollectionViewMessageListV3 {
         let statusBarScrollToTop = StatusBarScrollToTopLifecycle()
         var statusBarEndReasons: [StatusBarScrollToTopLifecycle.EndReason] = []
         var statusBarRestoredOwnership = 0
+
+        // [T-user-ask-anchor-pending] Fixture boundary: the flight's REAL resume
+        // pass (`resumeAfterStatusBarScrollToTop` in
+        // Coordinator+ScrollViewDelegate.swift: thaw -> correction debt ->
+        // applyDeferredHeights -> layout -> restore offset -> restore streaming)
+        // is NOT compiled here, so its geometry cannot be asserted in this
+        // fixture. What the shipping toggle path reads from the coordinator is
+        // reproduced 1:1 (the two flags below), and the flush is a TRIGGER with
+        // an observation record - it does not re-apply a snapshot.
+        var hasPendingSnapshot = false
+        var isFlushing = false
+        /// (caller, the row anchored at flush time). The answered-question card
+        /// must consume a deferred snapshot BEFORE it parks the top anchor for
+        /// its own row, so every recorded entry must show `nil` here.
+        var pendingSnapshotFlushes: [(caller: String, anchoredIndex: Int?)] = []
+
+        func flushPendingSnapshotIfNeeded(caller: String = "?") {
+            guard hasPendingSnapshot else { return }
+            hasPendingSnapshot = false
+            pendingSnapshotFlushes.append((caller, viewController?.messageListLayout?.topAnchoredIndex))
+        }
 
         @discardableResult
         func finishStatusBarScrollToTop(reason: StatusBarScrollToTopLifecycle.EndReason,

@@ -286,7 +286,7 @@ extension CollectionViewMessageListV3.Coordinator {
         /// so the bottom pin must not move the list; re-measure now, put the
         /// top back, then - after an expansion only - one short scroll so the
         /// opened content is visible without losing the top.
-        func remeasureKeepingTop(item: MessageListItem, index i: Int, blockId: UUID,
+        func remeasureKeepingTop(item: MessageListItem, index indexIn: Int, blockId: UUID,
                                          request: ToggleRequest? = nil) {
             guard let cv = viewController?.collectionView,
                   let layout = cv.collectionViewLayout as? MessageListLayout,
@@ -306,6 +306,40 @@ extension CollectionViewMessageListV3.Coordinator {
                 finishStatusBarScrollToTop(reason: .askToggle, offset: cv.contentOffset.y)
                 _ = layout.abandonTopAnchor()
             }
+            // [T-user-ask-anchor-pending] `finish` does NOT finish the resume:
+            // `resumeAfterStatusBarScrollToTop` only QUEUES a deferred streaming
+            // snapshot (`DispatchQueue.main.async` -> `flushPendingSnapshotIfNeeded`)
+            // when the flight suspended streaming UI updates. Landing it one
+            // turn later is exactly the wrong moment: a `flushPending` apply
+            // with unchanged items goes through `remeasureVisibleCells`, which
+            // calls `layout.invalidateHeight(at:)` for EVERY visible row - i.e.
+            // it drops the height this toggle just installed for THIS row and
+            // reconfigures its cell while the 0.2s height animation is running.
+            // `verifyToggledHeight` would then probe a height the flush itself
+            // manufactured, and write the offset with the screen anchor read
+            // against the pre-flush list.
+            //
+            // So consume what the flight deferred HERE, before this row is read,
+            // measured and anchored: the same snapshot work, one turn earlier,
+            // against a world this toggle then owns. It is skipped while a
+            // snapshot apply is already running (re-entrancy) and while a
+            // session is loading (`applySnapshot` returns early there, and
+            // `flushPendingSnapshotIfNeeded` has already cleared the flag -
+            // that would silently drop the deferred update).
+            if hasPendingSnapshot, !isFlushing, vm?.isLoadingSession != true {
+                log.info("[ThinkingCollapse] ASK-PENDING consume deferred snapshot before measuring block=\(blockId.uuidString.prefix(8)) flight=\(statusBarScrollToTop.isActive ? 1 : 0)")
+                flushPendingSnapshotIfNeeded(caller: "askToggle-beforeMeasure")
+            }
+            // [T-user-ask-anchor-pending] The flush may have inserted/removed
+            // rows above this one, so the row's index is read from the data
+            // source, never taken from the caller's snapshot of it. A row that
+            // is gone cannot be measured - run the one-shot request anyway so
+            // the state the user tapped for is not lost.
+            guard let row = ds.snapshot().itemIdentifiers.firstIndex(of: item) else {
+                _ = request?.run()
+                return
+            }
+            let i = row
             let ip = IndexPath(item: i, section: 0)
             let oldFrame = cv.layoutAttributesForItem(at: ip)?.frame
             let anchorY = (oldFrame?.minY ?? cv.contentOffset.y) - cv.contentOffset.y

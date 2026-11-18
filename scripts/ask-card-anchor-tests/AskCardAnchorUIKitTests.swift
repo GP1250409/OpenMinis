@@ -147,25 +147,66 @@ func runAskCardUIKitCases() {
         // underneath the system animation, releases the layout's ownership and
         // the borrowed self-sizing, and leaves nothing behind that could move
         // the list later.
-        let crossCard = fx.cardIds[1]
-        _ = fx.coordinator.statusBarScrollToTop.begin()
-        fx.vc.messageListLayout?.isSystemScrollToTopActive = true
-        check("S6 cross: fixture flight is running", fx.coordinator.statusBarScrollToTop.isActive)
-        fx.toggleCard(crossCard)
+        //
+        // FIXTURE BOUNDARY (do not read more into these checks): the flight's
+        // real resume pass lives in Coordinator+ScrollViewDelegate.swift and is
+        // NOT compiled into this fixture, so `statusBarRestoredOwnership` below
+        // is TxCoordinatorStub's own counter and proves only that the toggle
+        // ended the flight through the shipping call - not that the production
+        // resume restored self-sizing/streaming. The real lifecycle's own
+        // accounting (`selfSizingDeferredByFlight` / `streamingSuspendedByFlight`,
+        // both SHIPPING code) covers that half; the physical restore is CI/app
+        // territory and is reported as unverified.
+        //
+        // A dedicated fixture: the swap above removed this block's card, and the
+        // tap path only runs for a row that is still in the data source.
+        let cross = AskCardFixture(items: 6, tail: false)
+        cross.pump(0.4)
+        let crossCard = cross.cardIds[0]
+        // What the flight's begin does in production: it suspends streaming UI
+        // updates, so a block-count update during the flight is DEFERRED
+        // (`hasPendingSnapshot = true`) and the resume only queues its flush.
+        cross.coordinator.hasPendingSnapshot = true
+        _ = cross.coordinator.statusBarScrollToTop.begin()
+        cross.vc.messageListLayout?.isSystemScrollToTopActive = true
+        cross.vc.messageListLayout?.deferSelfSizing = true
+        check("S6 cross: fixture flight is running", cross.coordinator.statusBarScrollToTop.isActive)
+        cross.toggleCard(crossCard)
         check("S6 cross: the card toggle ended the flight",
-              !fx.coordinator.statusBarScrollToTop.isActive
-              && fx.coordinator.statusBarEndReasons.contains(.askToggle),
-              "\(fx.coordinator.statusBarEndReasons)")
+              !cross.coordinator.statusBarScrollToTop.isActive
+              && cross.coordinator.statusBarEndReasons.contains(.askToggle),
+              "\(cross.coordinator.statusBarEndReasons)")
         check("S6 cross: the layout is no longer system-owned",
-              fx.vc.messageListLayout?.isSystemScrollToTopActive == false)
-        check("S6 cross: the flight handed its borrowed self-sizing back",
-              fx.coordinator.statusBarRestoredOwnership >= 1)
-        check("S6 cross: the offset stayed legal", fx.spy.outOfRange == 0, "\(fx.spy.outOfRange)")
-        let crossOffset = fx.cv.contentOffset.y
-        fx.pump(0.8)
+              cross.vc.messageListLayout?.isSystemScrollToTopActive == false)
+        // [T-user-ask-anchor-pending] A deferred streaming snapshot must be
+        // consumed BEFORE this row is read/measured/anchored. A `flushPending`
+        // apply with unchanged items goes through `remeasureVisibleCells`, which
+        // drops every visible row's cached height - the height the toggle just
+        // installed included - and reconfigures the cell mid-animation. The
+        // record is taken from the SHIPPING layout (`topAnchoredIndex`), so an
+        // ordering that flushes after the anchor cannot pass.
+        let flush = cross.coordinator.pendingSnapshotFlushes
+        check("S6 cross: the deferred snapshot is consumed exactly once by the toggle",
+              flush.count == 1 && flush[0].caller == "askToggle-beforeMeasure",
+              "\(flush.map { $0.caller })")
+        check("S6 cross: …and it is consumed BEFORE the card's anchor is parked",
+              flush.first?.anchoredIndex == nil,
+              "\(flush.map { $0.anchoredIndex.map { String($0) } ?? "nil" })")
+        check("S6 cross: nothing is left pending after the toggle",
+              cross.coordinator.hasPendingSnapshot == false)
+        // Production-observable half of "the borrowed ownership came back": the
+        // SHIPPING lifecycle clears both flags in `end`, exactly once.
+        check("S6 cross: the real lifecycle released both borrowed ownership flags",
+              !cross.coordinator.statusBarScrollToTop.selfSizingDeferredByFlight
+              && !cross.coordinator.statusBarScrollToTop.streamingSuspendedByFlight)
+        check("S6 cross: the flight handed its borrowed self-sizing back (stub-boundary counter)",
+              cross.coordinator.statusBarRestoredOwnership >= 1)
+        check("S6 cross: the offset stayed legal", cross.spy.outOfRange == 0, "\(cross.spy.outOfRange)")
+        let crossOffset = cross.cv.contentOffset.y
+        cross.pump(0.8)
         check("S6 cross: no probe wrote the offset after the flight ended",
-              abs(fx.cv.contentOffset.y - crossOffset) <= 1.0,
-              "\(f(crossOffset))->\(f(fx.cv.contentOffset.y))")
+              abs(cross.cv.contentOffset.y - crossOffset) <= 1.0,
+              "\(f(crossOffset))->\(f(cross.cv.contentOffset.y))")
         snapshot("s6-snapshot-swap", fx.vc)
     }
 
