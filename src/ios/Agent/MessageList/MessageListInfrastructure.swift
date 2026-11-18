@@ -817,6 +817,9 @@ final class NoAnimationCollectionView: UICollectionView {
         // (cell reuse, image-load resize, scroll settle), confining it to the
         // streaming Markdown cell's height growth.
         let isStreamingNow = (collectionViewLayout as? MessageListLayout)?.streamingCellIndex != nil
+        // [T-statusbar-native-scroll] The system status-bar animation owns
+        // contentOffset for the flight: natural layout, no grow animation.
+        let statusBarOwnsViewport = (collectionViewLayout as? MessageListLayout)?.isSystemScrollToTopActive ?? false
 
         // [T-ios-stream-grow-anim] Only animate when the content actually
         // OVERFLOWS the viewport, i.e. there is a positive scrollable range. The

@@ -186,6 +186,10 @@ extension CollectionViewMessageListV3.Coordinator {
         /// scrollToTopNow: leave auto-scroll as-is so streaming doesn't yank the
         /// user back down after they jump up).
         func scrollToPreviousUserTurn(animated: Bool = true) {
+            // [T-statusbar-native-scroll] The up-button jump is a new user
+            // intent; end the system-owned flight before moving the viewport.
+            finishStatusBarScrollToTop(reason: .superseded,
+                                       offset: viewController?.collectionView?.contentOffset.y)
             guard let cv = viewController?.collectionView,
                   let vm, let ds = dataSource else { return }
             let msgs = vm.messages
