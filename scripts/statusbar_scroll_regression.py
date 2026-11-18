@@ -119,6 +119,9 @@ def wiring_checks() -> int:
 
 
 SLICE_STUBS = """import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics  // Darwin: Foundation alone leaves CGPoint/CGSize/CGRect opaque (CFCGTypes.h forward decls).
+#endif
 
 // Deterministic main-queue dependency for deferred resume callbacks. UIKit
 // animation remains a separate Darwin test; these tests drain only queued work.
@@ -220,6 +223,64 @@ final class SliceCoordinator {
     }
 """
 
+# --- Darwin fixture-import contract -----------------------------------------
+# Run 44388591808 attempt 1 (job 135099797930, macos-26 / Xcode 26.6 17F113)
+# failed the production slice at COMPILE time with:
+#   Slice.swift:29: error: type 'CGPoint' has no member 'zero'
+#   Slice.swift:30: error: type 'CGSize' has no member 'zero'
+#   Slice.swift:31: error: argument passed to call that takes no arguments
+# Those three diagnostics are the signature of the CFCGTypes.h forward
+# declarations (`typedef struct CGPoint CGPoint;`): with `import Foundation`
+# alone on Darwin, CGPoint/CGSize/CGRect resolve to opaque, memberless types, so
+# neither `.zero` nor the memberwise init exists. CGFloat was NOT affected —
+# since Swift 5.5 it lives in the stdlib — which is exactly why the compiler
+# found the types but not their members. Linux cannot reproduce this: there
+# Swift's Foundation defines the full structs itself (canImport(CoreGraphics)
+# is false), which is why the local Linux run passed and the Darwin run did not.
+# Fix = import the native geometry overlay behind a guard, the same pattern the
+# repo already uses for the image-geometry (8d7d540) and map (9be2e13) tests.
+CG_GEOMETRY = re.compile(r'\b(CGPoint|CGSize|CGRect)\b')
+CG_IMPORT_GUARD = re.compile(r'#if canImport\(CoreGraphics\)[^\n]*\nimport CoreGraphics')
+
+
+def geometry_import_gaps(source: str) -> list[str]:
+    """CG geometry spelled without the native overlay import -> Darwin break."""
+    if CG_IMPORT_GUARD.search(source):
+        return []
+    return [f'{i}: {line.strip()}' for i, line in enumerate(source.splitlines(), 1)
+            if CG_GEOMETRY.search(line) and not line.lstrip().startswith('//')]
+
+
+# Frozen verbatim excerpt of what the OLD generator wrote (logged lines 25-32 of
+# run 44388591808). It exists so the contract is proven to reject the generator
+# that actually failed on Darwin, not merely to accept the fixed one.
+OLD_SLICE_STUB_EXCERPT = """final class StubCV {
+    var contentOffset = CGPoint.zero
+    var contentSize = CGSize.zero
+    var bounds = CGRect(x: 0, y: 0, width: 320, height: 480)
+    var adjustedContentInset = StubInsets()
+"""
+
+
+def fixture_import_contract(slice_source: str) -> int:
+    cases = 0
+
+    def case(cond: bool, name: str) -> None:
+        nonlocal cases
+        cases += 1
+        if not cond:
+            fail('fixture import contract: ' + name)
+
+    old_gaps = geometry_import_gaps('import Foundation\n\n' + OLD_SLICE_STUB_EXCERPT)
+    case(len(old_gaps) == 3, 'old generator stub is rejected at all three sites')
+    case(any('CGPoint.zero' in gap for gap in old_gaps), 'old stub flags CGPoint.zero')
+    case(any('CGRect(x: 0' in gap for gap in old_gaps), 'old stub flags the CGRect memberwise init')
+    case(geometry_import_gaps(slice_source) == [], 'generated slice stub imports the geometry overlay')
+    case(geometry_import_gaps(CG_IMPORT_GUARD.sub('', slice_source, count=1)) != [],
+         'contract is sensitive: guard removed -> flagged')
+    return cases
+
+
 def build_slice() -> pathlib.Path:
     work = OUT / 'slice'
     work.mkdir()
@@ -317,6 +378,8 @@ def main() -> None:
         fail('production lifecycle file missing')
     compile_logic()
     slice_checks = build_slice()
+    fixture_cases = fixture_import_contract((OUT / 'slice' / 'Slice.swift').read_text())
+    print(f'STATUSBAR_SCROLL_FIXTURE_IMPORT_PASS cases={fixture_cases}')
     wiring = wiring_checks()
     print(f'STATUSBAR_SCROLL_WIRING_PASS checks={wiring}')
     uikit = run_uikit()
