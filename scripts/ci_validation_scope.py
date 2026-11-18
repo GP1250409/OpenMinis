@@ -80,6 +80,13 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/toolfold',
     'scripts/thinking-transaction-tests/',
     'scripts/thinking_transaction_regression.py',
+    # [T-user-ask-anchor-clamp] 2026-11-19. The answered-question card's
+    # collapse anchor: its gate compiles the shipping ToggleAnchorMath block and
+    # runs inside the mandatory toolfold step, so these paths are inputs of no
+    # skippable module spec - allowing them only stops an incremental dispatch
+    # from degrading to full for a reason the module hashes already decide.
+    'scripts/ask_card_anchor_regression.py',
+    'scripts/ask-card-anchor-tests/',
     'scripts/genui-height-tests/',
     'scripts/genui_height_regression.py',
     # [T-fold-open-card] the show_ui A/B regression is an input of the
