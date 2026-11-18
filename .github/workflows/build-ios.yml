@@ -229,6 +229,9 @@ jobs:
             build/ask-card-uikit/*.png
             build/ask-card-uikit/compile.log
             build/ask-card-uikit/results.log
+            # Hosted status-bar UIKit app: console text, compile log and a
+            # simulator screenshot for whatever the flight did or did not do.
+            build/statusbar-scroll-uikit/*
             build/attachment-url/result.log
             showui-interaction-regression.log
             build/showui-interaction/pure.log

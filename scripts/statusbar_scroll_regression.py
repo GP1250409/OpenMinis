@@ -14,8 +14,10 @@ import copy
 
 import json
 import pathlib
+import plistlib
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -334,6 +336,29 @@ def compile_logic() -> None:
         fail(f'logic checks {checks} < {LOGIC_FLOOR}')
 
 
+# Artifacts for review when the hosted UIKit run misbehaves: console text,
+# compile log and a simulator screenshot, all uploaded by the workflow.
+DIAG = ROOT / 'build' / 'statusbar-scroll-uikit'
+
+
+def copy_diagnostics(work: pathlib.Path, label: str, udid: str | None = None) -> None:
+    DIAG.mkdir(parents=True, exist_ok=True)
+    for name in ('compile.log', 'results.log'):
+        src = work / name
+        if src.is_file():
+            shutil.copyfile(src, DIAG / f'{label}-{name}')
+    if udid:
+        shot = DIAG / f'{label}-screen.png'
+        try:
+            subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', str(shot)],
+                           capture_output=True, text=True, timeout=60)
+            print('STATUSBAR_SCROLL_UIKIT_DIAG dir=build/statusbar-scroll-uikit label=' + label)
+        except Exception as exc:  # screenshot is diagnostics only, never a gate
+            print('STATUSBAR_SCROLL_UIKIT_DIAG screenshot skipped: ' + str(exc))
+    else:
+        print('STATUSBAR_SCROLL_UIKIT_DIAG dir=build/statusbar-scroll-uikit label=' + label)
+
+
 def run_uikit() -> int:
     if platform.system() != 'Darwin':
         return -1
@@ -351,22 +376,56 @@ def run_uikit() -> int:
     run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], check=True)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-path'], text=True).strip()
     arch = platform.machine()
-    exe = work / 'statusbar-uikit'
+
+    # A bare `simctl spawn` binary has no UIApplication and no window server
+    # connection, so UIKit's own animated setContentOffset never advances there
+    # (run 44414791444 attempt 1 died on "UIKit's own animation moved the
+    # viewport up" for exactly that reason). Ship the same source as a real
+    # .app: install + launch --console-pty, with the list in a UIWindow.
+    app = work / 'StatusBarScrollUIKit.app'
+    app.mkdir()
+    exe = app / 'StatusBarScrollUIKit'
     result = run(['xcrun', '--sdk', 'iphonesimulator', 'swiftc', '-swift-version', '5',
                   '-sdk', sdk, '-target', arch + '-apple-ios16.0-simulator',
                   str(PROD), str(work / 'main.swift'), '-o', str(exe)], capture_output=True)
+    (work / 'compile.log').write_text((result.stdout or '') + (result.stderr or ''))
     if result.returncode != 0:
         print(result.stdout)
         print(result.stderr)
+        copy_diagnostics(work, 'uikit-compile')
         fail('uikit compile failed')
-    result = run(['xcrun', 'simctl', 'spawn', udid, str(exe)], capture_output=True, timeout=300)
-    print(result.stdout)
-    print(result.stderr, file=sys.stderr)
-    if result.returncode != 0:
+    bundle_id = 'com.gonepaul.statusbar.uikit'
+    (app / 'Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleIdentifier': bundle_id, 'CFBundleExecutable': 'StatusBarScrollUIKit',
+        'CFBundleName': 'StatusBarScrollUIKit', 'CFBundlePackageType': 'APPL',
+        'CFBundleVersion': '1', 'CFBundleShortVersionString': '1',
+        'LSRequiresIPhoneOS': True, 'MinimumOSVersion': '16.0', 'UIDeviceFamily': [1],
+        'UILaunchScreen': {}}))
+    run(['codesign', '--force', '--sign', '-', str(app)], check=True)
+    subprocess.run(['xcrun', 'simctl', 'uninstall', udid, bundle_id], capture_output=True, text=True)
+    run(['xcrun', 'simctl', 'install', udid, str(app)], check=True)
+    try:
+        result = run(['xcrun', 'simctl', 'launch', '--console-pty', udid, bundle_id],
+                     capture_output=True, timeout=420)
+        text = (result.stdout or '') + (result.stderr or '')
+        code = result.returncode
+    except subprocess.TimeoutExpired as exc:
+        text = exc.stdout or ''
+        if isinstance(text, bytes):
+            text = text.decode(errors='replace')
+        print(text[-20000:])
+        copy_diagnostics(work, 'uikit-timeout', udid)
+        fail('uikit run timed out (no marker within 420s)')
+    print(text)
+    (work / 'results.log').write_text(text)
+    if code != 0:
+        copy_diagnostics(work, 'uikit-run', udid)
         fail('uikit run failed')
-    match = re.search(r'STATUSBAR_SCROLL_UIKIT_PASS checks=(\d+)', result.stdout)
+    match = re.search(r'STATUSBAR_SCROLL_UIKIT_PASS checks=(\d+)', text)
     if not match:
+        copy_diagnostics(work, 'uikit-marker', udid)
         fail('uikit marker missing')
+    copy_diagnostics(work, 'uikit-pass', udid)
     checks = int(match.group(1))
     if checks < UIKIT_FLOOR:
         fail(f'uikit checks {checks} < {UIKIT_FLOOR}')

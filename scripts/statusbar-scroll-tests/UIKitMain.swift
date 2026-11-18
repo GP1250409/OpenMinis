@@ -1,8 +1,19 @@
-// [T-statusbar-native-scroll] AUXILIARY real-UIKit fixture. Compiled by CI
-// against the Simulator SDK with the PRODUCTION StatusBarScrollToTop.swift and
-// StatusBarScrollToTopPolicy. It exercises real UICollectionView layout /
-// contentOffsetAdjustment / animated setContentOffset, but its Harness is NOT
-// the production coordinator and there is NO UIWindow/app scene or physical
+// [T-statusbar-native-scroll] AUXILIARY real-UIKit fixture, HOSTED IN A REAL APP.
+//
+// The test binary is packaged as a .app bundle, installed with `simctl install`
+// and launched with `simctl launch --console-pty`; the list lives inside a
+// UIWindow owned by a UIApplicationDelegate. That host is the point: UIKit's OWN
+// animated `setContentOffset` is driven by a CADisplayLink on the app's main run
+// loop, which a bare `simctl spawn` binary (no UIApplication, no window server
+// connection) does not get — the previous headless host failed the assertion
+// "UIKit's own animation moved the viewport up" for exactly that reason.
+//
+// Do NOT replace that assertion with a hand-driven offset sequence: the fixture
+// exists to prove the production policy does not cancel UIKit's animation, so
+// simulating the animation would test nothing. Every assertion, the 0.8s window
+// and the >=25 check floor are unchanged.
+//
+// The Harness is still NOT the production coordinator and there is no physical
 // status-bar tap here. Production entry-point wiring and takeover/restoration
 // are covered by the compiled production slice (SliceMain.swift) and the
 // structural wiring gate; on-device timing is still a manual step.
@@ -106,113 +117,154 @@ func makeCollectionView(harness: Harness, layout: AdjustingLayout) -> UICollecti
     cv.dataSource = harness
     cv.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
     cv.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 60, right: 0)
-    // No UIWindow: a spawned test binary must not depend on UIApplicationMain.
-    // UIScrollView's animated setContentOffset and UICollectionView layout both
-    // run from the main run loop, which is all this fixture needs.
+    // Hosted by StatusBarUIKitTestApp below: the list is added to a real
+    // UIWindow before the first pump, so UIScrollView's animated
+    // setContentOffset is driven by the app's own CADisplayLink instead of a
+    // bare spawn run loop.
     cv.layoutIfNeeded()
     harness.cv = cv
     return cv
 }
 
-let harness = Harness()
-let layout = AdjustingLayout()
-let cv = makeCollectionView(harness: harness, layout: layout)
-RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+func runStatusBarUIKitCases() {
+    let harness = Harness()
+    let layout = AdjustingLayout()
+    let cv = makeCollectionView(harness: harness, layout: layout)
+    // A view outside a window never receives the display-link tick that advances
+    // UIKit's own animated scroll, so host it BEFORE the first pump.
+    testHostViewController?.view.addSubview(cv)
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    check(cv.window != nil, "the fixture list is hosted in a real app window")
 
-let bottom = harness.bottomOffset()
-cv.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
-RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-check(abs(cv.contentOffset.y - bottom) <= 1, "fixture starts at the real bottom")
-let startOffset = cv.contentOffset.y
+    let bottom = harness.bottomOffset()
+    cv.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    check(abs(cv.contentOffset.y - bottom) <= 1, "fixture starts at the real bottom")
+    let startOffset = cv.contentOffset.y
 
-// A stale coalesced pin scheduled BEFORE Should must not resurrect the bottom.
-DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { harness.attemptBottomPin() }
-harness.pendingPinAlive = true
+    // A stale coalesced pin scheduled BEFORE Should must not resurrect the bottom.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { harness.attemptBottomPin() }
+    harness.pendingPinAlive = true
 
-// 1. Should: synchronous takeover, system animation untouched.
-check(harness.shouldScrollToTopStart(), "Should returns true (system keeps the animation)")
-check(harness.mode == "browse", "Should exits autoScrolling immediately")
-check(harness.clamp == false, "Should cancels the session-load clamp")
-check(harness.bottomAnimating == false, "Should retires the old bottom animation state")
-check(harness.pendingPinAlive == false, "Should cancels the queued bottom pin")
-check(harness.streamingSuspended && harness.selfSizingDeferred, "Should borrows streaming + self-sizing ownership")
-check(harness.layoutFlag, "Should marks the layout as system-owned")
-check(harness.lifecycle.isActive, "flight active")
+    // 1. Should: synchronous takeover, system animation untouched.
+    check(harness.shouldScrollToTopStart(), "Should returns true (system keeps the animation)")
+    check(harness.mode == "browse", "Should exits autoScrolling immediately")
+    check(harness.clamp == false, "Should cancels the session-load clamp")
+    check(harness.bottomAnimating == false, "Should retires the old bottom animation state")
+    check(harness.pendingPinAlive == false, "Should cancels the queued bottom pin")
+    check(harness.streamingSuspended && harness.selfSizingDeferred, "Should borrows streaming + self-sizing ownership")
+    check(harness.layoutFlag, "Should marks the layout as system-owned")
+    check(harness.lifecycle.isActive, "flight active")
 
-// 2. Real UIKit animated scroll runs; the stale pin fires mid-flight but the
-//    production policy blocks it, so the system animation is not cancelled.
-cv.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
-RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.8))
-check(harness.pinRuns == 1, "stale scheduled pin actually ran")
-check(harness.pinWrites == 0, "stale pin did not write the offset")
-check(cv.contentOffset.y < startOffset - 100, "UIKit's own animation moved the viewport up")
-let midOffset = cv.contentOffset.y
+    // 2. Real UIKit animated scroll runs; the stale pin fires mid-flight but the
+    //    production policy blocks it, so the system animation is not cancelled.
+    cv.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.8))
+    check(harness.pinRuns == 1, "stale scheduled pin actually ran")
+    check(harness.pinWrites == 0, "stale pin did not write the offset")
+    check(cv.contentOffset.y < startOffset - 100, "UIKit's own animation moved the viewport up")
+    let midOffset = cv.contentOffset.y
 
-// 3. Layout offset protection + inset ledger.
-layout.active = harness.layoutFlag
-layout.requested = 40
-let insetBefore = cv.contentInset.bottom
-let adjustedBefore = cv.adjustedContentInset.bottom
-let beforeAdjust = cv.contentOffset.y
-let ctx = layout.invalidationContext(forBoundsChange: cv.bounds)
-check(ctx.contentOffsetAdjustment == .zero, "layout requests no adjustment while the flight is active")
-cv.collectionViewLayout.invalidateLayout(with: ctx)
-cv.layoutIfNeeded()
-check(abs(cv.contentOffset.y - beforeAdjust) <= 0.5, "layout pass did not move the system-owned viewport")
-check(abs(cv.contentInset.bottom - insetBefore) <= 0.001, "bottom inset ledger preserved during the flight")
-check(abs(cv.adjustedContentInset.bottom - adjustedBefore) <= 0.001, "adjusted inset preserved during the flight")
+    // 3. Layout offset protection + inset ledger.
+    layout.active = harness.layoutFlag
+    layout.requested = 40
+    let insetBefore = cv.contentInset.bottom
+    let adjustedBefore = cv.adjustedContentInset.bottom
+    let beforeAdjust = cv.contentOffset.y
+    let ctx = layout.invalidationContext(forBoundsChange: cv.bounds)
+    check(ctx.contentOffsetAdjustment == .zero, "layout requests no adjustment while the flight is active")
+    cv.collectionViewLayout.invalidateLayout(with: ctx)
+    cv.layoutIfNeeded()
+    check(abs(cv.contentOffset.y - beforeAdjust) <= 0.5, "layout pass did not move the system-owned viewport")
+    check(abs(cv.contentInset.bottom - insetBefore) <= 0.001, "bottom inset ledger preserved during the flight")
+    check(abs(cv.adjustedContentInset.bottom - adjustedBefore) <= 0.001, "adjusted inset preserved during the flight")
 
-// 4. Completion restores exactly once and never snaps to the bottom.
-check(harness.finish(.completed), "Did completes the flight")
-check(!harness.streamingSuspended && !harness.selfSizingDeferred, "completion restores streaming + self-sizing")
-check(!harness.layoutFlag, "completion releases the layout")
-check(cv.contentOffset.y <= midOffset + 1, "completion does not jump back to the bottom")
-check(!harness.finish(.completed), "a second Did is stale")
+    // 4. Completion restores exactly once and never snaps to the bottom.
+    check(harness.finish(.completed), "Did completes the flight")
+    check(!harness.streamingSuspended && !harness.selfSizingDeferred, "completion restores streaming + self-sizing")
+    check(!harness.layoutFlag, "completion releases the layout")
+    check(cv.contentOffset.y <= midOffset + 1, "completion does not jump back to the bottom")
+    check(!harness.finish(.completed), "a second Did is stale")
 
-// 5. Bottom path still works after the flight: layout adjustment + native pin.
-layout.active = harness.layoutFlag
-layout.requested = 40
-let beforeAllowed = cv.contentOffset.y
-let ctx2 = layout.invalidationContext(forBoundsChange: cv.bounds)
-check(ctx2.contentOffsetAdjustment != .zero, "layout may adjust the viewport again after the flight")
-cv.collectionViewLayout.invalidateLayout(with: ctx2)
-cv.layoutIfNeeded()
-check(abs(cv.contentOffset.y - (beforeAllowed + 40)) <= 1, "UIKit applied the allowed contentOffsetAdjustment")
-harness.mode = "auto"
-harness.attemptBottomPin()
-check(harness.pinWrites == 1, "bottom pin writes when no flight owns the viewport")
-check(abs(cv.contentOffset.y - harness.bottomOffset()) <= 1, "old bottom path reaches the bottom")
+    // 5. Bottom path still works after the flight: layout adjustment + native pin.
+    layout.active = harness.layoutFlag
+    layout.requested = 40
+    let beforeAllowed = cv.contentOffset.y
+    let ctx2 = layout.invalidationContext(forBoundsChange: cv.bounds)
+    check(ctx2.contentOffsetAdjustment != .zero, "layout may adjust the viewport again after the flight")
+    cv.collectionViewLayout.invalidateLayout(with: ctx2)
+    cv.layoutIfNeeded()
+    check(abs(cv.contentOffset.y - (beforeAllowed + 40)) <= 1, "UIKit applied the allowed contentOffsetAdjustment")
+    harness.mode = "auto"
+    harness.attemptBottomPin()
+    check(harness.pinWrites == 1, "bottom pin writes when no flight owns the viewport")
+    check(abs(cv.contentOffset.y - harness.bottomOffset()) <= 1, "old bottom path reaches the bottom")
 
-// 6. Drag interrupt transfers ownership; settle restores once.
-harness.shouldScrollToTopStart()
-let flightToken = harness.lifecycle.token
-check(harness.finish(.drag, restoring: false), "drag ends the flight")
-check(harness.streamingSuspended && harness.selfSizingDeferred, "drag keeps the borrowed suspend/defer until settle")
-check(!harness.lifecycle.streamingSuspendedByFlight && !harness.lifecycle.selfSizingDeferredByFlight,
-      "flight ownership is cleared on the drag transfer")
-check(!harness.finish(.completed, expectedToken: flightToken), "late Did after the drag is stale")
-harness.streamingSuspended = false; harness.selfSizingDeferred = false; harness.layoutFlag = false  // settle
-
-// 7. Repeat tap: the older deferred completion cannot end the newer flight.
-harness.shouldScrollToTopStart()
-let first = harness.lifecycle.token
-harness.shouldScrollToTopStart()
-let second = harness.lifecycle.token
-check(second > first, "repeat tap mints a newer token")
-check(!harness.finish(.completed, expectedToken: first), "older token is stale")
-check(harness.lifecycle.isActive && harness.streamingSuspended, "newer flight survives the stale completion")
-check(harness.finish(.completed, expectedToken: second), "current token completes the newer flight")
-check(!harness.streamingSuspended && !harness.selfSizingDeferred, "repeat flight restores once")
-
-// 8. Session change / leave / search / screenshot all restore.
-for reason in [StatusBarScrollToTopLifecycle.EndReason.sessionChange, .viewDisappear, .search, .screenshot] {
+    // 6. Drag interrupt transfers ownership; settle restores once.
     harness.shouldScrollToTopStart()
-    check(harness.finish(reason), "end reason \(reason.rawValue) ends the flight")
-    check(!harness.streamingSuspended && !harness.selfSizingDeferred && !harness.layoutFlag,
-          "end reason \(reason.rawValue) restores all ownership")
+    let flightToken = harness.lifecycle.token
+    check(harness.finish(.drag, restoring: false), "drag ends the flight")
+    check(harness.streamingSuspended && harness.selfSizingDeferred, "drag keeps the borrowed suspend/defer until settle")
+    check(!harness.lifecycle.streamingSuspendedByFlight && !harness.lifecycle.selfSizingDeferredByFlight,
+          "flight ownership is cleared on the drag transfer")
+    check(!harness.finish(.completed, expectedToken: flightToken), "late Did after the drag is stale")
+    harness.streamingSuspended = false; harness.selfSizingDeferred = false; harness.layoutFlag = false  // settle
+
+    // 7. Repeat tap: the older deferred completion cannot end the newer flight.
+    harness.shouldScrollToTopStart()
+    let first = harness.lifecycle.token
+    harness.shouldScrollToTopStart()
+    let second = harness.lifecycle.token
+    check(second > first, "repeat tap mints a newer token")
+    check(!harness.finish(.completed, expectedToken: first), "older token is stale")
+    check(harness.lifecycle.isActive && harness.streamingSuspended, "newer flight survives the stale completion")
+    check(harness.finish(.completed, expectedToken: second), "current token completes the newer flight")
+    check(!harness.streamingSuspended && !harness.selfSizingDeferred, "repeat flight restores once")
+
+    // 8. Session change / leave / search / screenshot all restore.
+    for reason in [StatusBarScrollToTopLifecycle.EndReason.sessionChange, .viewDisappear, .search, .screenshot] {
+        harness.shouldScrollToTopStart()
+        check(harness.finish(reason), "end reason \(reason.rawValue) ends the flight")
+        check(!harness.streamingSuspended && !harness.selfSizingDeferred && !harness.layoutFlag,
+              "end reason \(reason.rawValue) restores all ownership")
+    }
+
+    // 9. The native scroll-to-top eligibility flag is untouched.
+    check(cv.scrollsToTop, "the list still opts into the system status-bar gesture")
+
+    print("STATUSBAR_SCROLL_UIKIT_PASS checks=\(checks)")
+    // Console-pty reader sees the marker before the process leaves.
+    exit(0)
 }
 
-// 9. The native scroll-to-top eligibility flag is untouched.
-check(cv.scrollsToTop, "the list still opts into the system status-bar gesture")
+// MARK: - Real app host
 
-print("STATUSBAR_SCROLL_UIKIT_PASS checks=\(checks)")
+var testHostWindow: UIWindow?
+var testHostViewController: UIViewController?
+
+final class StatusBarUIKitTestApp: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        let host = UIViewController()
+        host.view.backgroundColor = .white
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        self.window = window
+        testHostWindow = window
+        testHostViewController = host
+        // Let the first commit through the real run loop, then run the cases.
+        DispatchQueue.main.async {
+            print("STATUSBAR_UIKIT_HOST key_window=\(window.isKeyWindow) "
+                  + "app_state=\(UIApplication.shared.applicationState.rawValue) "
+                  + "screen=\(UIScreen.main.bounds.width)x\(UIScreen.main.bounds.height)")
+            runStatusBarUIKitCases()
+        }
+        return true
+    }
+}
+
+UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil,
+                  NSStringFromClass(StatusBarUIKitTestApp.self))
