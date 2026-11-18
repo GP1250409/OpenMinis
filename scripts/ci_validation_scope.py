@@ -86,6 +86,7 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     # skippable module spec - allowing them only stops an incremental dispatch
     # from degrading to full for a reason the module hashes already decide.
     'scripts/ask_card_anchor_regression.py',
+    'scripts/ask_card_anchor_uikit.py',
     'scripts/ask-card-anchor-tests/',
     'scripts/genui-height-tests/',
     'scripts/genui_height_regression.py',
