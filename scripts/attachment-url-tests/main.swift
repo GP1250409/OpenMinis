@@ -368,6 +368,37 @@ let unterminated = "<user-attached-files>\n  <file path=\"/var/minis/attachments
 check(AttachmentXMLCodec.parseFileTags(in: unterminated).map(\.path) == ["/var/minis/attachments/uploads/y.png"],
       "an unterminated tag does not swallow the next tag")
 
+// MARK: - 8. 合法文件名包含 '<file ' / '/>'：不能被当成标签边界
+
+let fileTokenPath = "/var/minis/attachments/uploads/<file foo.png"
+let fileTokenXML = "<user-attached-files>\n  <file path=\"\(fileTokenPath)\" url=\"minis://attachments/uploads/%3Cfile%20foo.png\" size=\"1\" modified=\"x\" />\n</user-attached-files>"
+let fileTokenTags = AttachmentXMLCodec.parseFileTags(in: fileTokenXML)
+check(fileTokenTags.count == 1, "legacy path containing '<file ' still parses (old regex matched it)")
+check(fileTokenTags.first?.path == fileTokenPath, "legacy '<file ' path preserved byte-for-byte")
+
+let beforeAfter = "<user-attached-files>\n"
+    + "  <file path=\"/var/minis/attachments/uploads/前.png\" url=\"u0\" size=\"1\" modified=\"x\" />\n"
+    + "  <file path=\"\(fileTokenPath)\" url=\"u1\" size=\"2\" modified=\"x\" />\n"
+    + "  <file path=\"/var/minis/attachments/uploads/>.png\" url=\"u2\" size=\"3\" modified=\"x\" />\n"
+    + "  <file path=\"/var/minis/attachments/uploads/后.png\" url=\"u3\" size=\"4\" modified=\"x\" />\n"
+    + "</user-attached-files>"
+let surrounding = AttachmentXMLCodec.parseFileTags(in: beforeAfter)
+check(surrounding.map(\.path) == ["/var/minis/attachments/uploads/前.png", fileTokenPath,
+                                 "/var/minis/attachments/uploads/>.png", "/var/minis/attachments/uploads/后.png"],
+      "tags before and after a '<file ' / '/>' in a path all parse: \(surrounding.count)")
+check(surrounding.map(\.size) == [1, 2, 3, 4], "sizes stay aligned around the token-bearing path")
+
+// 与旧正则对齐：'<file ' 文件名
+let oldPattern2 = try! NSRegularExpression(pattern: #"<file\s+path="([^"]*)"(?:\s+url="([^"]*)")?(?:\s+size="([^"]*)")?(?:\s+modified="([^"]*)")?\s*/>"#)
+let ns2 = fileTokenXML as NSString
+check(oldPattern2.numberOfMatches(in: fileTokenXML, range: NSRange(location: 0, length: ns2.length)) == 1,
+      "old regex baseline matches the '<file ' path exactly once")
+
+// malformed 前置 tag 之后的合法 tag 仍恢复
+let malformedBefore = "<user-attached-files>\n  <file path=\"broken\".png\" size=\"1\" />\n  <file path=\"\(fileTokenPath)\" url=\"u\" size=\"2\" modified=\"x\" />\n</user-attached-files>"
+check(AttachmentXMLCodec.parseFileTags(in: malformedBefore).map(\.path) == [fileTokenPath],
+      "a malformed tag before a '<file ' path does not swallow it")
+
 // MARK: - 结果
 
 let xmlChecks = checks - urlChecks

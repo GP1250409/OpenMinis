@@ -190,7 +190,18 @@ def main():
         url_count = 0
         xml_count = 0
 
+    # The incremental scope must treat project.pbxproj as an exception ONLY for the
+    # exact 8 registration lines; prove the predicate itself rejects look-alikes.
+    scope_selftest = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'ci_validation_scope.py'),
+                                     '--self-test-pbxproj'], capture_output=True, text=True)
+    sys.stdout.write(scope_selftest.stdout)
+    selftest_ok = 'PBXPROJ_PREDICATE_SELFTEST_OK' in scope_selftest.stdout
+
     source_count = source_checks()
+    if selftest_ok:
+        source_count += 1
+    else:
+        failures.append('pbxproj registration predicate self-test failed')
     source_ok = source_count >= MIN_SOURCE_CHECKS
     if not source_ok:
         print('ATTACHMENT_SOURCE_FAIL checks=%d min=%d' % (source_count, MIN_SOURCE_CHECKS))

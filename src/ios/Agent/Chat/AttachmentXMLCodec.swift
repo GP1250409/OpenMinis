@@ -159,6 +159,12 @@ enum AttachmentXMLCodec {
                 continue
             }
             let attributeText = String(body[open.upperBound..<close.lowerBound])
+            if attributes(in: attributeText) == nil {
+                // Malformed tag (e.g. an unescaped quote inside a value): resume at
+                // the next tag rather than trusting the terminator we landed on.
+                cursor = body.range(of: "<file ", range: open.upperBound..<body.endIndex)?.lowerBound ?? close.upperBound
+                continue
+            }
             if let attributes = attributes(in: attributeText),
                let rawPath = attributes["path"],
                !rawPath.isEmpty {
@@ -185,17 +191,16 @@ enum AttachmentXMLCodec {
     /// A plain `range(of: "/>")` search cuts that tag at `uploads/`, the tokenizer
     /// sees an unterminated quote and the whole attachment disappears on reload.
     /// This scan tracks quote state, so only a `/>` outside quotes terminates.
-    /// Unpaired quotes can make the scan run to the end of the block; the caller
-    /// then resumes at the next `<file ` instead of dropping the remaining tags,
-    /// which keeps malformed old tags predictable (one tag skipped, never a run).
+    /// The scan covers the whole remainder (capped at 8192 chars) and only a `/>`
+    /// OUTSIDE quotes terminates; a `<file ` seen outside quotes means this tag never
+    /// closed, and the caller then resumes at that tag. A legal disk name that itself
+    /// contains `<file ` or `/>` sits INSIDE quotes and is never mistaken for a
+    /// boundary. Unpaired quotes therefore cost exactly one tag, never a run.
     private static func tagTerminator(in text: String, from start: String.Index) -> Range<String.Index>? {
-        // Never look past the next tag: a pathological unescaped quote must only
-        // cost its own tag, never the tags after it.
-        let limit = text.range(of: "<file ", range: start..<text.endIndex)?.lowerBound ?? text.endIndex
         var i = start
         var inQuotes = false
         var length = 0
-        while i < limit {
+        while i < text.endIndex {
             length += 1
             if length > 8192 { return nil }
             let c = text[i]
@@ -205,12 +210,12 @@ enum AttachmentXMLCodec {
                 inQuotes = true
             } else if c == "/" {
                 let next = text.index(after: i)
-                if next < limit, text[next] == ">" {
+                if next < text.endIndex, text[next] == ">" {
                     return i..<text.index(after: next)
                 }
-            } else if c == "<" {
-                // A new tag started before this one closed: treat as unterminated
-                // so the caller can resynchronise at that tag.
+            } else if c == "<", text[i...].hasPrefix("<file ") {
+                // Another tag started OUTSIDE any quoted value: this tag is
+                // unterminated, so let the caller resynchronise there.
                 return nil
             }
             i = text.index(after: i)

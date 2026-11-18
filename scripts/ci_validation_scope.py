@@ -172,23 +172,36 @@ def path_is_allowed_incremental(path: str) -> bool:
 
 
 PBXPROJ_PATH = 'src/ios/Minis.xcodeproj/project.pbxproj'
-PBXPROJ_HELPER_FILES = ('MinisURLEncoding.swift', 'AttachmentXMLCodec.swift')
+PBXPROJ_HELPER_IDS = {
+    'MinisURLEncoding.swift': ('E5AUE0001', 'E5AUE0011'),
+    'AttachmentXMLCodec.swift': ('E5AXC0001', 'E5AXC0011'),
+}
 
 
-def pbxproj_is_pure_helper_registration(repo: pathlib.Path, baseline: str, head: str) -> bool:
-    """[T-attachment-raw-url-encoding] True only when the project file changed by
-    ADDING exactly the 8 registration lines of the two new helpers and nothing else.
+def pbxproj_expected_additions() -> set[str]:
+    """The exact 8 registration lines (canonical, tab-indented) for the two helpers."""
+    lines = set()
+    for name, (build_id, ref_id) in PBXPROJ_HELPER_IDS.items():
+        lines.add(f'\t\t{build_id} /* {name} in Sources */ = {{isa = PBXBuildFile; fileRef = {ref_id} /* {name} */; }};')
+        lines.add(f'\t\t{ref_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
+        lines.add(f'\t\t\t\t{ref_id} /* {name} */,')
+        lines.add(f'\t\t\t\t{build_id} /* {name} in Sources */,')
+    return lines
 
-    The Agent/Chat PBXGroup is a classic (non-synchronised) group, so a new source
-    file must be listed by hand (PBXFileReference + PBXBuildFile + group children +
-    Sources phase) or the target never compiles it. Allowing the project file in
-    ALLOWED_INCREMENTAL_PREFIXES would silently whitelist ANY future project change
-    (build settings, entitlements, a new target), so it is not whitelisted: instead
-    this narrow predicate proves the diff is pure addition of those 8 lines. Anything
-    else (a deletion, a modified line, an extra added line, a different file) makes
-    the path unexpected and the dispatch falls back to a full run.
+
+def pbxproj_registration_matches(added: list[str], removed: list[str]) -> bool:
+    """Pure predicate over diff lines: exactly the canonical 8 added lines, no removal.
+
+    Anything else — a settings change, an extra line that merely mentions a helper
+    (e.g. a comment), a different id, a deletion — is rejected so the dispatch falls
+    back to a full run instead of inheriting modules on an unproven project diff.
     """
-    out = git(repo, 'diff', '--unified=0', f'{baseline}..{head}', '--', PBXPROJ_PATH)
+    if removed:
+        return False
+    return set(added) == pbxproj_expected_additions() and len(added) == 8
+
+
+def _diff_lines(out: str) -> tuple[list[str], list[str]]:
     added, removed = [], []
     for line in out.splitlines():
         if line.startswith('+++') or line.startswith('---'):
@@ -197,14 +210,48 @@ def pbxproj_is_pure_helper_registration(repo: pathlib.Path, baseline: str, head:
             added.append(line[1:])
         elif line.startswith('-'):
             removed.append(line[1:])
-    if not added or removed:
-        return False
-    if len(added) != 8:
-        return False
-    for line in added:
-        if not any(name in line for name in PBXPROJ_HELPER_FILES):
-            return False
-    return True
+    return added, removed
+
+
+def pbxproj_is_pure_helper_registration(repo: pathlib.Path, baseline: str, head: str) -> bool:
+    """True only when the project file changed by ADDING exactly the 8 registration
+    lines of the two new helpers and nothing else.
+
+    The Agent/Chat PBXGroup is a classic (non-synchronised) group, so a new source
+    file must be listed by hand (PBXFileReference + PBXBuildFile + group children +
+    Sources phase) or the target never compiles it. Whitelisting the project file would
+    silently allow ANY future project change, so instead this predicate proves the diff
+    is exactly that registration; anything else stays unexpected -> full run.
+    """
+    out = git(repo, 'diff', '--unified=0', f'{baseline}..{head}', '--', PBXPROJ_PATH)
+    added, removed = _diff_lines(out)
+    return pbxproj_registration_matches(added, removed)
+
+
+def pbxproj_selftest() -> int:
+    """Negative/positive cases for the predicate (used by the CI attachment step)."""
+    ok = pbxproj_expected_additions()
+    cases = [
+        ('pure_registration', ok, set(), True),
+        ('reordered_same_set', list(ok)[::-1], [], True),
+        ('extra_comment_mentioning_helper', ok | {'// MinisURLEncoding.swift helper'}, set(), False),
+        ('seven_lines_only', set(list(ok)[:7]), set(), False),
+        ('deletion_present', ok, {'\t\tdeadbeef /* old */,'}, False),
+        ('wrong_reference_id', (ok - {f'\t\tE5AUE0001 /* MinisURLEncoding.swift in Sources */ = {{isa = PBXBuildFile; fileRef = E5AUE0011 /* MinisURLEncoding.swift */; }};'})
+         | {'\t\tE5AUE0001 /* MinisURLEncoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEADBEEF /* MinisURLEncoding.swift */; };'}, set(), False),
+        ('unrelated_project_setting', ok | {'\t\t\t\tIPHONEOS_DEPLOYMENT_TARGET = 16.0;'}, set(), False),
+    ]
+    failures = 0
+    for name, added, removed, expected in cases:
+        got = pbxproj_registration_matches(list(added), list(removed))
+        if got != expected:
+            failures += 1
+            print(f'PBXPROJ_SELFTEST_FAIL {name} expected={expected} got={got}')
+    if failures:
+        print(f'PBXPROJ_PREDICATE_SELFTEST_FAIL cases={len(cases)} failures={failures}')
+        return 1
+    print(f'PBXPROJ_PREDICATE_SELFTEST_OK cases={len(cases)}')
+    return 0
 
 
 def compute_scope(repo: pathlib.Path, mode: str, baseline_ref: str, head_ref: str = 'HEAD') -> dict:
@@ -306,7 +353,11 @@ def main():
     parser.add_argument('--repo', default=str(ROOT))
     parser.add_argument('--out', default='')
     parser.add_argument('--github-output', default=os.environ.get('GITHUB_OUTPUT', ''))
+    parser.add_argument('--self-test-pbxproj', action='store_true')
     args = parser.parse_args()
+
+    if args.self_test_pbxproj:
+        sys.exit(pbxproj_selftest())
 
     repo = pathlib.Path(args.repo)
     scope = compute_scope(repo, args.mode, args.baseline, args.head)
