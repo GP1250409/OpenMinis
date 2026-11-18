@@ -115,6 +115,25 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'src/ios/Shared/Config/',
     'src/ios/Views/Chat/ChatExportRenderer.swift',
     'src/ios/Agent/Chat/AIChatViewModel+SSEStream.swift',
+    # [T-attachment-raw-url-encoding / T-attachment-xml-attr-escape] 2026-11-18.
+    # Attachment path -> minis:// URL encoding and the <user-attached-files>
+    # attribute codec touch only these Chat-layer files. They are NOT inputs of
+    # any skippable module spec above (no fixture compiles them; the two scripts
+    # that read ChatModels.swift live in the mandatory toolfold/thinking steps),
+    # so the map/chart/theme/card-dark tree hashes stay identical and those
+    # modules inherit the signed baseline instead of re-rendering 24 + 99 + 46
+    # PNGs for a colour-neutral change. The new attachment step is UNCONDITIONAL
+    # in build-ios.yml, so it cannot be skipped by an incremental dispatch.
+    'src/ios/Agent/Chat/MinisURLEncoding.swift',
+    'src/ios/Agent/Chat/AttachmentXMLCodec.swift',
+    'src/ios/Agent/Chat/MinisURLPathDecoding.swift',
+    'src/ios/Agent/Chat/ChatModels.swift',
+    'src/ios/Agent/Chat/RawMessage+Conversion.swift',
+    'src/ios/Agent/Chat/AIChatViewModel+Send.swift',
+    'src/ios/Agent/Chat/AIChatViewModel+Attachments.swift',
+    'scripts/attachment_url_regression.py',
+    'scripts/attachment-url-tests/',
+    'src/ios/MinisTests/Standalone/ImageCtxIosETests.swift',
 )
 
 
