@@ -126,6 +126,21 @@ func makeCollectionView(harness: Harness, layout: AdjustingLayout) -> UICollecti
     return cv
 }
 
+/// Pump the main run loop for a REAL wall-clock interval.
+///
+/// `RunLoop.main.run(until:)` returns almost immediately when the loop is
+/// already running (our cases run inside an app callback), so the flight's
+/// 0.8s window never actually elapses and UIKit's animation has no time to
+/// advance — run 44419454876 showed 0.9s of pumps finishing in 0.13s. This
+/// spins the run loop in short slices until the wall clock really passes the
+/// deadline. It does not drive any offset itself.
+func pump(_ seconds: TimeInterval) {
+    let deadline = Date(timeIntervalSinceNow: seconds)
+    while Date() < deadline {
+        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+    }
+}
+
 func runStatusBarUIKitCases() {
     let harness = Harness()
     let layout = AdjustingLayout()
@@ -133,12 +148,12 @@ func runStatusBarUIKitCases() {
     // A view outside a window never receives the display-link tick that advances
     // UIKit's own animated scroll, so host it BEFORE the first pump.
     testHostViewController?.view.addSubview(cv)
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    pump(0.05)
     check(cv.window != nil, "the fixture list is hosted in a real app window")
 
     let bottom = harness.bottomOffset()
     cv.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    pump(0.05)
     check(abs(cv.contentOffset.y - bottom) <= 1, "fixture starts at the real bottom")
     let startOffset = cv.contentOffset.y
 
@@ -159,7 +174,7 @@ func runStatusBarUIKitCases() {
     // 2. Real UIKit animated scroll runs; the stale pin fires mid-flight but the
     //    production policy blocks it, so the system animation is not cancelled.
     cv.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.8))
+    pump(0.8)
     check(harness.pinRuns == 1, "stale scheduled pin actually ran")
     check(harness.pinWrites == 0, "stale pin did not write the offset")
     check(cv.contentOffset.y < startOffset - 100, "UIKit's own animation moved the viewport up")
