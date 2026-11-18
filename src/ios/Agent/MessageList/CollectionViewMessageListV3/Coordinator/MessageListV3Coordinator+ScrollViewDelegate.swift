@@ -306,8 +306,117 @@ extension CollectionViewMessageListV3.Coordinator {
             scrollToBottomNow(animated: true)
         }
 
+        /// [T-statusbar-native-scroll] The ONLY synchronous "start" signal for
+        /// a status-bar tap (UIKit does not send `willBeginDragging`). Take
+        /// user ownership here and let UIKit run its own animation — no custom
+        /// jump, no extra animation, no delay.
+        func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            beginStatusBarScrollToTop(scrollView)
+            return true
+        }
+
         func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
             scrollMode = .userBrowsing
+            finishStatusBarScrollToTop(reason: .completed)
+        }
+
+        // MARK: - Status-bar scroll-to-top lifecycle [T-statusbar-native-scroll]
+
+        /// Synchronous takeover at the start of the system gesture. The system
+        /// animation itself is untouched; every list-owned writer that could
+        /// move the viewport mid-flight is stopped or gated.
+        func beginStatusBarScrollToTop(_ scrollView: UIScrollView) {
+            let begin = statusBarScrollToTop.begin()
+            // 1. Leave auto-follow NOW. Deliberately not via
+            //    `settleAfterInteraction`: that re-acquires `.autoScrolling`
+            //    within 4pt of the bottom, which is exactly where a status-bar
+            //    tap starts, so the pin would be back for the whole flight.
+            scrollMode = .userBrowsing
+            // 2. Retire the old bottom animation state + token: its completion
+            //    or 1.2s safety net must not clear/re-align anything for this
+            //    flight.
+            isAnimatingScrollToBottom = false
+            scrollBottomJumpToken &+= 1
+            scrollBottomRealigns = 0
+            // 3. A queued 80ms coalesced bottom pin would fire mid-flight.
+            pendingScrollWork?.cancel()
+            pendingScrollWork = nil
+            // 4. The session-load clamp is a bottom pin too (8s window).
+            clampAfterSessionLoad = false
+            // 5. A parked thinking-toggle anchor is user-intent state from
+            //    before the tap; release it without pulling the offset.
+            releaseThinkingToggleOnUserScroll()
+            lastJumpedUserId = nil
+            // 6. Borrow the drag's two ownership flags. Unlike the drag, no
+            //    settle follows, so `finish...` below restores them on EVERY
+            //    end path (completion, drag transfer, session change, leave,
+            //    search, screenshot, supersede, watchdog).
+            if begin.needsSelfSizingDeferral {
+                viewController?.messageListLayout?.deferSelfSizing = true
+            }
+            if begin.needsStreamingSuspend {
+                vm?.setStreamingUIUpdatesSuspended(true)
+            }
+            viewController?.messageListLayout?.isSystemScrollToTopActive = true
+            AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][should] token=\(begin.token) repeat=\(begin.isRepeat ? 1 : 0) offset=\(String(format: "%.1f", scrollView.contentOffset.y)) cs=\(String(format: "%.1f", scrollView.contentSize.height)) mode=browse clamp=0 animBottom=0 pendingWork=0")
+            scheduleStatusBarScrollToTopWatchdog(token: begin.token)
+        }
+
+        /// Single terminal path. Returns true only when this call actually ended
+        /// the live flight (stale callbacks return false and change nothing).
+        @discardableResult
+        func finishStatusBarScrollToTop(
+            reason: StatusBarScrollToTopLifecycle.EndReason,
+            restoring: Bool = true,
+            offset: CGFloat? = nil,
+            expectedToken: Int? = nil
+        ) -> Bool {
+            guard statusBarScrollToTop.isActive else { return false }
+            let end = statusBarScrollToTop.end(reason, restoring: restoring,
+                                               expectedToken: expectedToken)
+            guard !end.stale else { return false }
+            statusBarScrollToTopWatchdog?.cancel()
+            statusBarScrollToTopWatchdog = nil
+            // Order: stop suppressing layout adjustments BEFORE allowing
+            // self-sizing again, so the first self-size pass is not blocked.
+            viewController?.messageListLayout?.isSystemScrollToTopActive = false
+            if end.restoreSelfSizing {
+                viewController?.messageListLayout?.deferSelfSizing = false
+            }
+            if end.restoreStreaming {
+                vm?.setStreamingUIUpdatesSuspended(false)
+            }
+            AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][end] token=\(end.token) reason=\(reason.rawValue) ms=\(String(format: "%.0f", end.activeMs)) offset=\(offset.map { String(format: "%.1f", $0) } ?? "-") restoreStream=\(end.restoreStreaming ? 1 : 0) restoreSelfSize=\(end.restoreSelfSizing ? 1 : 0) begins=\(statusBarScrollToTop.beginCount) completed=\(statusBarScrollToTop.completedCount) interrupted=\(statusBarScrollToTop.interruptionCount)")
+            return true
+        }
+
+        /// Progress/still watchdog: `DidScrollToTop` is the normal completion,
+        /// but a system animation cancelled without a callback must not leave
+        /// the list gated forever. Token-checked, progress-aware — this never
+        /// force-clears a flight that is still moving, and never uses a fixed
+        /// 2s window.
+        private func scheduleStatusBarScrollToTopWatchdog(token: Int) {
+            statusBarScrollToTopWatchdog?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self,
+                      self.statusBarScrollToTop.isActive,
+                      self.statusBarScrollToTop.token == token,
+                      let cv = self.viewController?.collectionView else { return }
+                let atTop = cv.contentOffset.y <= -cv.adjustedContentInset.top + 0.5
+                    && !cv.isTracking && !cv.isDecelerating
+                if self.statusBarScrollToTop.noteWatchdogSample(offset: cv.contentOffset.y,
+                                                                atTop: atTop) {
+                    self.finishStatusBarScrollToTop(reason: .watchdog,
+                                                    offset: cv.contentOffset.y,
+                                                    expectedToken: token)
+                } else {
+                    self.scheduleStatusBarScrollToTopWatchdog(token: token)
+                }
+            }
+            statusBarScrollToTopWatchdog = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + StatusBarScrollToTopLifecycle.watchdogInterval,
+                execute: work)
         }
 
         /// [T-ios-defer-retry-never-consumed] Recursively walks a cell's subview

@@ -442,7 +442,10 @@ extension CollectionViewMessageListV3.Coordinator {
             // the contentSize KVO while the flight is in progress. The jump
             // animation targets this same resting offset, and
             // `scrollViewDidEndScrollingAnimation` re-aligns to it.
-            if scrollMode == .autoScrolling, !isAnimatingScrollToBottom,
+            if StatusBarScrollToTopPolicy.allowsBottomPin(
+                   isActive: statusBarScrollToTop.isActive,
+                   isAutoScrolling: scrollMode == .autoScrolling,
+                   isAnimatingScrollToBottom: isAnimatingScrollToBottom),
                let target = bottomRestingOffset(cv, bottomInsetBase: bottomInsetBase),
                abs(cv.contentOffset.y - target) > 0.5 {
                 cv.contentOffset.y = target
@@ -518,6 +521,12 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         func scrollToBottomNow(animated: Bool = false) {
+            // [T-statusbar-native-scroll] A send / down-button jump supersedes
+            // a status-bar flight: restore ownership before writing an offset,
+            // otherwise the system animation would be cancelled by this pin
+            // while the lifecycle still believes it owns the viewport.
+            finishStatusBarScrollToTop(reason: .superseded,
+                                       offset: viewController?.collectionView?.contentOffset.y)
             guard let cv = viewController?.collectionView else { return }
             absorbPendingComposerShrink(caller: "scrollToBottom")
             // [T-scroll-bottom-native-animation] The manual down-arrow jump is

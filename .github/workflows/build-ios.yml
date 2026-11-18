@@ -71,6 +71,10 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/attachment_url_regression.py 2>&1 | tee attachment-url-regression.log
+      - name: Status-bar native scroll-to-top lifecycle (real UIKit fixture)
+        run: |
+          set -o pipefail
+          python3 scripts/statusbar_scroll_regression.py 2>&1 | tee statusbar-scroll-regression.log
       - name: ShowUI interaction theme (typography, palette, action contrast)
         if: steps.scope.outputs.run_theme_suite == 'true'
         run: |

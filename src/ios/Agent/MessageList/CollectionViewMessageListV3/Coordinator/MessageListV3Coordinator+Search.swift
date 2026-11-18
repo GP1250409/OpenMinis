@@ -47,6 +47,13 @@ extension CollectionViewMessageListV3.Coordinator {
         /// on close the inset returns without moving the content.
         func setSearchHidesComposer(_ hidden: Bool) {
             guard hidden != searchHidesComposer else { return }
+            if hidden {
+                // [T-statusbar-native-scroll] Opening search changes the bottom
+                // inset and usually moves the viewport; the system flight must
+                // not be left owning it.
+                finishStatusBarScrollToTop(reason: .search,
+                                           offset: viewController?.collectionView?.contentOffset.y)
+            }
             searchHidesComposer = hidden
             applySubViewportCompensation(caller: "chatSearch", forceRelax: true)
             syncScrollFlags()
@@ -97,6 +104,10 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         func scrollToSearchMatch(_ match: ChatSearchMatch) {
+            // [T-statusbar-native-scroll] Search navigation moves the viewport
+            // itself — end the system-owned flight first.
+            finishStatusBarScrollToTop(reason: .search,
+                                       offset: viewController?.collectionView?.contentOffset.y)
             guard let cv = viewController?.collectionView, let ds = dataSource, let vm else { return }
             if let blockId = match.key.blockId {
                 expandToolGroupForSearch(messageId: match.key.messageId, blockId: blockId)

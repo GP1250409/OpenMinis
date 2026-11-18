@@ -87,6 +87,12 @@ extension CollectionViewMessageListV3.Coordinator {
             let t0 = CACurrentMediaTime()
             func ms() -> String { String(format: "%6.1fms", (CACurrentMediaTime() - t0) * 1000) }
 
+            // [T-statusbar-native-scroll] The capture pass drives the viewport
+            // through a long programmatic scroll; it must own the offset from
+            // the start, so end any system scroll-to-top flight here.
+            finishStatusBarScrollToTop(reason: .screenshot,
+                                       offset: viewController?.collectionView?.contentOffset.y)
+
             guard let cv = viewController?.collectionView,
                   let snapshot = dataSource?.snapshot() else {
                 screenshotLogger.info("captureScrolling: no cv or snapshot")

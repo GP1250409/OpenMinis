@@ -262,8 +262,16 @@ extension CollectionViewMessageListV3.Coordinator {
                 // the contentSize KVO arms it as rows below the old viewport
                 // measure. Re-arm instead; the jump ends at the bottom anyway.
                 if self.isAnimatingScrollToBottom { self.scheduleCoalescedScroll(); return }
+                // [T-statusbar-native-scroll] The system owns the viewport
+                // until Did/interrupt: no pin, and no re-arm — a re-arm would
+                // keep a timer alive for the whole flight.
+                if self.statusBarScrollToTop.isActive { return }
                 let isTracking = self.viewController?.collectionView?.isTracking ?? false
-                if self.scrollMode != .autoScrolling || isTracking { return }
+                if !StatusBarScrollToTopPolicy.allowsCoalescedBottomPin(
+                       isActive: self.statusBarScrollToTop.isActive,
+                       isAutoScrolling: self.scrollMode == .autoScrolling,
+                       isTracking: isTracking,
+                       isAnimatingScrollToBottom: self.isAnimatingScrollToBottom) { return }
                 self.scrollToBottomNow()
             }
             pendingScrollWork = work

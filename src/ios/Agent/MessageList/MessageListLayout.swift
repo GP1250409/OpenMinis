@@ -635,7 +635,12 @@ final class MessageListLayout: UICollectionViewLayout {
         // or decelerating) — UIKit applies contentOffsetAdjustment directly
         // inside the layout cycle, bypassing scrollViewDidScroll, which
         // disrupts the natural deceleration momentum and causes visible jitter.
-        if let cv = collectionView, !cv.isTracking, !cv.isDecelerating, !suppressContentOffsetAdjustment {
+        if let cv = collectionView,
+           StatusBarScrollToTopPolicy.allowsContentOffsetAdjustment(
+               isActive: isSystemScrollToTopActive,
+               isTracking: cv.isTracking,
+               isDecelerating: cv.isDecelerating),
+           !suppressContentOffsetAdjustment {
             let cellTop = originalAttributes.frame.minY
             let cellBottom = originalAttributes.frame.maxY
             let viewportTop = cv.contentOffset.y
