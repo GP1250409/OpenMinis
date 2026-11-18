@@ -4,12 +4,22 @@
 // scheduleStatusBarScrollToTopWatchdog from the real Coordinator file and
 // compiles them here with stubs. This file only drives them.
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 var checks = 0
 func check(_ c: Bool, _ name: String) {
-    guard c else { fatalError("FAIL: " + name) }
+    if !c {
+        print("FAIL: " + name)
+        fflush(stdout)
+        fatalError("FAIL: " + name)
+    }
     checks += 1
     print("PASS: " + name)
+    fflush(stdout)
 }
 
 let coord = SliceCoordinator()
@@ -89,5 +99,31 @@ check(!busy.statusBarScrollToTop.selfSizingDeferredByFlight, "begin does not cla
 busy.finishStatusBarScrollToTop(reason: .completed)
 check(busy.vm!.suspended, "end leaves the pre-existing streaming suspend alone")
 check(busy.viewController!.messageListLayout!.deferSelfSizing, "end leaves the pre-existing self-sizing defer alone")
+
+// An old end-of-flight callback must not flush a snapshot into a newer flight.
+let queued = SliceCoordinator()
+queued.beginStatusBarScrollToTop()
+queued.finishStatusBarScrollToTop(reason: .completed)
+queued.beginStatusBarScrollToTop()
+SliceMainQueue.drain()
+check(queued.pendingFlushCaller == nil, "old deferred flush cannot run during a new flight")
+queued.finishStatusBarScrollToTop(reason: .completed)
+SliceMainQueue.drain()
+check(queued.pendingFlushCaller == "statusbar-end", "current completed flight consumes its pending snapshot")
+check(!queued.isFlushing && !queued.viewController!.messageListLayout!.suppressContentOffsetAdjustment,
+      "restoration returns the layout/KVO suppression flags to their prior values")
+
+// Exercise the actual production UIScrollViewDelegate completion entry point.
+let late = SliceCoordinator()
+let lateCV = late.viewController!.collectionView!
+late.scrollViewDidScrollToTop(lateCV)
+check(late.scrollMode == .autoScrolling, "late Did cannot overwrite a superseding bottom mode")
+lateCV.contentOffset.y = 800
+check(late.scrollViewShouldScrollToTop(lateCV), "production Should preserves UIKit's native animation")
+late.scrollViewDidScrollToTop(lateCV)
+check(late.statusBarScrollToTop.isActive, "old Did cannot end a newer flight before it reaches the top")
+lateCV.contentOffset.y = -lateCV.adjustedContentInset.top
+late.scrollViewDidScrollToTop(lateCV)
+check(!late.statusBarScrollToTop.isActive, "production Did completes the live flight at the top")
 
 print("STATUSBAR_SCROLL_SLICE_PASS checks=\(checks)")

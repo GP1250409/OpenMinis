@@ -321,6 +321,11 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+            // UIKit provides no flight token here. A completion delivered after
+            // a drag/down-jump must not change the newer navigation's mode;
+            // an earlier repeat-tap completion is useful only once at the top.
+            guard statusBarScrollToTop.isActive,
+                  scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 1 else { return }
             scrollMode = .userBrowsing
             finishStatusBarScrollToTop(reason: .completed)
         }
@@ -395,19 +400,25 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             let savedOffset = cv.contentOffset.y
             if restoreSelfSizing {
-                // Corrections parked on visible text views by the suspend.
+                // Thaw BEFORE paying text correction debt: applyCellCorrection
+                // refuses while deferSelfSizing is true and otherwise merely
+                // re-arms its retry timer. Keep all offset writers suppressed
+                // through the real layout pass, not just invalidateLayout().
+                let wasFlushing = isFlushing
+                let wasSuppressing = layout.suppressContentOffsetAdjustment
+                isFlushing = true
+                layout.suppressContentOffsetAdjustment = true
+                defer {
+                    layout.suppressContentOffsetAdjustment = wasSuppressing
+                    isFlushing = wasFlushing
+                }
+                layout.deferSelfSizing = false
                 for cell in cv.visibleCells {
                     Self.forEachMarkdownTextView(in: cell) { $0.consumeDeferredCorrectionIfNeeded() }
                 }
-                layout.deferSelfSizing = false
-                isFlushing = true
                 layout.applyDeferredHeights()
-                // The flush must not inject its own offset adjustment; the
-                // numeric restore below is the only viewport write here.
-                layout.suppressContentOffsetAdjustment = true
                 layout.invalidateLayout()
-                layout.suppressContentOffsetAdjustment = false
-                isFlushing = false
+                cv.layoutIfNeeded()
                 if scrollMode == .userBrowsing {
                     cv.contentOffset.y = savedOffset
                 }
@@ -416,8 +427,13 @@ extension CollectionViewMessageListV3.Coordinator {
                 vm?.setStreamingUIUpdatesSuspended(false)
             }
             if hasPendingSnapshot {
+                let resumeToken = statusBarScrollToTop.token
                 DispatchQueue.main.async { [weak self] in
-                    self?.flushPendingSnapshotIfNeeded(caller: "statusbar-end")
+                    guard let self,
+                          self.statusBarScrollToTop.token == resumeToken,
+                          !self.statusBarScrollToTop.isActive,
+                          self.vm?.streamingUIUpdatesSuspended != true else { return }
+                    self.flushPendingSnapshotIfNeeded(caller: "statusbar-end")
                 }
             }
             AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][resume] reason=\(reason.rawValue) offset=\(String(format: "%.1f", savedOffset)) selfSize=\(restoreSelfSizing ? 1 : 0) stream=\(restoreStreaming ? 1 : 0) pendingSnapshot=\(hasPendingSnapshot ? 1 : 0)")

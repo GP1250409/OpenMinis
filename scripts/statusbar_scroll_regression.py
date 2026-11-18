@@ -115,9 +115,29 @@ def wiring_checks() -> int:
 
 SLICE_STUBS = """import Foundation
 
+// Deterministic main-queue dependency for deferred resume callbacks. UIKit
+// animation remains a separate Darwin test; these tests drain only queued work.
+enum SliceMainQueue {
+    static var pending: [() -> Void] = []
+    static func async(execute work: @escaping () -> Void) { pending.append(work) }
+    static func drain() {
+        while !pending.isEmpty {
+            let batch = pending
+            pending.removeAll()
+            for work in batch { work() }
+        }
+    }
+}
+
 final class StubText {
     var consumed = 0
-    func consumeDeferredCorrectionIfNeeded() { consumed += 1 }
+    var isDeferred: () -> Bool = { false }
+    // Match applyCellCorrection's real deferSelfSizing guard: attempting a
+    // consume before thawing must not be counted as a paid correction.
+    func consumeDeferredCorrectionIfNeeded() {
+        guard !isDeferred() else { return }
+        consumed += 1
+    }
 }
 final class StubCell { let text = StubText() }
 final class StubCV {
@@ -128,8 +148,10 @@ final class StubCV {
     var isTracking = false
     var isDecelerating = false
     var visibleCells = [StubCell(), StubCell()]
+    func layoutIfNeeded() {}
     struct StubInsets { var top: CGFloat = 0; var bottom: CGFloat = 60 }
 }
+typealias UIScrollView = StubCV
 final class StubLayout {
     var deferSelfSizing = false
     var isSystemScrollToTopActive = false
@@ -142,6 +164,13 @@ final class StubLayout {
 final class StubVC {
     var collectionView: StubCV? = StubCV()
     var messageListLayout: StubLayout? = StubLayout()
+    init() {
+        for cell in collectionView!.visibleCells {
+            cell.text.isDeferred = { [weak self] in
+                self?.messageListLayout?.deferSelfSizing ?? false
+            }
+        }
+    }
 }
 final class StubVM {
     var streamingUIUpdatesSuspended = false
@@ -188,8 +217,12 @@ def build_slice() -> pathlib.Path:
     work = OUT / 'slice'
     work.mkdir()
     methods = '\n'.join(method_body(DELEGATE, n) for n in (
+        'scrollViewShouldScrollToTop', 'scrollViewDidScrollToTop',
         'beginStatusBarScrollToTop', 'finishStatusBarScrollToTop',
         'resumeAfterStatusBarScrollToTop', 'scheduleStatusBarScrollToTopWatchdog'))
+    # Swap only the queue dependency, preserving the production closure body.
+    # Linux's Foundation RunLoop does not reliably drain DispatchQueue.main.
+    methods = methods.replace('DispatchQueue.main.async {', 'SliceMainQueue.async {')
     (work / 'Slice.swift').write_text(SLICE_STUBS + methods + '\n}\n')
     (work / 'main.swift').write_text((TESTS / 'SliceMain.swift').read_text())
     exe = work / 'slice'
