@@ -837,10 +837,15 @@ final class NoAnimationCollectionView: UICollectionView {
             // user expanded / collapsed in place): run inside the caller's
             // UIView.animate so the cells around it move smoothly.
             super.layoutSubviews()
-        } else if isTracking || isDecelerating {
+        } else if isTracking || isDecelerating || statusBarOwnsViewport {
             super.layoutSubviews()
-        } else if streamingGrowAnimationEnabled, isStreamingNow, contentOverflowsViewport,
-                  !isApplyingSnapshot, !inStreamingGrowLayout {
+        } else if streamingGrowAnimationEnabled,
+                  StatusBarScrollToTopPolicy.allowsStreamingGrowAnimation(
+                      isActive: statusBarOwnsViewport,
+                      isStreaming: isStreamingNow,
+                      contentOverflows: contentOverflowsViewport,
+                      isApplyingSnapshot: isApplyingSnapshot,
+                      inGrowLayout: inStreamingGrowLayout) {
             // [T-ios-stream-grow-anim] The smooth-streaming trick, done right:
             // let the CELL FRAMES snap to their final positions instantly (the
             // content immediately occupies its final layout), but animate ONLY

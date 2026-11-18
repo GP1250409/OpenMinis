@@ -111,6 +111,14 @@ extension CollectionViewMessageListV3 {
         /// of the true bottom. Reset per manual jump and on user drag.
         var scrollBottomRealigns = 0
 
+        // === Status-bar scroll-to-top lifecycle [T-statusbar-native-scroll] ===
+        /// Its own state + token, independent of the bottom-jump flags: the
+        /// status-bar tap is not a drag and must not borrow the bottom
+        /// animation's lifecycle. See StatusBarScrollToTop.swift.
+        let statusBarScrollToTop = StatusBarScrollToTopLifecycle()
+        /// Token-guarded progress watchdog (cancelled on every end path).
+        var statusBarScrollToTopWatchdog: DispatchWorkItem?
+
         // === O(1) Lookup Indices ===
         var messageIndex: [UUID: Int] = [:]
         var itemToIndex: [MessageListItem: Int] = [:]

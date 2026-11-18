@@ -144,6 +144,14 @@ extension CollectionViewMessageListV3.Coordinator {
                     return
                 }
 
+                // [T-statusbar-native-scroll] While the system owns the flight
+                // no size-driven write may move the viewport. The clamp above
+                // was cancelled at Should; this also covers a stale auto mode.
+                if self.statusBarScrollToTop.isActive {
+                    self.vm?.contentSizeDeltaSignal.send(delta)
+                    return
+                }
+
                 if delta > 0 && self.scrollMode == .autoScrolling {
                     // [T-send-composer-shrink-absorb] Rows appended right after
                     // a send go into the space the composer is giving up.

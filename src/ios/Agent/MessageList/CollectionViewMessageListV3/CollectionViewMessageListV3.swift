@@ -142,6 +142,15 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         return vc
     }
 
+    /// [T-statusbar-native-scroll] Leaving the screen must not strand the
+    /// lifecycle's borrowed streaming/self-sizing flags or the watchdog.
+    static func dismantleUIViewController(_ uiViewController: MessageListViewController,
+                                          coordinator: Coordinator) {
+        coordinator.finishStatusBarScrollToTop(
+            reason: .viewDisappear,
+            offset: uiViewController.collectionView?.contentOffset.y)
+    }
+
     func updateUIViewController(_ vc: MessageListViewController, context: Context) {
         let coord = context.coordinator
         // [T-ios-scrollbtn-vm-split] The coordinator captured `vm` once in

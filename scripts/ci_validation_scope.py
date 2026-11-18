@@ -78,6 +78,11 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     '.github/workflows/build-ios.yml',
     'scripts/ci_validation_scope.py',
     'scripts/toolfold',
+    'scripts/statusbar_scroll_regression.py',
+    'scripts/statusbar-scroll-tests/',
+    # [T-statusbar-native-scroll] the lifecycle type is a new production file
+    # inside the message-list dependency tree; the suite above must run on the
+    # current commit, so its script paths are safe incremental inputs.
     'scripts/thinking-transaction-tests/',
     'scripts/thinking_transaction_regression.py',
     # [T-user-ask-anchor-clamp] 2026-11-19. The answered-question card's

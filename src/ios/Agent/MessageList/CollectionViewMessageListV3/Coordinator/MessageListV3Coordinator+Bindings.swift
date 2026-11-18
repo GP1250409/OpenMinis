@@ -34,6 +34,10 @@ extension CollectionViewMessageListV3.Coordinator {
         /// initial defaults nobody would otherwise ever update.
         func rebindViewModelIfNeeded(_ newVM: AIChatViewModel) {
             if let current = vm, current === newVM { return }
+            // [T-statusbar-native-scroll] A new view model can mean a session
+            // switch; a flight from the old list must not gate the new one.
+            finishStatusBarScrollToTop(reason: .sessionChange,
+                                       offset: viewController?.collectionView?.contentOffset.y)
             let hadOld = vm != nil
             #if DEBUG
             ScrollMetricsRecorder.shared.record(
@@ -237,6 +241,11 @@ extension CollectionViewMessageListV3.Coordinator {
                     // Both entering and finishing a load invalidate a manual
                     // row transaction, even before the next messages exist.
                     self.releaseThinkingToggleTxnForListChange()
+                    // [T-statusbar-native-scroll] Session changes own the list;
+                    // a flight from the previous session must end here.
+                    self.finishStatusBarScrollToTop(
+                        reason: .sessionChange,
+                        offset: self.viewController?.collectionView?.contentOffset.y)
                     guard !isLoading else { return }
                     // Switching into a session resets the up-button turn-walk.
                     self.lastJumpedUserId = nil
