@@ -298,6 +298,76 @@ for raw in [rawAmpPath, rawQuotePath, "/var/minis/attachments/uploads/<x>.png"] 
     check(!line.contains("path=\"\(raw)\""), "a raw quote inside the path never reaches the tag: \(raw)")
 }
 
+// MARK: - 7. 旧无 marker 标签的 `/>` 兼容（父独立审阻断回归）
+
+// 旧正则 `[^"]*` 能匹配 path 值里以 `>` 开头的文件名；quote-unaware 的
+// range(of: "/>") 会在 `uploads/` 处截断。以下每条都是“旧正则 matches=1”的形状。
+let legacyAngle = "<user-attached-files>\n  <file path=\"/var/minis/attachments/uploads/>.png\" url=\"minis://attachments/uploads/%3E.png\" size=\"1\" modified=\"x\" />\n</user-attached-files>"
+let angleTags = AttachmentXMLCodec.parseFileTags(in: legacyAngle)
+check(angleTags.count == 1, "legacy path starting with '>' still parses (old regex matched it)")
+check(angleTags.first?.path == "/var/minis/attachments/uploads/>.png", "legacy '>' path preserved byte-for-byte")
+check(angleTags.first?.decodedAttributes == false, "legacy '>' tag stays unmarked")
+
+let legacyAngle2 = "<user-attached-files>\n  <file path=\"/var/minis/attachments/uploads/>foo.png\" url=\"minis://attachments/uploads/%3Efoo.png\" size=\"2\" modified=\"x\" />\n</user-attached-files>"
+check(AttachmentXMLCodec.parseFileTags(in: legacyAngle2).first?.path == "/var/minis/attachments/uploads/>foo.png",
+      "legacy '>foo.png' parses")
+check(AttachmentXMLCodec.parseFileTags(in: legacyAngle2).first?.size == 2, "legacy '>foo.png' size aligned")
+
+let legacyDeepAngle = "<user-attached-files>\n  <file path=\"/var/minis/attachments/uploads/a/>b/c.png\" url=\"minis://attachments/uploads/a/%3Eb/c.png\" size=\"3\" modified=\"x\" />\n</user-attached-files>"
+let deepAngleTags = AttachmentXMLCodec.parseFileTags(in: legacyDeepAngle)
+check(deepAngleTags.first?.path == "/var/minis/attachments/uploads/a/>b/c.png",
+      "legacy multi-level path containing '/>' parses whole")
+
+// 新消息里 `>` 被转义，写-读往返不变
+let markedAnglePath = "/var/minis/attachments/uploads/>.png"
+let markedAngleLine = AttachmentXMLCodec.fileTagXML(path: markedAnglePath, url: MinisURLEncoding.minisURL(forLinuxPath: markedAnglePath), size: 1, modified: "x")
+check(!markedAngleLine.contains("path=\"/var/minis/attachments/uploads/>"),
+      "the writer escapes '>' so a marked tag never carries a raw '/>' in its value")
+check(AttachmentXMLCodec.parseFileTags(in: "<user-attached-files>\n\(markedAngleLine)\n</user-attached-files>").first?.path == markedAnglePath,
+      "marked '>' filename round-trips")
+
+// 与旧正则逐条对齐：旧正则能匹配的 legacy 标签，新解析器必须给出同一个 path
+let legacyParity: [String] = [
+    "/var/minis/attachments/uploads/>.png",
+    "/var/minis/attachments/uploads/>foo.png",
+    "/var/minis/attachments/uploads/a/>b/c.png",
+    "/var/minis/attachments/uploads/PNG图像.png",
+    "/var/minis/attachments/uploads/%E5%9B%BE.png",
+    "/var/minis/attachments/uploads/a&b.png",
+    "/var/minis/attachments/uploads/a&amp;b.png",
+]
+let oldPattern = try! NSRegularExpression(pattern: #"<file\s+path="([^"]*)"(?:\s+url="([^"]*)")?(?:\s+size="([^"]*)")?(?:\s+modified="([^"]*)")?\s*/>"#)
+for raw in legacyParity {
+    let xml = "<user-attached-files>\n  <file path=\"\(raw)\" url=\"minis://attachments/x.png\" size=\"1\" modified=\"x\" />\n</user-attached-files>"
+    let ns = xml as NSString
+    let matches = oldPattern.numberOfMatches(in: xml, range: NSRange(location: 0, length: ns.length))
+    let parsed = AttachmentXMLCodec.parseFileTags(in: xml)
+    check(matches == 1, "old regex baseline still matches exactly one tag: \(raw)")
+    check(parsed.count == 1 && parsed.first?.path == raw,
+          "new parser agrees with the old regex on: \(raw) -> \(parsed.first?.path ?? "MISSING")")
+    check(parsed.first?.decodedAttributes == false, "legacy parity keeps entities raw: \(raw)")
+}
+
+// 多个 tag 连续 + 中间夹一个未转义引号（旧正则同样匹配不到它）：后面的 tag 不能被吞
+let malformedMiddle = "<user-attached-files>\n"
+    + "  <file path=\"/var/minis/attachments/uploads/>.png\" url=\"u\" size=\"1\" modified=\"x\" />\n"
+    + "  <file path=\"/var/minis/attachments/uploads/broken\".png\" size=\"2\" modified=\"y\" />\n"
+    + "  <file path=\"/var/minis/attachments/uploads/PNG图像.png\" url=\"u2\" size=\"3\" modified=\"z\" />\n"
+    + "  <file path=\"/var/minis/attachments/uploads/a/>b/c.png\" url=\"u3\" size=\"4\" modified=\"w\" />\n"
+    + "</user-attached-files>"
+let malformedTags = AttachmentXMLCodec.parseFileTags(in: malformedMiddle)
+check(malformedTags.map(\.path) == [
+        "/var/minis/attachments/uploads/>.png",
+        "/var/minis/attachments/uploads/PNG图像.png",
+        "/var/minis/attachments/uploads/a/>b/c.png"],
+      "a malformed middle tag is skipped and the following tags survive: \(malformedTags.map(\.path))")
+check(malformedTags.map(\.size) == [1, 3, 4], "sizes stay aligned after the skipped tag")
+
+// 未闭合引号的 tag 也不能吞掉整块
+let unterminated = "<user-attached-files>\n  <file path=\"/var/minis/attachments/uploads/x.png size=\"1\" />\n  <file path=\"/var/minis/attachments/uploads/y.png\" size=\"2\" modified=\"z\" />\n</user-attached-files>"
+check(AttachmentXMLCodec.parseFileTags(in: unterminated).map(\.path) == ["/var/minis/attachments/uploads/y.png"],
+      "an unterminated tag does not swallow the next tag")
+
 // MARK: - 结果
 
 let xmlChecks = checks - urlChecks

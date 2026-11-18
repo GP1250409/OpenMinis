@@ -28,8 +28,13 @@
 //     marker lives on `<file>`, never on the block element).
 //
 //  Decoding is a single left-to-right pass, so `&amp;lt;` → `&lt;` (one layer,
-//  never `<`); `&` is the last thing escaped when writing, which keeps
-//  `escape("&amp;") == "&amp;amp;"` and makes write→read round-trip exactly.
+//  never `<`).
+//
+//  Writing escapes each character INDEPENDENTLY (a per-scalar map, not a
+//  sequential string replacement), so `escape("&amp;") == "&amp;amp;"` and
+//  escape→unescape round-trips exactly; there is no "escape & last" ordering
+//  step to get wrong. The attribute order on the wire is path, url, size,
+//  modified, encoding.
 //
 
 import Foundation
@@ -146,7 +151,13 @@ enum AttachmentXMLCodec {
         var tags: [AttachmentFileTag] = []
         var cursor = body.startIndex
         while let open = body.range(of: "<file ", range: cursor..<body.endIndex) {
-            guard let close = body.range(of: "/>", range: open.upperBound..<body.endIndex) else { break }
+            guard let close = tagTerminator(in: body, from: open.upperBound) else {
+                // Unterminated / pathological tag: never let it swallow the rest
+                // of the block — resume at the next <file tag, if any.
+                guard let next = body.range(of: "<file ", range: open.upperBound..<body.endIndex) else { break }
+                cursor = next.lowerBound
+                continue
+            }
             let attributeText = String(body[open.upperBound..<close.lowerBound])
             if let attributes = attributes(in: attributeText),
                let rawPath = attributes["path"],
@@ -163,6 +174,48 @@ enum AttachmentXMLCodec {
             cursor = close.upperBound
         }
         return tags
+    }
+
+    /// Find the `/>` that closes this `<file …>` tag, ignoring any `/>` that sits
+    /// INSIDE a double-quoted attribute value.
+    ///
+    /// The old regex used `[^"]*` and therefore matched tags whose unescaped path
+    /// literally starts with `>`, e.g.
+    ///     <file path="/var/minis/attachments/uploads/>.png" url="…" … />
+    /// A plain `range(of: "/>")` search cuts that tag at `uploads/`, the tokenizer
+    /// sees an unterminated quote and the whole attachment disappears on reload.
+    /// This scan tracks quote state, so only a `/>` outside quotes terminates.
+    /// Unpaired quotes can make the scan run to the end of the block; the caller
+    /// then resumes at the next `<file ` instead of dropping the remaining tags,
+    /// which keeps malformed old tags predictable (one tag skipped, never a run).
+    private static func tagTerminator(in text: String, from start: String.Index) -> Range<String.Index>? {
+        // Never look past the next tag: a pathological unescaped quote must only
+        // cost its own tag, never the tags after it.
+        let limit = text.range(of: "<file ", range: start..<text.endIndex)?.lowerBound ?? text.endIndex
+        var i = start
+        var inQuotes = false
+        var length = 0
+        while i < limit {
+            length += 1
+            if length > 8192 { return nil }
+            let c = text[i]
+            if inQuotes {
+                if c == "\"" { inQuotes = false }
+            } else if c == "\"" {
+                inQuotes = true
+            } else if c == "/" {
+                let next = text.index(after: i)
+                if next < limit, text[next] == ">" {
+                    return i..<text.index(after: next)
+                }
+            } else if c == "<" {
+                // A new tag started before this one closed: treat as unterminated
+                // so the caller can resynchronise at that tag.
+                return nil
+            }
+            i = text.index(after: i)
+        }
+        return nil
     }
 
     /// Tokenize `name="value"` pairs. Returns nil for a malformed tag so the
