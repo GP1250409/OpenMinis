@@ -90,22 +90,22 @@ extension RawMessage {
 
                             if body.contains("<file ") {
                                 // New XML format: <file path="..." url="..." size="..." modified="..." />
-                                let filePattern = try? NSRegularExpression(
-                                    pattern: #"<file\s+path="([^"]*)"(?:\s+url="([^"]*)")?(?:\s+size="([^"]*)")?(?:\s+modified="([^"]*)")?\s*/>"#
-                                )
-                                let nsBody = body as NSString
-                                let matches = filePattern?.matches(in: body, range: NSRange(location: 0, length: nsBody.length)) ?? []
-                                for match in matches {
-                                    let path = match.range(at: 1).location != NSNotFound ? nsBody.substring(with: match.range(at: 1)) : ""
-                                    let sizeStr = match.range(at: 3).location != NSNotFound ? nsBody.substring(with: match.range(at: 3)) : "0"
-                                    let modStr = match.range(at: 4).location != NSNotFound ? nsBody.substring(with: match.range(at: 4)) : ""
-                                    if !path.isEmpty {
-                                        userAttachments.append(AttachmentMeta(
-                                            path: path,
-                                            size: Int(sizeStr) ?? 0,
-                                            modified: isoFormatter.date(from: modStr) ?? self.createdAt
-                                        ))
-                                    }
+                                // [T-attachment-xml-attr-escape] One shared, Foundation-only
+                                // codec for both sides of the contract:
+                                //   * attribute order is irrelevant, unknown attributes are
+                                //     ignored, and a tag without `path` is skipped;
+                                //   * ONLY a tag carrying encoding="xml-attributes-v1" is
+                                //     XML-entity-decoded. Messages written before that marker
+                                //     existed are read byte-for-byte, so a real file named
+                                //     `&amp;.png` keeps resolving to `&amp;.png` and a raw
+                                //     `a&b.png` keeps resolving to `a&b.png` — a blanket
+                                //     decode would silently re-point half of history.
+                                for tag in AttachmentXMLCodec.parseFileTags(in: body) {
+                                    userAttachments.append(AttachmentMeta(
+                                        path: tag.path,
+                                        size: tag.size,
+                                        modified: tag.modified.flatMap { isoFormatter.date(from: $0) } ?? self.createdAt
+                                    ))
                                 }
                             } else {
                                 // Legacy YAML format: - path: ...

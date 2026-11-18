@@ -163,7 +163,7 @@ check("loadSession rebuilds history with toAgentMessage + dbMessageId (mirrored 
       persSrc.contains("var agentMsg = raw.toAgentMessage(mediaResolver: resolver)") && persSrc.contains("agentMsg.dbMessageId = raw.id"))
 check("ChatStore stores parts as JSONEncoder ContentPart JSON (Session.append round-trips the same)",
       source(MSGS).contains("let data = try JSONEncoder().encode(message.parts)") && source(MSGS).contains("JSONDecoder().decode([ContentPart].self, from: data)"))
-let xmlLine = #"xml += "  <file path=\"\(meta.path)\" url=\"\(meta.minisURL)\" size=\"\(meta.size)\" modified=\"\(nowStr)\" />\n""#
+let xmlLine = #"xml += AttachmentXMLCodec.fileTagXML(path: meta.path, url: meta.minisURL, size: meta.size, modified: nowStr) + "\n""#
 check("send() mirror: its loop lines still exist verbatim in Send.swift",
       sendSrc.contains(xmlLine) && sendSrc.contains("let inline = await MainActor.run { Self.inlineAttachmentImage(data, ext: ext, route: .send) }")
       && sendSrc.contains("userParts.append(.text(\"[attached image: \\(linuxPath)]\"))")
@@ -464,7 +464,11 @@ let saFiles = ((FileManager.default.enumerator(atPath: anthropicSrc.path)?.allOb
 guard !saFiles.isEmpty else { print("  ❌ SwiftAnthropic checkout missing at \(anthropicSrc.path) - build the app once"); exit(1) }
 let wholeFiles = ["Providers/AgentProvider.swift", "Agent/Chat/ChatStoreModels.swift", "Providers/LLMTypes.swift", "Providers/ProviderTypes.swift",
                   "Providers/ThinkingLevelCatalog.swift", "Providers/Gemini/GeminiWireFormat.swift", "Agent/Chat/ContextPolicy.swift",
-                  "Shared/BPETokenizer.swift"]
+                  "Shared/BPETokenizer.swift",
+                  // [T-attachment-raw-url-encoding / T-attachment-xml-attr-escape] the send
+                  // loop now calls these Foundation-only helpers; compile the real files.
+                  "Agent/Chat/MinisURLEncoding.swift", "Agent/Chat/AttachmentXMLCodec.swift",
+                  "Agent/Chat/MinisURLPathDecoding.swift"]
 let started = Date()
 
 /// Builds (or reuses) one program; returns the binary.

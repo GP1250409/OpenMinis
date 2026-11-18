@@ -444,7 +444,7 @@ extension AIChatViewModel {
             if !attachmentMetas.isEmpty {
                 var xml = "<user-attached-files>\n"
                 for meta in attachmentMetas {
-                    xml += "  <file path=\"\(meta.path)\" url=\"\(meta.minisURL)\" size=\"\(meta.size)\" modified=\"\(nowStr)\" />\n"
+                    xml += AttachmentXMLCodec.fileTagXML(path: meta.path, url: meta.minisURL, size: meta.size, modified: nowStr) + "\n"
                 }
                 xml += "</user-attached-files>"
                 userParts.append(.text(xml))
