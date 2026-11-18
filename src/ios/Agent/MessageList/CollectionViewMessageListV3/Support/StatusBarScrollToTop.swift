@@ -93,26 +93,33 @@ final class StatusBarScrollToTopLifecycle {
     /// callback). Progress keeps the flight alive; this is NOT a fixed 2s
     /// clear.
     static let watchdogStillSamples = 3
-    /// Absolute backstop. Token-checked, and only reached with a live flight.
-    static let watchdogMaxMs: Double = 12_000
+    /// Repeat taps restart the still-sample window: the old samples describe
+    /// the previous animation phase and must not declare the new one dead.
 
     /// Call from `scrollViewShouldScrollToTop`, synchronously, before returning
     /// true. Repeat calls keep the flight alive and mint a new token so the
     /// previous flight's deferred work is stale.
-    func begin(now: TimeInterval = Date().timeIntervalSinceReferenceDate) -> Begin {
+    func begin(previouslyStreamingSuspended: Bool = false,
+               previouslySelfSizingDeferred: Bool = false,
+               now: TimeInterval = Date().timeIntervalSinceReferenceDate) -> Begin {
         let isRepeat = isActive
         token &+= 1
         if !isRepeat {
             isActive = true
             beginCount += 1
-            beganAt = now
-            lastWatchdogOffset = .nan
-            stalledWatchdogSamples = 0
-            watchdogSamples = 0
         }
-        let suspend = !streamingSuspendedByFlight
+        // A repeat tap starts a NEW animation phase: reset the progress window
+        // and its age even though the flight stays active.
+        beganAt = now
+        lastWatchdogOffset = .nan
+        stalledWatchdogSamples = 0
+        watchdogSamples = 0
+        // Borrow ONLY what the flight actually changes: a suspend/defer that
+        // already belonged to a sheet, background transition or drag must not
+        // be resumed by our end path.
+        let suspend = !previouslyStreamingSuspended && !streamingSuspendedByFlight
         if suspend { streamingSuspendedByFlight = true }
-        let deferSize = !selfSizingDeferredByFlight
+        let deferSize = !previouslySelfSizingDeferred && !selfSizingDeferredByFlight
         if deferSize { selfSizingDeferredByFlight = true }
         return Begin(token: token,
                      needsStreamingSuspend: suspend,
@@ -174,9 +181,9 @@ final class StatusBarScrollToTopLifecycle {
         }
         lastWatchdogOffset = offset
         if atTop, watchdogSamples >= 2, stalledWatchdogSamples >= 1 { return true }
-        if stalledWatchdogSamples >= Self.watchdogStillSamples { return true }
-        let elapsed = (now - beganAt) * 1000
-        return elapsed >= Self.watchdogMaxMs
+        // Only genuine stillness ends a flight: a moving viewport is never
+        // force-cleared, no matter how long the animation takes.
+        return stalledWatchdogSamples >= Self.watchdogStillSamples
     }
 }
 

@@ -52,6 +52,11 @@ extension CollectionViewMessageListV3.Coordinator {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             AppLogger(category: "ScrollDiag").info("[ScrollDiag][willBeginDragging] offset=\(String(format: "%.0f", scrollView.contentOffset.y)) contentSize=\(String(format: "%.0f", scrollView.contentSize.height)) visibleCells=\(viewController?.collectionView?.visibleCells.count ?? -1)")
+            // [T-statusbar-native-scroll] A real drag interrupts the system
+            // flight. Ownership is transferred, not restored: this method
+            // suspends streaming and defers self-sizing immediately below, and
+            // `settleAfterInteraction` flushes/restores both exactly once.
+            finishStatusBarScrollToTop(reason: .drag, restoring: false)
             #if DEBUG
             // [DecelDisplayLink] Safety: if the user grabs again mid-decel, stop
             // the previous link so it doesn't keep ticking under the new gesture.
@@ -311,7 +316,7 @@ extension CollectionViewMessageListV3.Coordinator {
         /// user ownership here and let UIKit run its own animation — no custom
         /// jump, no extra animation, no delay.
         func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-            beginStatusBarScrollToTop(scrollView)
+            beginStatusBarScrollToTop()
             return true
         }
 
@@ -325,8 +330,19 @@ extension CollectionViewMessageListV3.Coordinator {
         /// Synchronous takeover at the start of the system gesture. The system
         /// animation itself is untouched; every list-owned writer that could
         /// move the viewport mid-flight is stopped or gated.
-        func beginStatusBarScrollToTop(_ scrollView: UIScrollView) {
-            let begin = statusBarScrollToTop.begin()
+        func beginStatusBarScrollToTop() {
+            // [T-statusbar-native-scroll] Already parked at the top: returning
+            // true keeps UIKit's contract, but there is nothing to own — do not
+            // suspend streaming / defer self-sizing for a no-op animation.
+            if !statusBarScrollToTop.isActive, isAtContentTop() {
+                scrollMode = .userBrowsing
+                AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][should] no-op at top offset=\(String(format: "%.1f", viewController?.collectionView?.contentOffset.y ?? 0))")
+                return
+            }
+            let begin = statusBarScrollToTop.begin(
+                previouslyStreamingSuspended: vm?.streamingUIUpdatesSuspended ?? false,
+                previouslySelfSizingDeferred: viewController?.messageListLayout?.deferSelfSizing ?? false)
+            let scrollView = viewController?.collectionView
             // 1. Leave auto-follow NOW. Deliberately not via
             //    `settleAfterInteraction`: that re-acquires `.autoScrolling`
             //    within 4pt of the bottom, which is exactly where a status-bar
@@ -358,8 +374,53 @@ extension CollectionViewMessageListV3.Coordinator {
                 vm?.setStreamingUIUpdatesSuspended(true)
             }
             viewController?.messageListLayout?.isSystemScrollToTopActive = true
-            AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][should] token=\(begin.token) repeat=\(begin.isRepeat ? 1 : 0) offset=\(String(format: "%.1f", scrollView.contentOffset.y)) cs=\(String(format: "%.1f", scrollView.contentSize.height)) mode=browse clamp=0 animBottom=0 pendingWork=0")
+            AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][should] token=\(begin.token) repeat=\(begin.isRepeat ? 1 : 0) offset=\(String(format: "%.1f", scrollView?.contentOffset.y ?? 0)) cs=\(String(format: "%.1f", scrollView?.contentSize.height ?? 0)) mode=browse clamp=0 animBottom=0 pendingWork=0")
             scheduleStatusBarScrollToTopWatchdog(token: begin.token)
+        }
+
+        /// [T-statusbar-native-scroll] Consume what the flight deferred, WITHOUT
+        /// `settleAfterInteraction` (that re-acquires `.autoScrolling` within
+        /// 4pt of the bottom — exactly where a status-bar tap starts). The
+        /// viewport is restored numerically after the height flush, so the user
+        /// stays at the top (or at the new intent that superseded the flight).
+        private func resumeAfterStatusBarScrollToTop(
+            reason: StatusBarScrollToTopLifecycle.EndReason,
+            restoreSelfSizing: Bool,
+            restoreStreaming: Bool
+        ) {
+            guard let layout = viewController?.messageListLayout,
+                  let cv = viewController?.collectionView else {
+                if restoreStreaming { vm?.setStreamingUIUpdatesSuspended(false) }
+                return
+            }
+            let savedOffset = cv.contentOffset.y
+            if restoreSelfSizing {
+                // Corrections parked on visible text views by the suspend.
+                for cell in cv.visibleCells {
+                    Self.forEachMarkdownTextView(in: cell) { $0.consumeDeferredCorrectionIfNeeded() }
+                }
+                layout.deferSelfSizing = false
+                isFlushing = true
+                layout.applyDeferredHeights()
+                // The flush must not inject its own offset adjustment; the
+                // numeric restore below is the only viewport write here.
+                layout.suppressContentOffsetAdjustment = true
+                layout.invalidateLayout()
+                layout.suppressContentOffsetAdjustment = false
+                isFlushing = false
+                if scrollMode == .userBrowsing {
+                    cv.contentOffset.y = savedOffset
+                }
+            }
+            if restoreStreaming {
+                vm?.setStreamingUIUpdatesSuspended(false)
+            }
+            if hasPendingSnapshot {
+                DispatchQueue.main.async { [weak self] in
+                    self?.flushPendingSnapshotIfNeeded(caller: "statusbar-end")
+                }
+            }
+            AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][resume] reason=\(reason.rawValue) offset=\(String(format: "%.1f", savedOffset)) selfSize=\(restoreSelfSizing ? 1 : 0) stream=\(restoreStreaming ? 1 : 0) pendingSnapshot=\(hasPendingSnapshot ? 1 : 0)")
         }
 
         /// Single terminal path. Returns true only when this call actually ended
@@ -377,14 +438,13 @@ extension CollectionViewMessageListV3.Coordinator {
             guard !end.stale else { return false }
             statusBarScrollToTopWatchdog?.cancel()
             statusBarScrollToTopWatchdog = nil
-            // Order: stop suppressing layout adjustments BEFORE allowing
-            // self-sizing again, so the first self-size pass is not blocked.
+            // Order: stop suppressing layout adjustments BEFORE resuming
+            // self-sizing, so the first self-size pass is not blocked.
             viewController?.messageListLayout?.isSystemScrollToTopActive = false
-            if end.restoreSelfSizing {
-                viewController?.messageListLayout?.deferSelfSizing = false
-            }
-            if end.restoreStreaming {
-                vm?.setStreamingUIUpdatesSuspended(false)
+            if end.restoreSelfSizing || end.restoreStreaming {
+                resumeAfterStatusBarScrollToTop(reason: reason,
+                                                restoreSelfSizing: end.restoreSelfSizing,
+                                                restoreStreaming: end.restoreStreaming)
             }
             AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][end] token=\(end.token) reason=\(reason.rawValue) ms=\(String(format: "%.0f", end.activeMs)) offset=\(offset.map { String(format: "%.1f", $0) } ?? "-") restoreStream=\(end.restoreStreaming ? 1 : 0) restoreSelfSize=\(end.restoreSelfSizing ? 1 : 0) begins=\(statusBarScrollToTop.beginCount) completed=\(statusBarScrollToTop.completedCount) interrupted=\(statusBarScrollToTop.interruptionCount)")
             return true

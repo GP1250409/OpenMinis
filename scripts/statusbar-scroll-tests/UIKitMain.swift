@@ -1,12 +1,11 @@
-// [T-statusbar-native-scroll] Real-UIKit fixture. Compiled by CI against the
-// Simulator SDK with the PRODUCTION StatusBarScrollToTop.swift; the harness
-// reproduces the coordinator's delegate call order at Should/Did/interrupt and
-// asks the production policy for every offset-writer decision.
-//
-// It does NOT simulate the physical status-bar tap (not scriptable): it calls
-// the same UIScrollViewDelegate entry point with a real UICollectionView and
-// lets UIKit run its own animated scroll. Not a substitute for on-device
-// timing, under Reduce Motion / long-session conditions.
+// [T-statusbar-native-scroll] AUXILIARY real-UIKit fixture. Compiled by CI
+// against the Simulator SDK with the PRODUCTION StatusBarScrollToTop.swift and
+// StatusBarScrollToTopPolicy. It exercises real UICollectionView layout /
+// contentOffsetAdjustment / animated setContentOffset, but its Harness is NOT
+// the production coordinator and there is NO UIWindow/app scene or physical
+// status-bar tap here. Production entry-point wiring and takeover/restoration
+// are covered by the compiled production slice (SliceMain.swift) and the
+// structural wiring gate; on-device timing is still a manual step.
 import UIKit
 
 var checks = 0

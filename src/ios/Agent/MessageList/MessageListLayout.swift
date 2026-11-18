@@ -284,6 +284,11 @@ final class MessageListLayout: UICollectionViewLayout {
     /// [T-ios-stream-natural-transitions]
     var isAutoScrollPinning: Bool = false
 
+    /// [T-statusbar-native-scroll] True while the SYSTEM status-bar
+    /// scroll-to-top animation owns the viewport: skip
+    /// `contentOffsetAdjustment`, keep the inset ledger intact.
+    var isSystemScrollToTopActive: Bool = false
+
     /// Vertical spacing between cells.
     var itemSpacing: CGFloat = 0
 

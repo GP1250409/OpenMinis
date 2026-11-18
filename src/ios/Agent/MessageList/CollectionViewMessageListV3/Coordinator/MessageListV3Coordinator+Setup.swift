@@ -148,7 +148,10 @@ extension CollectionViewMessageListV3.Coordinator {
                 // no size-driven write may move the viewport. The clamp above
                 // was cancelled at Should; this also covers a stale auto mode.
                 if self.statusBarScrollToTop.isActive {
+                    // Inset ledger still runs; only its offset write is gated
+                    // by StatusBarScrollToTopPolicy inside the compensation.
                     self.vm?.contentSizeDeltaSignal.send(delta)
+                    self.applySubViewportCompensation(caller: "contentSizeKVO")
                     return
                 }
 
