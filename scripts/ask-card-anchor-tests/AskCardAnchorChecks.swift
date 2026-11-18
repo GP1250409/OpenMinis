@@ -37,6 +37,14 @@ check("plan is clampedToBottom", clampPlan == .clampedToBottom(offset: 1480), "\
 check("offset = maxOffset (inside the range, no padding invented)", f(clampPlan.offset) == "1480.000", f(clampPlan.offset))
 check("reported as clamped (the caller must not claim the top was held)", clampPlan.isClamped)
 
+print("\n3a. P0: content shorter than the viewport (maxOff < minOff) - only minOff is legal")
+// newMinY=0, anchorY=200 -> ideal -200; minOff -100, maxOff -300 (content short).
+// The old lo=min(minOff,maxOff)=-300 accepted -200, which is BELOW the legal floor.
+let shortPlan = ToggleAnchorMath.cardAnchorPlan(newMinY: 0, anchorY: 200, minOffset: -100, maxOffset: -300)
+check("plan is clampedToTop at the legal floor", shortPlan == .clampedToTop(offset: -100), "\(shortPlan)")
+let shortPre = ToggleAnchorMath.preResizeOffset(idealOffset: -200, predictedMaxOffset: -300, minOffset: -100)
+check("pre-write is the legal floor, not the negative max", f(shortPre) == "-100.000", f(shortPre))
+
 print("\n3. short content clamps to the top limit, never negative")
 let topPlan = ToggleAnchorMath.cardAnchorPlan(newMinY: 40, anchorY: 200, minOffset: 0, maxOffset: 0)
 check("offset = 0", f(topPlan.offset) == "0.000", f(topPlan.offset))
@@ -73,7 +81,8 @@ for _ in 0..<4000 {
     let minOff = -rnd(0, 120), maxOff = content - viewport + rnd(0, 160)
     let rowY = rnd(0, max(0, content - 1)), anchorY = rnd(-50, viewport + 50)
     let plan = ToggleAnchorMath.cardAnchorPlan(newMinY: rowY, anchorY: anchorY, minOffset: minOff, maxOffset: maxOff)
-    let lo = min(minOff, maxOff), hi = max(minOff, maxOff)
+    // legal range: floor is ALWAYS minOff (independent audit P0)
+    let lo = minOff, hi = max(minOff, maxOff)
     if plan.offset < lo - 0.001 || plan.offset > hi + 0.001 { bad += 1 }
     // A plan that is NOT clamped must actually equal the ideal top, otherwise
     // the "top held" claim in the log is a lie.
@@ -84,7 +93,7 @@ for _ in 0..<4000 {
     let predicted = ToggleAnchorMath.predictedMaxOffset(currentMaxOffset: maxOff, heightDelta: delta)
     let pre = ToggleAnchorMath.preResizeOffset(idealOffset: current, predictedMaxOffset: predicted, minOffset: minOff)
     if pre > max(minOff, maxOff) + 0.001 || pre < minOff - 0.001 { bad += 1 }      // legal BEFORE the resize
-    if pre > max(minOff, predicted) + 0.001 || pre < min(minOff, predicted) - 0.001 { bad += 1 }  // and AFTER it
+    if pre > max(minOff, predicted) + 0.001 || pre < minOff - 0.001 { bad += 1 }  // and AFTER it
     if pre > current + 0.001 { bad += 1 }                                          // never moves further than needed
 }
 check("no out-of-range plan or pre-write", bad == 0, "bad=\(bad)")

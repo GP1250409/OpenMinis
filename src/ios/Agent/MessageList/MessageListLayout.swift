@@ -1472,9 +1472,15 @@ enum ToggleAnchorMath {
     static func cardAnchorPlan(newMinY: CGFloat, anchorY: CGFloat,
                                minOffset: CGFloat, maxOffset: CGFloat) -> CardAnchorPlan {
         let ideal = newMinY - anchorY
+        // [T-user-ask-anchor-clamp] The LEGAL range is [minOffset, max(minOffset,
+        // maxOffset)] - NOT [min(minOffset, maxOffset), ...]. When the content is
+        // shorter than the viewport (`maxOffset < minOffset`, e.g. a two-row
+        // session) the only offset UIScrollView accepts is `minOffset`; taking
+        // min(minOffset, maxOffset) would hand back an offset below the legal
+        // minimum and re-introduce a clamp. Independent audit P0 (2026-11-19).
+        let lo = minOffset
         let hi = max(minOffset, maxOffset)
         if ideal > hi { return .clampedToBottom(offset: hi) }
-        let lo = min(minOffset, maxOffset)
         if ideal < lo { return .clampedToTop(offset: lo) }
         return .holdTop(offset: ideal)
     }
@@ -1493,8 +1499,13 @@ enum ToggleAnchorMath {
     /// during layout is applied with animations off, i.e. a one-frame jump).
     static func preResizeOffset(idealOffset: CGFloat, predictedMaxOffset predictedMax: CGFloat,
                                 minOffset: CGFloat) -> CGFloat {
+        // Same legal range as `cardAnchorPlan`: the floor is `minOffset`, never
+        // `min(minOffset, predictedMax)`. A short list (`predictedMax < minOffset`)
+        // must pre-write `minOffset`, which is legal both before and after the
+        // resize; writing `predictedMax` would sit outside the range and let
+        // UIKit clamp it in one frame. Independent audit P0 (2026-11-19).
         let hi = max(minOffset, predictedMax)
-        let lo = min(minOffset, predictedMax)
+        let lo = minOffset
         return min(max(idealOffset, lo), hi)
     }
 
