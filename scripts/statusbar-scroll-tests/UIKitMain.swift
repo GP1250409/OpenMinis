@@ -126,36 +126,38 @@ func makeCollectionView(harness: Harness, layout: AdjustingLayout) -> UICollecti
     return cv
 }
 
-/// Pump the main run loop for a REAL wall-clock interval.
-///
-/// `RunLoop.main.run(until:)` returns almost immediately when the loop is
-/// already running (our cases run inside an app callback), so the flight's
-/// 0.8s window never actually elapses and UIKit's animation has no time to
-/// advance — run 44419454876 showed 0.9s of pumps finishing in 0.13s. This
-/// spins the run loop in short slices until the wall clock really passes the
-/// deadline. It does not drive any offset itself.
-func pump(_ seconds: TimeInterval) {
-    let deadline = Date(timeIntervalSinceNow: seconds)
-    while Date() < deadline {
-        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-    }
+// State shared by the async stages. The cases must NOT run inside one callback:
+// a nested RunLoop pump cannot commit a Core Animation transaction, so UIKit's
+// own animation would never start even with a real window (run 44419454876).
+var harness: Harness!
+var layout: AdjustingLayout!
+var cv: UICollectionView!
+var hostBottom: CGFloat = 0
+var startOffset: CGFloat = 0
+var midOffset: CGFloat = 0
+
+func stageMountList() {
+    harness = Harness()
+    layout = AdjustingLayout()
+    cv = makeCollectionView(harness: harness, layout: layout)
+    // A view outside a window never receives the display-link tick, so host it
+    // before anything is measured.
+    testHostViewController?.view.addSubview(cv)
+    // Next run-loop turn: the window commits and the list lays out for real.
+    DispatchQueue.main.async { stageSettleAtBottom() }
 }
 
-func runStatusBarUIKitCases() {
-    let harness = Harness()
-    let layout = AdjustingLayout()
-    let cv = makeCollectionView(harness: harness, layout: layout)
-    // A view outside a window never receives the display-link tick that advances
-    // UIKit's own animated scroll, so host it BEFORE the first pump.
-    testHostViewController?.view.addSubview(cv)
-    pump(0.05)
+func stageSettleAtBottom() {
     check(cv.window != nil, "the fixture list is hosted in a real app window")
+    hostBottom = harness.bottomOffset()
+    cv.setContentOffset(CGPoint(x: 0, y: hostBottom), animated: false)
+    // Next turn: UIKit finishes that layout pass; no fake waiting involved.
+    DispatchQueue.main.async { stageStartFlight() }
+}
 
-    let bottom = harness.bottomOffset()
-    cv.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
-    pump(0.05)
-    check(abs(cv.contentOffset.y - bottom) <= 1, "fixture starts at the real bottom")
-    let startOffset = cv.contentOffset.y
+func stageStartFlight() {
+    check(abs(cv.contentOffset.y - hostBottom) <= 1, "fixture starts at the real bottom")
+    startOffset = cv.contentOffset.y
 
     // A stale coalesced pin scheduled BEFORE Should must not resurrect the bottom.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { harness.attemptBottomPin() }
@@ -174,11 +176,16 @@ func runStatusBarUIKitCases() {
     // 2. Real UIKit animated scroll runs; the stale pin fires mid-flight but the
     //    production policy blocks it, so the system animation is not cancelled.
     cv.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
-    pump(0.8)
+    // Return to the main loop immediately and assert in a NEW callback after a
+    // real 0.8s: that is what lets Core Animation commit and the flight advance.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { stageAfterFlight() }
+}
+
+func stageAfterFlight() {
     check(harness.pinRuns == 1, "stale scheduled pin actually ran")
     check(harness.pinWrites == 0, "stale pin did not write the offset")
     check(cv.contentOffset.y < startOffset - 100, "UIKit's own animation moved the viewport up")
-    let midOffset = cv.contentOffset.y
+    midOffset = cv.contentOffset.y
 
     // 3. Layout offset protection + inset ledger.
     layout.active = harness.layoutFlag
@@ -270,20 +277,32 @@ final class StatusBarUIKitTestApp: UIResponder, UIApplicationDelegate {
         self.window = window
         testHostWindow = window
         testHostViewController = host
-        // A GCD block must NOT run the cases: while a main-queue block is on the
-        // stack the queue cannot re-enter, so the fixture's nested
-        // RunLoop.main.run pumps would never deliver the cases' own
-        // DispatchQueue.main.asyncAfter callbacks (observed on run 44417140387:
-        // "stale scheduled pin actually ran" failed with pinRuns=0). A Timer
-        // callback comes from the run loop itself, so the nested pumps drain
-        // both timers and UIKit's animations.
-        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { _ in
-            print("STATUSBAR_UIKIT_HOST key_window=\(window.isKeyWindow) "
-                  + "app_state=\(UIApplication.shared.applicationState.rawValue) "
-                  + "screen=\(UIScreen.main.bounds.width)x\(UIScreen.main.bounds.height)")
-            runStatusBarUIKitCases()
+        // Safety net only: if a console launch never activates the app, start
+        // anyway and SAY SO in the log, so the run is diagnosable instead of
+        // hanging until the timeout. The assertion set is identical either way.
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
+            self?.startOnce(reason: "fallback_after_5s_without_didBecomeActive")
         }
         return true
+    }
+
+    // Start only when the app is actually active: an inactive app does not run
+    // Core Animation, so starting earlier would judge the fixture in a state the
+    // production gesture never sees (run 44419454876 started at app_state=1).
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        startOnce(reason: "didBecomeActive")
+    }
+
+    private var started = false
+
+    func startOnce(reason: String) {
+        guard !started else { return }
+        started = true
+        print("STATUSBAR_UIKIT_START reason=\(reason) "
+              + "key_window=\(window?.isKeyWindow ?? false) "
+              + "app_state=\(UIApplication.shared.applicationState.rawValue) "
+              + "screen=\(UIScreen.main.bounds.width)x\(UIScreen.main.bounds.height)")
+        stageMountList()
     }
 }
 
