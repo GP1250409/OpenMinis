@@ -93,6 +93,11 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/ask_card_anchor_regression.py',
     'scripts/ask_card_anchor_uikit.py',
     'scripts/ask-card-anchor-tests/',
+    # [T-user-ask-anchor-clamp] The repo's standalone source pin for the same
+    # shipping block (assertions + token API). It is not an input of any
+    # skippable module spec - running it is a CI step of its own - so listing it
+    # only stops an incremental dispatch from degrading to full.
+    'src/ios/MinisTests/Standalone/ToggleAnchorMathTests.swift',
     'scripts/genui-height-tests/',
     'scripts/genui_height_regression.py',
     # [T-fold-open-card] the show_ui A/B regression is an input of the
