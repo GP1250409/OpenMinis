@@ -117,6 +117,16 @@ func makeCollectionView(harness: Harness, layout: AdjustingLayout) -> UICollecti
     cv.dataSource = harness
     cv.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "cell")
     cv.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 60, right: 0)
+    // A UICollectionViewFlowLayout with no itemSize is 50x50: 40 items in 320pt
+    // wrap into ~6 columns / 7 rows (~350pt of content), so the whole list was
+    // SHORTER than its 480pt viewport and the maximum offset was just the 60pt
+    // bottom inset. "moved up by more than 100" was unsatisfiable no matter how
+    // well the animation ran (run 44420631531 attempt 1). One explicit tall
+    // column makes the flight meaningful; it changes no assertion.
+    layout.itemSize = CGSize(width: 300, height: 80)
+    layout.minimumLineSpacing = 8
+    layout.minimumInteritemSpacing = 0
+    layout.sectionInset = .zero
     // Hosted by StatusBarUIKitTestApp below: the list is added to a real
     // UIWindow before the first pump, so UIScrollView's animated
     // setContentOffset is driven by the app's own CADisplayLink instead of a
@@ -135,6 +145,7 @@ var cv: UICollectionView!
 var hostBottom: CGFloat = 0
 var startOffset: CGFloat = 0
 var midOffset: CGFloat = 0
+var flightStartedAt = Date()
 
 func stageMountList() {
     harness = Harness()
@@ -149,7 +160,14 @@ func stageMountList() {
 
 func stageSettleAtBottom() {
     check(cv.window != nil, "the fixture list is hosted in a real app window")
+    cv.reloadData()
+    cv.layoutIfNeeded()
     hostBottom = harness.bottomOffset()
+    print("STATUSBAR_UIKIT_METRICS content_h=\(cv.contentSize.height) viewport=\(cv.bounds.height) "
+          + "inset_top=\(cv.adjustedContentInset.top) inset_bottom=\(cv.adjustedContentInset.bottom) "
+          + "max_offset=\(hostBottom) rows=\(Int(cv.contentSize.height / 88))")
+    // Precondition, not a threshold: the flight must have somewhere to travel.
+    check(hostBottom > 500, "the fixture list can scroll more than 500pt")
     cv.setContentOffset(CGPoint(x: 0, y: hostBottom), animated: false)
     // Next turn: UIKit finishes that layout pass; no fake waiting involved.
     DispatchQueue.main.async { stageStartFlight() }
@@ -175,6 +193,7 @@ func stageStartFlight() {
 
     // 2. Real UIKit animated scroll runs; the stale pin fires mid-flight but the
     //    production policy blocks it, so the system animation is not cancelled.
+    flightStartedAt = Date()
     cv.setContentOffset(CGPoint(x: 0, y: 0), animated: true)
     // Return to the main loop immediately and assert in a NEW callback after a
     // real 0.8s: that is what lets Core Animation commit and the flight advance.
@@ -182,6 +201,11 @@ func stageStartFlight() {
 }
 
 func stageAfterFlight() {
+    // Wall clock measured INSIDE the app, not from GitHub log timestamps: the
+    // runner captures the whole pty stream and prints it afterwards.
+    let elapsed = Date().timeIntervalSince(flightStartedAt)
+    print("STATUSBAR_UIKIT_FLIGHT elapsed=\(elapsed) start=\(startOffset) now=\(cv.contentOffset.y) "
+          + "moved=\(startOffset - cv.contentOffset.y) animations=\(UIView.areAnimationsEnabled)")
     check(harness.pinRuns == 1, "stale scheduled pin actually ran")
     check(harness.pinWrites == 0, "stale pin did not write the offset")
     check(cv.contentOffset.y < startOffset - 100, "UIKit's own animation moved the viewport up")
