@@ -255,8 +255,14 @@ final class StatusBarUIKitTestApp: UIResponder, UIApplicationDelegate {
         self.window = window
         testHostWindow = window
         testHostViewController = host
-        // Let the first commit through the real run loop, then run the cases.
-        DispatchQueue.main.async {
+        // A GCD block must NOT run the cases: while a main-queue block is on the
+        // stack the queue cannot re-enter, so the fixture's nested
+        // RunLoop.main.run pumps would never deliver the cases' own
+        // DispatchQueue.main.asyncAfter callbacks (observed on run 44417140387:
+        // "stale scheduled pin actually ran" failed with pinRuns=0). A Timer
+        // callback comes from the run loop itself, so the nested pumps drain
+        // both timers and UIKit's animations.
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { _ in
             print("STATUSBAR_UIKIT_HOST key_window=\(window.isKeyWindow) "
                   + "app_state=\(UIApplication.shared.applicationState.rawValue) "
                   + "screen=\(UIScreen.main.bounds.width)x\(UIScreen.main.bounds.height)")
