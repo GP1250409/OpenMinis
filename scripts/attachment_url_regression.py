@@ -116,6 +116,23 @@ def source_checks():
     checks += check(not raw_interpolations,
                     'no production site interpolates a raw path into an XML attribute: %s' % raw_interpolations)
 
+    # [T-attachment-raw-url-encoding] Target membership, not just "the file exists":
+    # the Agent/Chat group is a classic PBXGroup, so a file missing from the project
+    # never compiles and the app would fail with "cannot find 'MinisURLEncoding'".
+    pbxproj = read(IOS / 'Minis.xcodeproj' / 'project.pbxproj')
+    for name in ('MinisURLEncoding.swift', 'AttachmentXMLCodec.swift'):
+        ref_lines = [l for l in pbxproj.splitlines() if name in l]
+        checks += check(len(ref_lines) == 4,
+                        f'{name} is registered exactly 4 times (fileRef, buildFile, group, Sources)')
+        checks += check(any('isa = PBXFileReference' in l and f'path = {name};' in l for l in ref_lines),
+                        f'{name} has a PBXFileReference with its path')
+        checks += check(any(f'/* {name} in Sources */ = {{isa = PBXBuildFile' in l for l in ref_lines),
+                        f'{name} has a PBXBuildFile')
+        checks += check(any(l.strip().startswith('E5') and l.strip().endswith(f'/* {name} */,') for l in ref_lines),
+                        f'{name} is a child of its PBXGroup')
+        checks += check(any(l.strip().startswith('E5') and l.strip().endswith(f'/* {name} in Sources */,') for l in ref_lines),
+                        f'{name} is in a Sources build phase')
+
     # The attachment file-card view must not reintroduce a silent failure guard.
     media = read(IOS / 'Views/Chat/MinisMediaViews.swift')
     checks += check('guard let url = URL(string: meta.minisURL)' in media,

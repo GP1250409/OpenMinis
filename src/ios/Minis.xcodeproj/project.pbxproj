@@ -524,6 +524,8 @@
 		E5VMC0006 /* AIChatViewModel+BackgroundTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMC0016 /* AIChatViewModel+BackgroundTask.swift */; };
 		E5VMC0007 /* AIChatViewModel+ConcurrentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMC0017 /* AIChatViewModel+ConcurrentTools.swift */; };
 		E5VMD0001 /* MinisURLPathDecoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMD0011 /* MinisURLPathDecoding.swift */; };
+		E5AUE0001 /* MinisURLEncoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AUE0011 /* MinisURLEncoding.swift */; };
+		E5AXC0001 /* AttachmentXMLCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AXC0011 /* AttachmentXMLCodec.swift */; };
 		E5VMSPL001B /* AIChatViewModel+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMSPL001R /* AIChatViewModel+Lifecycle.swift */; };
 		E5VMSPL002B /* AIChatViewModel+ContextUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMSPL002R /* AIChatViewModel+ContextUsage.swift */; };
 		E5VMSPL003B /* AIChatViewModel+StreamingUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMSPL003R /* AIChatViewModel+StreamingUI.swift */; };
@@ -1346,6 +1348,8 @@
 		E5VMC0016 /* AIChatViewModel+BackgroundTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+BackgroundTask.swift"; sourceTree = "<group>"; };
 		E5VMC0017 /* AIChatViewModel+ConcurrentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ConcurrentTools.swift"; sourceTree = "<group>"; };
 		E5VMD0011 /* MinisURLPathDecoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinisURLPathDecoding.swift; sourceTree = "<group>"; };
+		E5AUE0011 /* MinisURLEncoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinisURLEncoding.swift; sourceTree = "<group>"; };
+		E5AXC0011 /* AttachmentXMLCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentXMLCodec.swift; sourceTree = "<group>"; };
 		E5VMSPL001R /* AIChatViewModel+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+Lifecycle.swift"; sourceTree = "<group>"; };
 		E5VMSPL002R /* AIChatViewModel+ContextUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ContextUsage.swift"; sourceTree = "<group>"; };
 		E5VMSPL003R /* AIChatViewModel+StreamingUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+StreamingUI.swift"; sourceTree = "<group>"; };
@@ -2376,6 +2380,8 @@
 				E5VMC0012 /* AIChatViewModel+FileTools.swift */,
 				E5FIO0011 /* FileToolIO.swift */,
 				E5VMD0011 /* MinisURLPathDecoding.swift */,
+				E5AUE0011 /* MinisURLEncoding.swift */,
+				E5AXC0011 /* AttachmentXMLCodec.swift */,
 				E5VMC0013 /* AIChatViewModel+Offloading.swift */,
 				E5VMC0014 /* AIChatViewModel+SSEStream.swift */,
 				E5VMC0015 /* AIChatViewModel+Persistence.swift */,
@@ -3221,6 +3227,8 @@
 				E5VMC0002 /* AIChatViewModel+FileTools.swift in Sources */,
 				E5FIO0001 /* FileToolIO.swift in Sources */,
 				E5VMD0001 /* MinisURLPathDecoding.swift in Sources */,
+				E5AUE0001 /* MinisURLEncoding.swift in Sources */,
+				E5AXC0001 /* AttachmentXMLCodec.swift in Sources */,
 				E5VMC0003 /* AIChatViewModel+Offloading.swift in Sources */,
 				E5VMC0004 /* AIChatViewModel+SSEStream.swift in Sources */,
 				E5VMC0005 /* AIChatViewModel+Persistence.swift in Sources */,

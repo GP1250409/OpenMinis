@@ -171,6 +171,42 @@ def path_is_allowed_incremental(path: str) -> bool:
     return any(path == p or path.startswith(p) for p in ALLOWED_INCREMENTAL_PREFIXES)
 
 
+PBXPROJ_PATH = 'src/ios/Minis.xcodeproj/project.pbxproj'
+PBXPROJ_HELPER_FILES = ('MinisURLEncoding.swift', 'AttachmentXMLCodec.swift')
+
+
+def pbxproj_is_pure_helper_registration(repo: pathlib.Path, baseline: str, head: str) -> bool:
+    """[T-attachment-raw-url-encoding] True only when the project file changed by
+    ADDING exactly the 8 registration lines of the two new helpers and nothing else.
+
+    The Agent/Chat PBXGroup is a classic (non-synchronised) group, so a new source
+    file must be listed by hand (PBXFileReference + PBXBuildFile + group children +
+    Sources phase) or the target never compiles it. Allowing the project file in
+    ALLOWED_INCREMENTAL_PREFIXES would silently whitelist ANY future project change
+    (build settings, entitlements, a new target), so it is not whitelisted: instead
+    this narrow predicate proves the diff is pure addition of those 8 lines. Anything
+    else (a deletion, a modified line, an extra added line, a different file) makes
+    the path unexpected and the dispatch falls back to a full run.
+    """
+    out = git(repo, 'diff', '--unified=0', f'{baseline}..{head}', '--', PBXPROJ_PATH)
+    added, removed = [], []
+    for line in out.splitlines():
+        if line.startswith('+++') or line.startswith('---'):
+            continue
+        if line.startswith('+'):
+            added.append(line[1:])
+        elif line.startswith('-'):
+            removed.append(line[1:])
+    if not added or removed:
+        return False
+    if len(added) != 8:
+        return False
+    for line in added:
+        if not any(name in line for name in PBXPROJ_HELPER_FILES):
+            return False
+    return True
+
+
 def compute_scope(repo: pathlib.Path, mode: str, baseline_ref: str, head_ref: str = 'HEAD') -> dict:
     head_sha = resolve_commit(repo, head_ref)
     result = {
@@ -214,7 +250,11 @@ def compute_scope(repo: pathlib.Path, mode: str, baseline_ref: str, head_ref: st
         return out
 
     changed = [line for line in git(repo, 'diff', '--name-only', f'{baseline_sha}..{head_sha}').splitlines() if line]
-    unexpected = [p for p in changed if not path_is_allowed_incremental(p)]
+    pbxproj_exception = PBXPROJ_PATH in changed and pbxproj_is_pure_helper_registration(repo, baseline_sha, head_sha)
+    result['pbxproj_helper_registration'] = bool(pbxproj_exception)
+    unexpected = [p for p in changed
+                  if not path_is_allowed_incremental(p)
+                  and not (p == PBXPROJ_PATH and pbxproj_exception)]
 
     result['baseline_sha'] = baseline_sha
     result['changed_files'] = changed
