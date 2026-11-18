@@ -26,10 +26,14 @@ struct AttachmentMeta: Identifiable, Equatable {
     var pastedCharCount: Int? = nil
 
     /// Derive a `minis://` URL from the Linux path.
+    ///
+    /// [T-attachment-raw-url-encoding] `path` stays the RAW on-disk name; only
+    /// the URL is percent-encoded, once, in `MinisURLEncoding`. Concatenating
+    /// it raw made `URL(string:)` return nil for CJK/space/emoji names on
+    /// iOS 16.6 and truncate at `#`/`?`; every thumbnail loader then bailed at
+    /// its first `guard`.
     var minisURL: String {
-        guard path.hasPrefix("/var/minis/") else { return path }
-        let rel = String(path.dropFirst("/var/minis/".count))
-        return "minis://\(rel)"
+        MinisURLEncoding.minisURL(forLinuxPath: path)
     }
 
     var fileName: String {
