@@ -285,6 +285,7 @@ def main():
 
     sources = [layout_path, item_src, cell_src, txn_src,
                root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
+               root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
                tests / 'ProductionStubs.swift', tests / 'TxCoordinatorStub.swift',
                tests / 'ThinkingHarness.swift', tests / 'ThinkingTransactionTests.swift',
                tests / 'ThinkingToggleTxnMathTests.swift']

@@ -287,6 +287,7 @@ def main():
     note('PRODUCTION_EXCEPTION_BRIDGE_OK')
 
     sources = [layout_path, item_src, cell_src, anchor_src, spacing_path,
+               root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
                tests / 'UsageToggleStubs.swift', tests / 'UsageToggleHarness.swift',
                tests / 'UsageToggleAnchorUITests.swift', tests / 'AppMain.swift']
     cmd = ['xcrun', '--sdk', 'iphonesimulator', 'swiftc', '-swift-version', '5', '-sdk', sdk,

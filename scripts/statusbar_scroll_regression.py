@@ -31,7 +31,7 @@ SETUP = ROOT / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Coordinato
 LAYOUT = ROOT / 'src/ios/Agent/MessageList/MessageListLayout.swift'
 INFRA = ROOT / 'src/ios/Agent/MessageList/MessageListInfrastructure.swift'
 OUT = pathlib.Path(tempfile.mkdtemp(prefix='statusbar-scroll-'))
-LOGIC_FLOOR = 40
+LOGIC_FLOOR = 46
 UIKIT_FLOOR = 25
 
 
@@ -283,6 +283,55 @@ def fixture_import_contract(slice_source: str) -> int:
     return cases
 
 
+def source_manifest_contract() -> int:
+    """[T-statusbar-native-scroll] Every fixture that compiles the FULL production
+    `MessageListLayout.swift` verbatim must also compile the REAL
+    `Support/StatusBarScrollToTop.swift` — the layout's `contentOffsetAdjustment`
+    now calls `StatusBarScrollToTopPolicy`, which is defined there (never a stub,
+    never deleting the call). This is a SOURCE-MANIFEST contract (structural,
+    Linux-runnable): it proves each compile source list NAMES the shipping
+    support file, NOT that a Darwin typecheck ran. The Darwin typecheck is proven
+    separately by each suite's own swiftc on the simulator (run 44423138250's
+    genui step failed exactly this with "cannot find 'StatusBarScrollToTopPolicy'
+    in scope")."""
+    support = 'Support/StatusBarScrollToTop.swift'
+    manifest = {
+        'genui_height_regression.py': ROOT / 'scripts/genui_height_regression.py',
+        'thinking_transaction_regression.py': ROOT / 'scripts/thinking_transaction_regression.py',
+        'toolfold_uikit_regression.py': ROOT / 'scripts/toolfold_uikit_regression.py',
+        'usage_toggle_anchor_regression.py': ROOT / 'scripts/usage_toggle_anchor_regression.py',
+        'ask_card_anchor_uikit.py': ROOT / 'scripts/ask_card_anchor_uikit.py',
+    }
+    cases = 0
+
+    def case(cond: bool, name: str) -> None:
+        nonlocal cases
+        cases += 1
+        if not cond:
+            fail('source manifest contract: ' + name)
+
+    # Positive: every full-layout compile source list names the shipping file.
+    for name, path in manifest.items():
+        case(support in path.read_text(), f'{name} lists {support}')
+
+    # Negative (the exact list that failed run 44423138250): the pre-fix genui
+    # compile list — MessageListLayout verbatim WITHOUT the policy file — must be
+    # rejected, because it fails Darwin typecheck with "cannot find
+    # 'StatusBarScrollToTopPolicy' in scope".
+    old_genui = ("sources = [instrumented, spacing, item_src, cell_src, store_src, genui_src,\n"
+                 "           tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',\n"
+                 "           tests / 'GenUICardFixture.swift', tests / 'GenUIListHarness.swift',\n"
+                 "           tests / 'GenUIHeightTests.swift']")
+    case(support not in old_genui, 'frozen pre-fix genui compile list is rejected')
+
+    # Sensitivity: dropping the support file from the CURRENT genui list must
+    # flip the contract red (guards against a silent re-introduction).
+    current = (ROOT / 'scripts/genui_height_regression.py').read_text()
+    stripped = current.replace(support, 'Support/RemovedStatusBarScrollToTop.swift')
+    case(support not in stripped, 'contract is sensitive to dropping the genui support file')
+    return cases
+
+
 def build_slice() -> pathlib.Path:
     work = OUT / 'slice'
     work.mkdir()
@@ -435,18 +484,20 @@ def run_uikit() -> int:
 def main() -> None:
     if not PROD.is_file():
         fail('production lifecycle file missing')
-    compile_logic()
+    logic_checks = compile_logic()
     slice_checks = build_slice()
     fixture_cases = fixture_import_contract((OUT / 'slice' / 'Slice.swift').read_text())
     print(f'STATUSBAR_SCROLL_FIXTURE_IMPORT_PASS cases={fixture_cases}')
     wiring = wiring_checks()
     print(f'STATUSBAR_SCROLL_WIRING_PASS checks={wiring}')
+    manifest_cases = source_manifest_contract()
+    print(f'STATUSBAR_SOURCE_MANIFEST_PASS cases={manifest_cases}')
     uikit = run_uikit()
     if uikit < 0:
         # Honest local scope: Linux has no UIKit; CI is the platform that runs it.
         print('STATUSBAR_SCROLL_LOCAL_LOGIC_ONLY uikit=unavailable platform=' + platform.system())
         return
-    print(f'STATUSBAR_SCROLL_PASS logic={LOGIC_FLOOR}+ uikit={uikit} slice={slice_checks} wiring={wiring}')
+    print(f'STATUSBAR_SCROLL_PASS logic={logic_checks}+ uikit={uikit} slice={slice_checks} wiring={wiring}')
 
 
 if __name__ == '__main__':

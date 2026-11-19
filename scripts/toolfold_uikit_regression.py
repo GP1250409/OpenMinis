@@ -123,6 +123,7 @@ sources = [
     IOS / 'Agent/MessageList/ToolFoldPlanner.swift',
     IOS / 'Agent/MessageList/MessageListLayout.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
     OUT / 'ProductionMessageListItem.swift',
     OUT / 'ProductionSelfSizingCell.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/MessageListV3Cells.swift',

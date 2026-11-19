@@ -85,6 +85,16 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     # current commit, so its script paths are safe incremental inputs.
     'scripts/thinking-transaction-tests/',
     'scripts/thinking_transaction_regression.py',
+    # [T-statusbar-native-scroll] 2026-11-19. MessageListLayout's
+    # contentOffsetAdjustment now calls StatusBarScrollToTopPolicy, so every
+    # fixture that compiles the full layout verbatim must also compile the real
+    # Support/StatusBarScrollToTop.swift. These two scripts compile the full
+    # layout (toolfold in the mandatory toolfold step, usage-toggle in its own
+    # workflow) and their compile source lists had to name the support file;
+    # allowing the paths here only keeps an incremental dispatch from degrading
+    # to full for a reason the module hashes already decide.
+    'scripts/toolfold_uikit_regression.py',
+    'scripts/usage_toggle_anchor_regression.py',
     # [T-user-ask-anchor-clamp] 2026-11-19. The answered-question card's
     # collapse anchor: its gate compiles the shipping ToggleAnchorMath block and
     # runs inside the mandatory toolfold step, so these paths are inputs of no

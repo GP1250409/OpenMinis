@@ -514,7 +514,12 @@ def build_and_run(genui_src, cell_src, item_src, store_src, instrumented):
     # MessageListLayout.prepare() uses the production MessageRowGap rule.
     # Compile its real pure-support file too; a synthetic stub would hide drift.
     spacing = root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift'
-    sources = [instrumented, spacing, item_src, cell_src, store_src, genui_src,
+    # MessageListLayout's contentOffsetAdjustment now routes through the shipping
+    # status-bar decision seam (StatusBarScrollToTopPolicy), so compile that real
+    # Foundation-only support file as well — never a policy stub, never deleting
+    # the call.
+    statusbar_policy = root / 'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift'
+    sources = [instrumented, spacing, statusbar_policy, item_src, cell_src, store_src, genui_src,
                tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',
                tests / 'GenUICardFixture.swift', tests / 'GenUIListHarness.swift',
                tests / 'GenUIHeightTests.swift']
