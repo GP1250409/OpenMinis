@@ -247,11 +247,6 @@ extension CollectionViewMessageListV3 {
         /// The session the two sets above belong to.
         var toolFoldSessionId: String?
         var toolGroupToggleSub: AnyCancellable?
-        /// [T-toolgroup-accordion] The single in-flight open/close of a folded
-        /// run. One at a time: a second tap retargets it, a snapshot swap or a
-        /// drag finishes it. See Coordinator+ToolFolding `toggleToolGroup`.
-        var toolGroupAccordionFlight: ToolGroupAccordionFlight?
-
         /// [T-toolgroup-accordion] A close whose reveal was interrupted before it
         /// converged (drag takeover, status-bar flight). The caller name is kept
         /// until the list can drop the rows with nobody's finger on the screen;

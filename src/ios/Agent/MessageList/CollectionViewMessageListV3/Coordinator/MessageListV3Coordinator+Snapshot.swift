@@ -272,7 +272,6 @@ extension CollectionViewMessageListV3.Coordinator {
                         layout.invalidateHeight(at: idx)
                         var snap = snapshot
                         snap.reconfigureItems([item])
-                        cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)
                         ds.apply(snap, animatingDifferences: false)
                         layout.invalidateLayout()
                         alog.info("[AttachMount] msg=\(msgId.uuidString.prefix(8)) idx=\(idx) invalidated + reconfigured")
@@ -742,7 +741,6 @@ extension CollectionViewMessageListV3.Coordinator {
                         let footerItem = MessageListItem.assistantFooter(mid)
                         guard snap.itemIdentifiers.contains(footerItem) else { return }
                         snap.reconfigureItems([footerItem])
-                        cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)
                         ds.apply(snap, animatingDifferences: false)
                         AppLogger(category: "BottomGapDiag").info(
                             "[BottomGapDiag][footer-reconfig] msg=\(mid.uuidString.prefix(8)) "
@@ -1214,7 +1212,6 @@ extension CollectionViewMessageListV3.Coordinator {
                     changedToolGroupItems = []
                     UIView.performWithoutAnimation {
                         (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = true
-                        cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)
                         ds.apply(snap, animatingDifferences: false)
                         (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = false
                     }
@@ -1364,7 +1361,6 @@ extension CollectionViewMessageListV3.Coordinator {
                 cv.endEditing(true)
             }
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = true
-            cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)
             dataSource.apply(snapshot, animatingDifferences: false)
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = false
             // [T-thinking-toggle-txn] Rows are renumbered by this apply: move the

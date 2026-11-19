@@ -1,18 +1,22 @@
-// [T-toolgroup-accordion] Entry-level coverage of the tool-group toggle.
+// [T-toolgroup-original-toggle] Entry-level coverage of the tool-group switch.
 //
 // This stage drives the SAME production entry the chat list's tap drives:
-// `ToolGroupAccordionToggle.run(_:in:)` (the coordinator's `toggleToolGroup`
-// calls it; see Support/ToolGroupAccordionToggle.swift). It is not a look-alike
-// next to the business code — the flight, the measurement probe, the receipt
-// checks, the contiguous-span rule and the end-of-flight anchor restore are all
-// the shipping implementations.
+// `ToolGroupOriginalToggle.run(_:in:)` (Support/ToolGroupOriginalToggle.swift;
+// the coordinator's `toggleToolGroup` calls it). It is not a look-alike next to
+// the business code — the structure apply, the row reconfigure, the layout
+// settle and the anchored offset are the shipping implementation.
 //
 // The list here is a real UIWindow-hosted UICollectionView with the real
-// MessageListLayout, real SelfSizingCell and real UIHostingConfiguration rows.
-// The rows are deliberately TALL (320 / 300 / 280pt against an 80pt estimate,
-// with the run parked below five 220pt rows) so the member rows are off screen:
-// that is the "long tool output" case whose estimate-based container used to
-// leave the run unmeasured and fall back to an instant switch.
+// MessageListLayout, real SelfSizingCell and real UIHostingConfiguration rows,
+// and the rows are deliberately TALL (320 / 300 / 280pt against an 80pt
+// estimate) with the run parked below five 220pt rows — the "long tool output"
+// case the accordion used to need a measurement probe for.
+//
+// The 0.32s accordion (flight, frozen member heights, span, retarget, probe,
+// deferred converge) was cancelled by user decision on 2026-11-20. Every case
+// here therefore also asserts the NEGATIVE side: after every run there is no
+// reveal window, no abort channel and no illegal offset — and this file does
+// not even link the accordion driver any more, which the driver checks.
 
 import Foundation
 import SwiftUI
@@ -87,13 +91,10 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private var items: [MessageListItem] = []
     private var contentHeights: [MessageListItem: CGFloat] = [:]
     private var pendingExpanded = true
-    private var flight: ToolGroupAccordionFlight?
     private var applyCallers: [String] = []
     private var anchors: [CGFloat] = []
     private var headerRefreshes = 0
     private var headerRefreshExpanded: Bool?
-    private var headerRefreshedWhileFlying = true
-    private var deferredConverges: [String] = []
 
     private var reduceMotion = false
     private var streaming = false
@@ -148,26 +149,6 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             UIHostingConfiguration { Color.clear.frame(height: height) }
                 .minSize(width: 0, height: 0)
                 .margins(.all, 0))
-    }
-
-    /// What the coordinator's `refreshToolGroupToggleRow` does to the tapped
-    /// row: re-render the LIVE cell with the state the business just flipped to.
-    /// The row content is a real `UIContentConfiguration` carrying `isExpanded`
-    /// (the one value `BridgedToolGroupV3` bakes into its cell), so the stage can
-    /// read the property back off the cell instead of trusting a bookkeeping
-    /// flag.
-    private func refreshHeader(_ item: MessageListItem) {
-        guard let idx = items.firstIndex(of: item),
-              let cell = list.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell else {
-            check(false, "header: the tapped row is on screen when the transaction refreshes it")
-            return
-        }
-        headerRefreshes += 1
-        headerRefreshExpanded = pendingExpanded
-        headerRefreshedWhileFlying = flight?.isRunning ?? false
-        cell.applyContentConfiguration(EntryRowConfiguration(height: cellHeight(item),
-                                                             isExpanded: pendingExpanded))
-        list.layoutIfNeeded()
     }
 
     private func rebuildFolded(scrollHeaderVisible: Bool = true) {
@@ -246,9 +227,16 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     }
 
     // MARK: - The production environment the coordinator passes
+    //
+    // [T-toolgroup-original-toggle] Every case below drives
+    // `ToolGroupOriginalToggle.run(_:in:)` — the SAME transaction the chat
+    // list's `toggleToolGroup` runs — through this environment. There is no
+    // flight, span, retarget, measurement probe or deferred converge on this
+    // path any more (the 0.32s accordion was cancelled by user decision on
+    // 2026-11-20); the checks prove that, and prove the original geometry.
 
-    private func environment() -> ToolGroupAccordionToggle.Environment {
-        ToolGroupAccordionToggle.Environment(
+    private func environment() -> ToolGroupOriginalToggle.Environment {
+        ToolGroupOriginalToggle.Environment(
             collectionView: list,
             layout: layout,
             items: { [unowned self] in self.items },
@@ -256,27 +244,60 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
                 self.applyCallers.append(caller)
                 self.syncStructure()
             },
-            // Measurement mode: same content, nothing written into this list.
-            configureForMeasurement: { [unowned self] cell, item, _ in
-                self.configureRow(cell, item: item)
-            },
-            refreshHeader: { [unowned self] item in self.refreshHeader(item) },
-            deferConverge: { [unowned self] caller in self.deferredConverges.append(caller) },
-            restoreAnchor: { [unowned self] _, anchorY in self.anchors.append(anchorY) },
-            storeFlight: { [unowned self] flight in self.flight = flight },
-            currentFlight: { [unowned self] in self.flight },
-            isReduceMotion: { [unowned self] in self.reduceMotion },
-            isStreaming: { [unowned self] in self.streaming },
+            indexOf: { [unowned self] item in self.items.firstIndex(of: item) },
+            reconfigure: { [unowned self] item in self.reconfigureTappedRow(item) },
             log: { _ in })
     }
 
-    private func request(expanding: Bool) -> ToolGroupAccordionToggle.Request {
-        ToolGroupAccordionToggle.Request(item: groupItem,
-                                         memberItems: memberItems,
-                                         expanding: expanding,
-                                         oldIndex: fillerBlocks.count,
-                                         anchorY: 40,
-                                         groupTag: "entry")
+    private func request(expanding: Bool) -> ToolGroupOriginalToggle.Request {
+        ToolGroupOriginalToggle.Request(item: groupItem,
+                                        memberItems: memberItems,
+                                        expanding: expanding,
+                                        oldIndex: items.firstIndex(of: groupItem) ?? fillerBlocks.count,
+                                        anchorY: 40,
+                                        groupTag: "entry")
+    }
+
+    /// What the coordinator's `refreshToolGroupToggleRow` does: re-render the
+    /// LIVE cell with the state the business just flipped to. The row content
+    /// carries `isExpanded` (the one value `BridgedToolGroupV3` bakes into its
+    /// cell), so the stage reads it back off the cell.
+    private func reconfigureTappedRow(_ item: MessageListItem) {
+        guard let idx = items.firstIndex(of: item),
+              let cell = list.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell else {
+            check(false, "the tapped row is live when the transaction reconfigures it")
+            return
+        }
+        headerRefreshes += 1
+        headerRefreshExpanded = pendingExpanded
+        cell.applyContentConfiguration(EntryRowConfiguration(height: cellHeight(item),
+                                                             isExpanded: pendingExpanded))
+        list.layoutIfNeeded()
+    }
+
+    // MARK: - Geometry helpers
+
+    private func headerScreenY() -> CGFloat? {
+        guard let idx = items.firstIndex(of: groupItem),
+              let frame = layout.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))?.frame else { return nil }
+        return frame.minY - list.contentOffset.y
+    }
+
+    private func legalWindow() -> (min: CGFloat, max: CGFloat) {
+        let minOff = -list.adjustedContentInset.top
+        let maxOff = max(minOff, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
+        return (minOff, maxOff)
+    }
+
+    /// The three facts that must hold after EVERY run of the original toggle:
+    /// no reveal window, no abort channel, an offset inside the legal window.
+    private func checkNoFlightResidue(_ label: String) {
+        check(layout.toolGroupAccordionSpan == nil, "\(label): no reveal window is installed")
+        check(layout.toolGroupAccordionAbort == nil, "\(label): no takeover/abort channel is armed")
+        let w = legalWindow()
+        let off = list.contentOffset.y
+        check(off >= w.min - 0.5 && off <= w.max + 0.5,
+              "\(label): offset stays legal (\(off) in \(w.min)…\(w.max))")
     }
 
     // MARK: - Cases
@@ -287,247 +308,180 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
 
     private func expandCase() {
         pendingExpanded = true
-        let outcome = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        if case .started = outcome {} else { check(false, "expand: the transaction started (outcome=\(outcome))") }
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        check(outcome != .missing("not-in-snapshot"), "expand: the transaction found the row (\(outcome))")
         check(items.count == expectedExpandedCount,
               "expand: the business apply put the member rows in the list (\(items.count)/\(expectedExpandedCount))")
-        check(applyCallers.first == "toolGroupToggle", "expand: structure applied through the caller's own apply")
-        check(flight != nil, "expand: a production flight is live")
-        check(headerRefreshes == 1, "expand: the tapped row was refreshed once by the transaction (\(headerRefreshes))")
-        check(headerRefreshExpanded == true, "expand: the refresh carried the NEW expanded state")
-        check(headerRefreshedWhileFlying, "expand: the refresh happened with the reveal window already installed")
-        let headerCfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
+        check(applyCallers == ["toolGroupToggle"],
+              "expand: exactly one structure apply, through the caller's own applySnapshot (\(applyCallers))")
+        check(headerRefreshes == 1, "expand: the tapped row was reconfigured once (\(headerRefreshes))")
+        check(headerRefreshExpanded == true, "expand: the reconfigure carried the NEW expanded state")
+        let cfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
             .contentConfiguration as? EntryRowConfiguration
-        check(headerCfg?.isExpanded == true,
+        check(cfg?.isExpanded == true,
               "expand: the live header cell reports isExpanded == true (chevron / a11y source)")
-        check(abs((headerCfg?.height ?? 0) - 28) < 0.5,
-              "expand: the refresh keeps the fixed row height, so no geometry moves under the flight")
-        let headerIndex = fillerBlocks.count
-        if let plan = flight?.currentPlan {
-            let heights = plan.naturalHeights
-            let expected: [CGFloat] = [320, 300, 280]
-            let allMeasured = heights.count == expected.count
-                && zip(heights, expected).allSatisfy { pair in abs(pair.0 - pair.1) < 2 }
-            check(allMeasured,
-                  "expand: every off-screen member row is really measured, not estimated (\(heights))")
-            check(plan.memberRange == headerIndex + 1...(headerIndex + memberBlocks.count),
-                  "expand: the span is the contiguous window under the header (\(plan.memberRange))")
-            check(plan.headerIndex == headerIndex, "expand: the plan points at the tapped row (\(plan.headerIndex))")
-            check(plan.memberItems == memberItems, "expand: the plan carries the real member identities")
+        check(abs((cfg?.height ?? 0) - 28) < 0.5, "expand: the row keeps its fixed height")
+        if case .applied(let r) = outcome {
+            check(r.fromIndex == r.toIndex, "expand: the group row keeps its index (no row above moved)")
+            check(r.offset >= legalWindow().min - 0.5 && r.offset <= legalWindow().max + 0.5,
+                  "expand: the transaction's offset is inside the legal window (\(r.offset))")
         } else {
-            check(false, "expand: the flight published its plan")
+            check(false, "expand: the transaction applied (\(outcome))")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { self.expandMidFlight() }
-    }
-
-    private func expandMidFlight() {
-        guard let flight else { check(false, "mid: the flight is still live"); return }
-        let reveal = flight.reveal
-        check(reveal > 0.05 && reveal < 0.95,
-              "mid: the run is partially revealed, not cut (\(String(format: "%.3f", reveal)))")
-        check(flight.framesApplied >= 3, "mid: several frames ran (\(flight.framesApplied))")
-        check(layout.toolGroupAccordionSpan != nil, "mid: the reveal window is installed")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) { self.expandEnded() }
-    }
-
-    private func expandEnded() {
-        check(flight == nil, "expand: the flight cleared itself at the end")
-        check(layout.toolGroupAccordionSpan == nil, "expand: the reveal window is gone")
-        // [T-toolgroup-accordion] A channel that outlives its flight keeps the
-        // flight (and through it the list) alive, and can finish a LATER reveal
-        // by mistake. `takeoverCase` covers the takeover path; this covers the
-        // path that ends on its own (run 44506193558 only asserted the takeover
-        // and cancel paths, which is how the leak stayed invisible).
-        check(layout.toolGroupAccordionAbort == nil,
-              "expand: the abort channel is disarmed when the flight ends normally")
-        check(anchors.last == 40, "expand: the tapped row was put back (\(anchors.last ?? -1))")
-        check(items.count == expectedExpandedCount, "expand: the rows stay open")
-        check(applyCallers.contains("toolGroupAccordionEnd"), "expand: the end converged through applySnapshot")
-        let headerIndex = fillerBlocks.count
+        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
+              "expand: the tapped row is back at its screen anchor (\(headerScreenY() ?? -1))")
+        checkNoFlightResidue("expand")
+        // Member rows are really in the list, at their real heights, below the header.
         let measured: [CGFloat] = memberItems.indices.map { offset in
-            layout.layoutAttributesForItem(at: IndexPath(item: headerIndex + 1 + offset, section: 0))?.frame.height ?? 0
+            layout.layoutAttributesForItem(at: IndexPath(item: fillerBlocks.count + 1 + offset, section: 0))?.frame.height ?? 0
         }
         let expected: [CGFloat] = [320, 300, 280]
         check(zip(measured, expected).allSatisfy { pair in abs(pair.0 - pair.1) < 2 },
-              "expand: every member row sits at its measured height (\(measured))")
+              "expand: every member row is laid out at its content height (\(measured))")
         collapseCase()
     }
 
     private func collapseCase() {
         pendingExpanded = false
         let before = anchors.count
-        let outcome = ToolGroupAccordionToggle.run(request(expanding: false), in: environment())
-        if case .started = outcome {} else { check(false, "close: the transaction started (outcome=\(outcome))") }
-        check(items.count == expectedExpandedCount,
-              "close: the member rows stay in the list while they collapse (\(items.count))")
-        check(headerRefreshExpanded == false, "close: the refresh carried the closed state")
-        let closedCfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
+        if case .applied = outcome {} else { check(false, "close: the transaction applied (outcome=\(outcome))") }
+        check(items.count == expectedFoldedCount,
+              "close: the member rows are dropped by the SAME apply (\(items.count)/\(expectedFoldedCount))")
+        check(headerRefreshes == 2 && headerRefreshExpanded == false,
+              "close: the row was reconfigured with the closed state")
+        let cfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
             .contentConfiguration as? EntryRowConfiguration
-        check(closedCfg?.isExpanded == false,
-              "close: the live header cell flips to closed as the run collapses")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) {
-            self.check(self.items.count == self.expectedFoldedCount,
-                       "close: the rows are dropped once collapsed (\(self.items.count)/\(self.expectedFoldedCount))")
-            self.check(self.layout.toolGroupAccordionSpan == nil, "close: the reveal window is gone")
-            self.check(self.anchors.count > before, "close: the tapped row was put back again")
-            self.check((self.flight?.reveal ?? 0) == 0, "close: the run ended closed")
-            self.reduceMotionCase()
-        }
+        check(cfg?.isExpanded == false, "close: the live header cell flips to closed at once")
+        check(anchors.count == before, "close: no separate anchor pass on the original path (\(anchors.count))")
+        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
+              "close: the tapped row is still at its screen anchor (\(headerScreenY() ?? -1))")
+        checkNoFlightResidue("close")
+        check(applyCallers == ["toolGroupToggle", "toolGroupToggle"],
+              "close: still one apply per tap, no end-of-flight apply (\(applyCallers))")
+        repeatTapCase()
     }
 
-    private func reduceMotionCase() {
-        reduceMotion = true
-        let outcome = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        if case .fallback(let reason) = outcome {
-            check(reason == "reduce-motion", "reduce motion: the transaction declines (\(reason))")
+    /// A continuous double tap: expand then close without a run-loop turn in
+    /// between. The original switch has no "in-flight" state to retarget, so the
+    /// second tap is just the next transaction and the list ends on its state.
+    private func repeatTapCase() {
+        rebuildFolded()
+        pendingExpanded = true
+        _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        pendingExpanded = false
+        _ = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
+        pendingExpanded = true
+        _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        check(items.count == expectedExpandedCount,
+              "repeat: three taps leave the structure of the last one (\(items.count)/\(expectedExpandedCount))")
+        checkNoFlightResidue("repeat")
+        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
+              "repeat: the header never drifted (\(headerScreenY() ?? -1))")
+        shortCase()
+    }
+
+    /// Content shorter than the viewport: the anchor wants an offset the list
+    /// cannot hold, so it collapses to the legal top inset — the pre-accordion
+    /// clamp, verified on the real layout.
+    private func shortCase() {
+        rebuildFolded(scrollHeaderVisible: false)
+        pendingExpanded = true
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        let top = -list.adjustedContentInset.top
+        check(abs(list.contentOffset.y - top) < 0.6,
+              "short: the list stays at its legal top (\(list.contentOffset.y) vs \(top))")
+        if case .applied(let r) = outcome {
+            check(r.offset >= top - 0.5, "short: the transaction clamped instead of scrolling past the top (\(r.offset))")
         } else {
-            check(false, "reduce motion: the transaction declines (outcome=\(outcome))")
+            check(false, "short: the transaction applied (\(outcome))")
         }
-        check(flight == nil, "reduce motion: no flight was started")
-        check(items.count == expectedFoldedCount, "reduce motion: the structure was left to the caller's instant switch")
-        reduceMotion = false
+        check(items.count == expectedExpandedCount, "short: the rows are still open")
+        checkNoFlightResidue("short")
+        nearBottomCase()
+    }
+
+    /// The header parked at the bottom edge: a close keeps it there and the
+    /// offset ends exactly on the legal bottom, never past it.
+    private func nearBottomCase() {
+        rebuildFolded(scrollHeaderVisible: false)
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+        list.contentOffset = CGPoint(x: 0, y: max(-list.adjustedContentInset.top,
+                                                  list.contentSize.height - list.bounds.height))
+        list.layoutIfNeeded()
+        pendingExpanded = true
+        _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        pendingExpanded = false
+        _ = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
+        let w = legalWindow()
+        check(list.contentOffset.y <= w.max + 0.5,
+              "near-bottom: the offset ends on or above the legal bottom (\(list.contentOffset.y) ≤ \(w.max))")
+        checkNoFlightResidue("near-bottom")
         streamingCase()
     }
 
+    /// Streaming does not change the path. The old accordion had to decline
+    /// while a run was still producing (frozen heights would end out of date);
+    /// the original switch has nothing to freeze, so the same transaction runs
+    /// and the business state is the only input.
     private func streamingCase() {
         streaming = true
-        let outcome = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        if case .fallback(let reason) = outcome {
-            check(reason == "streaming", "streaming: the transaction declines (\(reason))")
-        } else {
-            check(false, "streaming: the transaction declines (outcome=\(outcome))")
-        }
-        check(flight == nil, "streaming: no flight was started")
-        streaming = false
-        listWritesCase()
-    }
-
-    /// The measurement mode must not write the LIST's index-keyed state: the
-    /// probe's index paths are its own 0…n-1, so a write here used to overwrite
-    /// the first rows' content keys (and their memo attribution).
-    private func listWritesCase() {
-        layout.registerCellContentKey("list-key", index: 0, metricsTag: "list-tag", writesListState: true)
-        check(layout.contentKey(at: 0) == "list-key", "list state: a real configuration registers its content key")
-        layout.registerCellContentKey("probe-key", index: 0, metricsTag: "probe-tag", writesListState: false)
-        check(layout.contentKey(at: 0) == "list-key",
-              "list state: measurement mode does NOT overwrite the list's content key (\(layout.contentKey(at: 0) ?? "nil"))")
-        // And the probe really measured through the same production configure:
-        let rows = [(index: 5, item: memberItems[0])]
-        let probe = ToolGroupAccordionMeasurement.naturalHeights(
-            rows: rows, in: list,
-            configure: { [unowned self] cell, item, _ in self.configureRow(cell, item: item) })
-        check(abs((probe.heights[5] ?? 0) - 320) < 2,
-              "probe: a tall row is measured to its real height (\(probe.heights[5] ?? -1))")
-        check(probe.complete, "probe: the row is not reported unmeasured")
-        // Short content: the reveal never scrolls past the legal top.
-        rebuildFolded(scrollHeaderVisible: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            let top = -self.list.adjustedContentInset.top
-            self.check(abs(self.list.contentOffset.y - top) < 0.5,
-                       "short content: the list stays at its legal top (\(self.list.contentOffset.y) vs \(top))")
-            self.closeInterruptedCase()
-        }
-    }
-
-    // MARK: - Interrupted flights (B2)
-
-    /// The coordinator's `flushToolGroupAccordionConverge` at the moment the
-    /// finger is off the screen: run the recorded converge once.
-    private func settleDeferredConverge() {
-        guard !deferredConverges.isEmpty else { return }
-        let caller = deferredConverges.removeFirst()
-        applyCallers.append(caller)
-        syncStructure()
-    }
-
-    /// A close taken over by a drag must NOT delete its rows under the finger
-    /// (that is the "content jumps mid-gesture" trap), and it must NOT be left
-    /// open behind a closed business state either. The transaction hands the
-    /// converge to the caller, and the rows go at the settle.
-    private func closeInterruptedCase() {
         rebuildFolded()
         pendingExpanded = true
-        syncStructure()
-        pendingExpanded = false
-        let before = anchors.count
-        _ = ToolGroupAccordionToggle.run(request(expanding: false), in: environment())
-        guard let flight else { check(false, "close-interrupt: a flight is live"); return }
-        flight.finish(.interrupted)
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
         check(items.count == expectedExpandedCount,
-              "close-interrupt: the rows are not deleted under the finger (\(items.count)/\(expectedExpandedCount))")
-        check(layout.toolGroupAccordionSpan == nil, "close-interrupt: the reveal window is gone")
-        check(deferredConverges == ["toolGroupAccordionEnd-deferred"],
-              "close-interrupt: the close asked for a deferred converge (\(deferredConverges))")
-        check(anchors.count == before, "close-interrupt: no anchor write while the finger owns the list")
-        settleDeferredConverge()
-        check(items.count == expectedFoldedCount,
-              "close-interrupt: after the settle the rows are gone (\(items.count)/\(expectedFoldedCount))")
-        check(applyCallers.last == "toolGroupAccordionEnd-deferred",
-              "close-interrupt: the converge ran through applySnapshot")
-        expandInterruptCase()
+              "streaming: the open is applied, not declined (\(items.count)/\(expectedExpandedCount))")
+        if case .applied = outcome {} else { check(false, "streaming: applied (outcome=\(outcome))") }
+        checkNoFlightResidue("streaming")
+        streaming = false
+        reduceMotionCase()
     }
 
-    /// The other side: an interrupted EXPAND already matches the business state,
-    /// so it must NOT schedule a converge (that would delete rows that are
-    /// supposed to be there).
-    private func expandInterruptCase() {
+    /// Reduce motion changes nothing either: there is no animation left to
+    /// suppress, so the same instant switch is the whole behaviour.
+    private func reduceMotionCase() {
         rebuildFolded()
-        deferredConverges.removeAll()
+        reduceMotion = true
         pendingExpanded = true
-        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        guard let flight else { check(false, "expand-interrupt: a flight is live"); return }
-        flight.finish(.interrupted)
-        check(items.count == expectedExpandedCount, "expand-interrupt: the opened rows stay")
-        check(deferredConverges.isEmpty,
-              "expand-interrupt: nothing to converge (the open state IS the business state)")
-        retargetInterruptCase()
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        check(items.count == expectedExpandedCount,
+              "reduce-motion: the same instant switch runs (\(items.count)/\(expectedExpandedCount))")
+        if case .applied = outcome {} else { check(false, "reduce-motion: applied (outcome=\(outcome))") }
+        checkNoFlightResidue("reduce-motion")
+        reduceMotion = false
+        missingRowCase()
     }
 
-    /// A retarget flips the FINAL direction: the close must be deferred even
-    /// though the request that started the flight said `expanding: true`, so
-    /// `request.expanding` can never decide this.
-    private func retargetInterruptCase() {
-        rebuildFolded()
-        deferredConverges.removeAll()
-        pendingExpanded = true
-        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        guard let flight else { check(false, "retarget-interrupt: a flight is live"); return }
-        pendingExpanded = false
-        flight.retarget(.collapse)
-        check(flight.finalDirection == .collapse, "retarget-interrupt: the flight's final direction is the close")
-        flight.finish(.interrupted)
-        check(deferredConverges == ["toolGroupAccordionEnd-deferred"],
-              "retarget-interrupt: the close is deferred from the FINAL direction, not the request (\(deferredConverges))")
-        settleDeferredConverge()
-        check(items.count == expectedFoldedCount, "retarget-interrupt: the rows are gone after the settle")
-        takeoverCase()
-    }
-
-    /// Status-bar takeover goes through the layout's abort channel; a cancelled
-    /// list drop must clear it (no layout → flight → layout retain cycle).
-    private func takeoverCase() {
-        rebuildFolded()
-        deferredConverges.removeAll()
-        pendingExpanded = true
-        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        check(flight != nil, "takeover: a flight is live")
-        check(layout.toolGroupAccordionAbort != nil, "takeover: the abort channel is armed")
-        layout.toolGroupAccordionAbort?()
-        check(flight == nil, "takeover: the status-bar channel finished the reveal")
-        check(layout.toolGroupAccordionAbort == nil, "takeover: the abort channel is disarmed after the takeover")
-        // A cancelled list (window gone / session swap) must not leave the
-        // closure armed on the layout either.
+    /// A session swap under the tap: the row is gone, so the transaction owes
+    /// only the business apply and must not write the offset.
+    private func missingRowCase() {
         rebuildFolded()
         pendingExpanded = true
-        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
-        flight?.cancel()
-        check(layout.toolGroupAccordionAbort == nil, "cancel: the abort channel is cleared")
+        let saved = items
+        items = fillerBlocks.map { .assistantBlock(messageId, $0) }
+        let before = list.contentOffset.y
+        let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        if case .missing = outcome {
+            check(true, "missing: the transaction reports the missing row")
+        } else {
+            check(false, "missing: the transaction reports the missing row (outcome=\(outcome))")
+        }
+        check(abs(list.contentOffset.y - before) < 0.5,
+              "missing: no offset write without a row (\(list.contentOffset.y) vs \(before))")
+        items = saved
+        checkNoFlightResidue("missing")
         done()
     }
 
     private func done() {
         list.removeFromSuperview()
+        // [T-toolgroup-original-toggle] The marker carries the VERDICT: a run
+        // with failures must never print _PASS (it would let a red entry stage
+        // satisfy the CI grep). The driver requires _PASS with failures=0.
         let verdict = failures.isEmpty ? "PASS" : "FAIL"
+        let marker = "TOOLGROUP_ORIGINAL_TOGGLE_\(verdict)"
+        print("\(marker) checks=\(checks) failures=\(failures.count) detail=\(failures.joined(separator: "; "))")
         print("TOOLGROUP_ENTRY_\(verdict) checks=\(checks) failures=\(failures.joined(separator: "; "))")
         report(failures.isEmpty, "entry stage: \(checks) checks")
     }

@@ -129,6 +129,11 @@ jobs:
           # [T-toolgroup-accordion] Shipping reveal math COMPILED+RUN on Linux
           # plus the static contract that freezes the pre-accordion cut.
           python3 scripts/toolgroup_accordion_regression.py 2>&1 | tee toolgroup-accordion-regression.log
+          # [T-toolgroup-original-toggle] The cancelled accordion must stay dead
+          # on the production path: the gate above also emits this marker with
+          # its own count of no-flight / original-step assertions.
+          grep -q 'TOOLGROUP_ORIGINAL_TOGGLE_PASS static=' toolgroup-accordion-regression.log
+          grep -q 'TOOLGROUP_ACCORDION_PASS math=27' toolgroup-accordion-regression.log
           # [T-fold-open-card] The genui A/B regression, FULL logic (compiles the
           # production planner and walks show_ui streaming/running/none x the four
           # switch combinations). It had never been executed before this run.

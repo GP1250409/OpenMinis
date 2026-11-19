@@ -149,15 +149,18 @@ sources = [
     IOS / 'Agent/MessageList/MessageListLayout.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
-    # [T-toolgroup-accordion] the shipping reveal math + the frame driver the
-    # chat list uses; the fixture drives THIS class, not a copy.
+    # [T-toolgroup-original-toggle] The original switch the chat list's tap runs
+    # (the accordion driver/transaction/probe are deliberately NOT linked: the
+    # stage must not be able to reach the cancelled 0.32s path at all).
+    # [T-toolgroup-accordion] The old reveal module stays COMPILED for the
+    # accordion fixture cases that still measure its geometry (12+3 PNGs), but
+    # the production entry and the entry stage no longer reference it — the
+    # cancelled path cannot be re-entered from the tap.
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift',
-    # [T-toolgroup-accordion] the reveal transaction + the measurement probe the
-    # coordinator calls. The entry stage drives THIS code (the same `run(_:in:)`
-    # `toggleToolGroup` calls), not a copy of it.
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionToggle.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionMeasurement.swift',
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupOriginalToggle.swift',
     OUT / 'ProductionMessageListItem.swift',
     OUT / 'ProductionSelfSizingCell.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/MessageListV3Cells.swift',
@@ -233,6 +236,13 @@ print(marker, flush=True)
 _entry = _re.search(r'TOOLGROUP_ENTRY_PASS checks=(\d+)', output)
 assert _entry, 'TOOLGROUP_ENTRY_STAGE_MISSING'
 assert int(_entry.group(1)) >= 18, f'expected >= 18 entry-level checks, got {_entry.group(1)}'
+# [T-toolgroup-original-toggle] The stage's own marker: it ran the shared
+# original-toggle transaction and asserted the no-flight negatives. A silently
+# skipped stage cannot pass as covered.
+_orig = _re.search(r'TOOLGROUP_ORIGINAL_TOGGLE_PASS checks=(\d+) failures=(\d+)', output)
+assert _orig, 'TOOLGROUP_ORIGINAL_TOGGLE_STAGE_MISSING'
+assert int(_orig.group(1)) >= 40, f'expected >= 40 original-toggle checks, got {_orig.group(1)}'
+assert int(_orig.group(2)) == 0, f'original-toggle entry failures: {_orig.group(0)}'
 # [T-toolgroup-accordion] 33 checks / 12 PNGs before the accordion stage; the
 # stage adds real intermediate-frame evidence (mid-flight, end, reduce motion).
 import re as _re

@@ -99,6 +99,10 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/toolgroup_accordion_regression.py',
     'scripts/toolfold-uikit-tests/',
     'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion',
+    # [T-toolgroup-original-toggle] the switch the tap runs again (shared by the
+    # coordinator and the UIKit entry stage); a change here must re-run the
+    # toolfold suite.
+    'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupOriginalToggle.swift',
     'scripts/statusbar_scroll_regression.py',
     'scripts/statusbar-scroll-tests/',
     # [T-statusbar-native-scroll] the lifecycle type is a new production file

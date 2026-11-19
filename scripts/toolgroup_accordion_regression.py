@@ -274,6 +274,9 @@ def inaccessible_cell_members(source, infra):
     return bad
 
 
+_sec14 = 0
+
+
 def static_checks():
     c = Contract()
     math = MATH_SRC.read_text()
@@ -326,19 +329,41 @@ def static_checks():
     c.present(flight, 'func retarget(_ direction: Direction)', 'continuous tap reverses in place')
 
     # 4. coordinator wiring
-    toggle = fold[fold.index('func toggleToolGroup(firstBlockId: UUID)'):fold.index('private func legacyInstantToolGroupToggle')]
-    c.present(toggle, 'toolGroupAccordionFlight = flight', 'toggle starts a flight')
-    c.present(toggle, 'flight.retarget(expanding ? .expand : .collapse)', 'second tap retargets')
-    c.present(toggle, 'UIAccessibility.isReduceMotionEnabled', 'reduce motion is read from the system switch')
-    c.present(toggle, 'legacyInstantToolGroupToggle(', 'reduce-motion / non-contiguous fallback kept')
+    # [T-toolgroup-original-toggle] The 0.32s accordion was cancelled by user
+    # decision on 2026-11-20: the entry no longer starts a flight, retargets,
+    # reads reduce-motion for a reveal, or falls back from one. The accordion
+    # MODULE stays compiled (its math is still exercised above), but the tap
+    # must not reach it. Old -> new mapping (this section only; nothing deleted,
+    # every positive became the equivalent no-flight negative):
+    #   toggle starts a flight            -> toggle creates NO flight
+    #   second tap retargets              -> toggle has no retarget branch
+    #   reduce motion read from system    -> no reveal to suppress
+    #   legacy fallback kept              -> the original switch IS the path
+    #   structural settle at flight end   -> one structure apply per tap
+    ORIGINAL = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupOriginalToggle.swift'
+    original = ORIGINAL.read_text()
+    toggle = fold[fold.index('func toggleToolGroup(firstBlockId: UUID)'):fold.index('func refreshToolGroupToggleRow')]
+    c.absent(toggle, 'ToolGroupAccordionFlight', 'frozen negative: the tap never creates a flight')
+    c.absent(toggle, 'retarget', 'frozen negative: no retarget branch on the tap')
+    c.absent(toggle, 'UIAccessibility.isReduceMotionEnabled', 'frozen negative: no reveal to gate on reduce motion')
+    c.absent(toggle, 'legacyInstantToolGroupToggle', 'frozen negative: one path, not an animated one plus a fallback')
+    c.present(toggle, 'ToolGroupOriginalToggle.run(request, in: env)',
+              'the tap runs the shared original-toggle transaction')
+    c.present(original, 'env.applyStructure("toolGroupToggle")',
+              'the original transaction applies the structure through the caller')
+    c.present(original, 'let target = min(max(newMinY - request.anchorY, minOff), maxOff)',
+              'the original anchored offset with its legal clamp is the shared maths')
+    c.absent(original, 'CADisplayLink', 'frozen negative: the shared transaction has no frame driver')
+    c.absent(original, 'setToolGroupAccordion', 'frozen negative: the shared transaction installs no span')
+    c.absent(original, 'isReduceMotion', 'frozen negative: no reduce-motion branch to take')
+    c.absent(original, 'Converge', 'frozen negative: nothing is deferred, so nothing converges later')
     c.present(txn, 'env.applyStructure("toolGroupAccordionEnd")', 'structural settle at the end of the flight')
-    c.present(toggle, 'caller: caller)', 'the coordinator wires the settle to its own applySnapshot')
     c.present(toggle, 'self.applySnapshot(messages: vm.messages, caller: caller)',
-              'the transaction settles through the production applySnapshot, never a copy')
+              'the transaction applies through the production applySnapshot, never a copy')
     c.absent(toggle, 'caller: "toolGroupToggle")\n\n            guard let idx = ds.snapshot().indexOfItem(item) else { return }',
              'frozen negative: the old instant cut in the animated path')
-    c.absent(toggle, 'var snap = ds.snapshot()\n            snap.reconfigureItems([item])',
-             'frozen negative: reconfigure-instead-of-reveal in the animated path')
+    c.present(toggle, 'reconfigure: { [weak self] item in self?.refreshToolGroupToggleRow(item) }',
+              'the row reconfigure is the list\'s own, wired into the transaction')
     c.absent(fold, 'ToolGroupAccordion.duration) ?? 0.32', 'no second hard-coded duration')
     c.absent(snap, 'flight.cancel()',
              'frozen negative: a snapshot must not kill the animation unconditionally')
@@ -368,18 +393,25 @@ def static_checks():
     c.present(fixture, 'accordion-reduce-motion', 'reduce-motion PNG')
     c.present(fixture, 'drift=', 'fixture measures header drift (anchor)')
     c.present(fixture, 'framesApplied >= 3', 'fixture refuses an instant cut')
-    c.present(driver, "Support/ToolGroupAccordion.swift'", 'CI compiles the shipping math')
+    c.present(driver, "Support/ToolGroupAccordion.swift'", 'CI still compiles the shipping math module')
+    c.present(driver, "Support/ToolGroupOriginalToggle.swift'", 'CI compiles the shipping original-toggle transaction')
+    c.absent(entry, 'ToolGroupAccordionFlight', 'frozen negative: the entry stage never names the cancelled driver')
+    c.absent(entry, 'ToolGroupAccordionToggle', 'frozen negative: the entry stage never names the accordion transaction')
+    # The old module stays linked for the accordion fixture cases' own geometry
+    # PNGs (documented), but the stage that stands in for the TAP must not name
+    # it — that negative is asserted on the stage itself above.
+    c.present(driver, "ToolGroupOriginalToggle.swift'", 'the harness links the original switch')
+    c.present(entry, 'ToolGroupOriginalToggle.run(', 'the entry stage calls the original switch directly')
     c.present(driver, "Support/ToolGroupAccordionFlight.swift'", 'CI compiles the shipping driver')
     c.present(driver, "_png == 15", 'CI still pins the PNG count exactly (12 render + 3 accordion)')
     c.present(driver, "_checks >= 55", 'CI floor raised above the pre-accordion 33 checks')
 
     # 6. parent review (blockers 1-4): frozen negatives + the ownership rules
-    legacy = fold[fold.index('private func legacyInstantToolGroupToggle'):fold.index('private func restoreToolGroupToggleAnchor')]
-    c.present(legacy, 'applySnapshot(messages: vm.messages, caller: "toolGroupToggle")',
-              'legacy fallback applies the snapshot unconditionally again (a close must drop its rows)')
-    c.absent(legacy, 'if expanding { applySnapshot', 'frozen negative: gating the legacy apply on expanding desyncs a reduce-motion close')
-    c.present(toggle, 'finishStatusBarScrollToTop(reason: .superseded, offset: cv.contentOffset.y)',
-              'a tap takes the viewport from an active status-bar flight (no new EndReason case)')
+    c.present(original, 'env.applyStructure("toolGroupToggle")\n',
+              'the structure apply is unconditional: a close must drop its rows')
+    c.absent(original, 'if expanding {', 'frozen negative: gating the apply on expanding would desync a close')
+    c.absent(toggle, 'finishStatusBarScrollToTop',
+             'frozen negative: no viewport handoff is needed without a reveal to fight')
     c.absent((IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift').read_text(),
              'case toolGroupToggle', 'frozen negative: the status-bar reason enum is not extended')
     c.present(delegate[delegate.index('func beginStatusBarScrollToTop()'):][:900],
@@ -411,8 +443,8 @@ def static_checks():
     c.present(toggle, 'memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) }',
               'the plan carries the real member identities')
     snap_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
-    c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying:') >= 4,
-         'every snapshot apply validates the span BEFORE it commits')
+    c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying:') == 0,
+         'no snapshot apply validates a reveal span any more (the tap installs none)')
     # [T-toolgroup-accordion] The Coordinator is compiled ONLY by the full app
     # build (the UIKit harness links Support/*), so a type error here survives
     # every fast stage and only shows up ~40 min later. Run 44513828272 paid for
@@ -422,20 +454,26 @@ def static_checks():
     c.absent(snap_src, 'ds.snap.', 'frozen negative: the diffable data source exposes snapshot(), not .snap')
     c.absent(snap_src, '.snapshot.itemIdentifiers',
              'frozen negative: snapshot is a method — itemIdentifiers needs snapshot()')
-    c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)') == 3
-         and snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)') == 1,
-         'all four pre-apply span checks read a real snapshot (ds.snapshot() x3 + dataSource.snapshot() x1)')
-    c.present(fold, 'UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>',
-              'the coordinator helper names the app Section type, never the SwiftUI one')
+    # [T-toolgroup-original-toggle] Old: four pre-apply span validations in the
+    # snapshot path. The tap installs no span, so there is nothing to validate
+    # before a commit — the type guard belongs to the diffable data source the
+    # coordinator still uses.
+    c.absent(snap_src, 'cancelAccordionIfSpanBroken',
+             'frozen negative: a snapshot apply no longer validates a reveal span')
+    c.present((IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator.swift').read_text(),
+              'var dataSource: UICollectionViewDiffableDataSource<Section, MessageListItem>!',
+              'the coordinator still drives the list through its own diffable data source')
     c.absent(fold, 'DiffableDataSource<Section,',
              'frozen negative: an unqualified Section resolves to SwiftUI.Section in a free function')
-    c.present(toggle, 'guard !flight.planStillMatches(items) else { return }',
-              'pre-apply validation cancels only on a broken span (same items keep animating)')
+    c.absent(toggle, 'planStillMatches',
+             'frozen negative: the tap validates no span identity (it installs none)')
     c.absent(toggle, 'flight.spanIsValid', 'frozen negative: no per-frame-only validation left')
     c.absent(toggle, 'ds.collectionView(cv, cellForItemAt: ip)',
              'frozen negative: never dequeue a cell outside a UIKit request cycle')
-    c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)',
-              'the measuring host configures cells with the production configureCell in measurement mode')
+    c.absent(toggle, 'writesListState: false',
+             'frozen negative: the tap never configures cells in measurement mode')
+    c.present(txn, 'writesListState: false',
+              'the measurement host keeps its write-free configure (module contract, not on the tap)')
     c.present(measure, 'window.addSubview(container)', 'measurement happens in a window-hosted collection view')
     c.present(measure, 'container.register(SelfSizingCell.self, forCellWithReuseIdentifier: Host.reuseIdentifier)',
               'the throwaway measurement container registers SelfSizingCell for UIKit dequeue')
@@ -491,17 +529,17 @@ def static_checks():
     # item 3: the shared production transaction the harness runs
     c.present(txn, 'static func run(_ request: Request, in env: Environment) -> Outcome',
               'the reveal transaction is production code the harness can link')
-    c.present(toggle, 'ToolGroupAccordionToggle.run(request, in: env)',
-              'the coordinator calls the SAME transaction the fixture drives')
+    c.present(toggle, 'ToolGroupOriginalToggle.run(request, in: env)',
+              'the coordinator calls the SAME original-toggle transaction the harness drives')
     c.present(txn, 'static func isContiguousSpan(_ idxs: [Int], headerIndex: Int) -> Bool',
               'the contiguous window rule is shared')
     c.present(txn, 'if env.isReduceMotion() {', 'reduce motion is declined by the transaction')
     c.present(txn, 'if env.isStreaming() {', 'streaming is declined by the transaction')
-    c.present(entry, 'ToolGroupAccordionToggle.run(request(expanding: true), in: environment())',
-              'the entry stage drives the production transaction')
+    c.present(entry, 'ToolGroupOriginalToggle.run(request(expanding: true), in: environment())',
+              'the entry stage drives the production original-toggle transaction')
     c.absent(entry, 'ToolGroupAccordionFlight(collectionView:', 'frozen negative: the entry stage never builds its own flight')
     c.present(driver, 'ToolGroupToggleEntryStage.swift', 'the harness compiles the entry stage')
-    c.present(driver, 'ToolGroupAccordionToggle.swift', 'the harness compiles the production transaction')
+    c.present(driver, 'ToolGroupOriginalToggle.swift', 'the harness compiles the production original-toggle transaction')
     c.present(driver, 'TOOLGROUP_ENTRY_PASS', 'a skipped entry stage cannot pass as covered')
     c.present(fixture, 'startToggleEntryStage()', 'the fixture runs the entry stage before finishing')
     c.present(infra, 'override func prepareForReuse()', 'a reused cell resets its clip window')
@@ -530,7 +568,7 @@ def static_checks():
     #    the old full-invalidation contract cannot be satisfied by the legacy
     #    path alone — the animated path has to do it through the transaction.
     c.present(toggle, 'refreshToolGroupToggleRow(item)', 'a retarget re-renders the tapped row too')
-    refresh = fold[fold.index('func refreshToolGroupToggleRow'):fold.index('func isToolGroupAccordionProductionLive')]
+    refresh = fold[fold.index('func refreshToolGroupToggleRow'):fold.index('func deferToolGroupAccordionConverge')]
     c.present(refresh, 'snap.reconfigureItems([item])', 'the refresh really reconfigures the row (isExpanded is a configure-time value)')
     c.present(refresh, 'clearCachedHeight()', 'the refresh drops the cell height first')
     c.present(refresh, 'layout.invalidateHeight(at: idx)', 'the refresh invalidates the layout height')
@@ -540,17 +578,20 @@ def static_checks():
                               'ds.apply(snap, animatingDifferences: false)',
                               'layout.invalidateLayout()']),
          'the refresh is the old full invalidation, in the old order')
-    c.present(toggle, 'refreshHeader: { [weak self] item in', 'the coordinator wires the refresh')
+    c.present(toggle, 'reconfigure: { [weak self] item in', 'the coordinator wires the row reconfigure')
     c.present(txn, 'env.refreshHeader(request.item)', 'the transaction asks for the refresh')
     c.ok(txn.index('flight.start(plan') < txn.index('env.refreshHeader(request.item)'),
          'the refresh runs AFTER the span is installed (a reconfigure cannot draw the members first)')
-    # 8. N1: the streaming fallback means "still producing", never "UI updates suspended"
-    c.present(fold, 'isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive(messageId: run.messageId) ?? false }',
-              'the toggle falls back on the REAL production-live predicate, scoped to THIS message')
-    c.present(fold, 'return vm.toolFoldRunningMessageId == messageId',
-              'production-live = the run of that message is still producing')
-    c.absent(fold, 'isStreaming: { [weak self] in self?.vm?.streamingUIUpdatesSuspended ?? false }',
-             'frozen negative: suspended UI updates is the OPPOSITE of streaming')
+    # 8. N1 (old accordion rule: "still producing" must gate the reveal). The
+    #    original switch freezes no heights, so streaming is not an input at
+    #    all: the tap must not read the production-live predicate or the
+    #    suspended-updates flag. Old -> new: "falls back while streaming" ->
+    #    "streams through the same instant switch".
+    c.absent(toggle, 'isToolGroupAccordionProductionLive',
+             'frozen negative: the tap no longer asks whether the run is still producing')
+    c.absent(toggle, 'streamingUIUpdatesSuspended',
+             'frozen negative: the tap does not read the suspended-updates flag either')
+    c.absent(original, 'isStreaming', 'frozen negative: nothing in the transaction branches on streaming')
     # 9. N2: only a flight that reached its end may converge the structure
     c.present(txn, 'case .completed, .instant:\n                env.applyStructure("toolGroupAccordionEnd")',
               'the structure converges only for a completed / instant flight')
@@ -571,24 +612,32 @@ def static_checks():
               'an interrupted close hands its converge to the list')
     c.absent(txn, 'case .interrupted, .cancelled:\n                break',
              'frozen negative: an interrupted close is not simply dropped')
-    c.present(toggle, 'flushToolGroupAccordionConverge(force: true)',
-              'a new tap settles a deferred close first (no collapse-then-expand flash)')
+    # [T-toolgroup-original-toggle] The deferred converge existed only for an
+    # interrupted close (the rows were held at natural height under the
+    # finger). The original switch deletes the rows in the same apply, so a tap
+    # has nothing to settle first and no reveal can own the viewport.
+    # Old -> new: "settle the interrupted close first" -> "nothing is deferred".
+    c.absent(toggle, 'flushToolGroupAccordionConverge',
+             'frozen negative: the tap does not settle a deferred close (there is none)')
     c.present(delegate, 'flushToolGroupAccordionConverge()',
-              'the drag / status-bar end settles it')
+              'the drag / status-bar end still asks (the settle is a no-op without a deferred close)')
     c.present(fold, 'func flushToolGroupAccordionConverge(force: Bool = false)',
-              'the converge runs only with a free viewport')
-    c.present(fold, 'guard toolGroupAccordionFlight?.isRunning != true,',
-              'no live reveal may own the viewport')
+              'the converge helper still exists for the status-bar slice contract')
+    c.absent(fold, 'toolGroupAccordionFlight?.isRunning != true,',
+             'frozen negative: the flush no longer waits on a reveal')
     c.present(fold, '!statusBarScrollToTop.isActive,', 'no status-bar flight may own the viewport')
     c.present(fold, '!cv.isTracking, !cv.isDecelerating else { return }',
               'no drag / deceleration may own the viewport')
     c.present(fold, 'layout?.suppressContentOffsetAdjustment = true',
               'the deferred converge keeps the offset (rows are already at natural height)')
-    # 12. N1 narrowed: only THIS message producing turns the animation off
-    c.present(fold, 'func isToolGroupAccordionProductionLive(messageId: UUID) -> Bool',
-              'the production-live test is scoped to a message')
-    c.present(fold, 'return vm.toolFoldRunningMessageId == messageId',
-              'it is the run of THAT message, not the whole session')
+    # 12. N1 narrowed (old accordion rule). Old -> new: the per-message
+    #     production-live predicate belonged to the reveal's fallback; the
+    #     original switch has no fallback, so the predicate is gone from the
+    #     coordinator instead of being kept as a dead hook.
+    c.absent(fold, 'func isToolGroupAccordionProductionLive',
+             'frozen negative: the per-message production-live hook is gone')
+    c.absent(fold, 'toolGroupAccordionFlight',
+             'frozen negative: no flight state survives in the coordinator')
     c.absent(fold, 'vm.isProcessing || vm.toolFoldRunningMessageId != nil',
              'frozen negative: a turn running elsewhere must not disable every historical group')
 
@@ -598,10 +647,12 @@ def static_checks():
     #     hard compile error on Darwin (run 44482321219: refreshHeader …
     #     deferConverge … restoreAnchor vs refreshHeader … restoreAnchor …
     #     deferConverge). Parsed from the sources, not "text appears somewhere".
-    env_members = swift_struct_members(txn, 'Environment')
-    prod_calls = swift_call_labels(fold, 'ToolGroupAccordionToggle.Environment')
-    entry_calls = swift_call_labels(entry, 'ToolGroupAccordionToggle.Environment')
-    c.ok(len(env_members) >= 12, 'Environment has all its members (%d)' % len(env_members))
+    # [T-toolgroup-original-toggle] Same K1 rule, applied to the transaction the
+    # tap actually runs now.
+    env_members = swift_struct_members(original, 'Environment')
+    prod_calls = swift_call_labels(fold, 'ToolGroupOriginalToggle.Environment')
+    entry_calls = swift_call_labels(entry, 'ToolGroupOriginalToggle.Environment')
+    c.ok(len(env_members) >= 7, 'Environment has all its members (%d)' % len(env_members))
     c.ok(len(prod_calls) == 1, 'the coordinator builds exactly one Environment (%d)' % len(prod_calls))
     c.ok(len(entry_calls) == 1, 'the entry stage builds exactly one Environment (%d)' % len(entry_calls))
     c.ok(prod_calls and prod_calls[0] == env_members,
@@ -612,11 +663,11 @@ def static_checks():
     # pass on any text at all.
     swapped = list(env_members)
     swapped[5], swapped[6] = swapped[6], swapped[5]
-    synthetic = 'ToolGroupAccordionToggle.Environment(' + ', '.join('%s: x' % m for m in swapped) + ')'
-    c.ok(swift_call_labels(synthetic, 'ToolGroupAccordionToggle.Environment')[0] != env_members,
+    synthetic = 'ToolGroupOriginalToggle.Environment(' + ', '.join('%s: x' % m for m in swapped) + ')'
+    c.ok(swift_call_labels(synthetic, 'ToolGroupOriginalToggle.Environment')[0] != env_members,
          'frozen negative: a swapped pair of labels is detected')
-    c.ok(swift_call_labels('ToolGroupAccordionToggle.Environment(' + ', '.join('%s: x' % m for m in env_members) + ')',
-                           'ToolGroupAccordionToggle.Environment')[0] == env_members,
+    c.ok(swift_call_labels('ToolGroupOriginalToggle.Environment(' + ', '.join('%s: x' % m for m in env_members) + ')',
+                           'ToolGroupOriginalToggle.Environment')[0] == env_members,
          'the parser reads a well-ordered call back exactly')
 
     # 14. [T-toolgroup-accordion] The Darwin-only type errors of the fixture.
@@ -735,6 +786,55 @@ def static_checks():
     c.present(txn, 'guard env.currentFlight() === flight else { return }',
               'the takeover closure still finishes only the flight that armed it')
 
+    # 14. [T-toolgroup-original-toggle] THE CANCELLED ACCORDION, PROVEN DEAD ON
+    #     THE PRODUCTION PATH. The 0.32s reveal was removed by user decision
+    #     (2026-11-20); the module above still exists and compiles, so this
+    #     section is what keeps a future edit from silently re-entering it.
+    #     Old -> new mapping (explicit, no assertion deleted):
+    #       tap starts flight                  -> tap creates NO flight object
+    #       retarget on second tap             -> no retarget, sequential taps
+    #       span installed / clip window        -> no span install on the path
+    #       per-row measurement probe           -> no probe on the path
+    #       deferred converge after interruption -> one apply per tap
+    #       must-animate (reveal > 0 mid-flight) -> must-NOT-animate (instant)
+    tap_region = fold[fold.index('func toggleToolGroup(firstBlockId: UUID)'):fold.index('func refreshToolGroupToggleRow')]
+    s14 = 0
+    def c14(ok, label):
+        global _sec14
+        c.ok(ok, label)
+        _sec14 += 1
+    c14('ToolGroupOriginalToggle.run(request, in: env)' in tap_region, '14: the tap runs the shared original toggle')
+    for token in ['ToolGroupAccordion', 'Flight', 'retarget', 'CADisplayLink', 'setToolGroupAccordion',
+                  'naturalHeight', 'measurement', 'deferConverge', 'abort', 'span']:
+        c14(token not in tap_region, '14: frozen negative — the tap names no %s' % token)
+    for token in ['env.applyStructure("toolGroupToggle")', 'let idx = env.indexOf(request.item)',
+                  'clearCachedHeight()', 'layout.invalidateHeight(at: idx)', 'env.reconfigure(request.item)',
+                  'layout.invalidateLayout()', 'cv.layoutIfNeeded()',
+                  'let target = min(max(newMinY - request.anchorY, minOff), maxOff)',
+                  'cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)']:
+        c14(token in original, '14: the transaction keeps the original step %r' % token[:48])
+    for token in ['CADisplayLink', 'Timer', 'UIView.animate', 'setToolGroupAccordion', 'ToolGroupAccordionFlight',
+                  'ToolGroupAccordionMeasurement', 'ToolGroupAccordionToggle', 'deferConverge', 'retarget']:
+        c14(token not in original, '14: frozen negative — the transaction has no %s' % token)
+    c14(original.count('func run(') == 1, '14: exactly one transaction entry point')
+    c14(original.count('setContentOffset') == 1, '14: exactly one offset write, the anchored one')
+    c14(original.count('applyStructure(') == 1, '14: exactly one structure apply')
+    c14('animated: false' in original, '14: the offset write is not animated (instant, like b54da95)')
+    # The harness runs THIS code and asserts the negative side after every case.
+    for case in ['expandCase', 'collapseCase', 'repeatTapCase', 'shortCase', 'nearBottomCase',
+                 'streamingCase', 'reduceMotionCase', 'missingRowCase']:
+        c14(case in entry, '14: the entry stage covers %s' % case)
+    c14(entry.count('checkNoFlightResidue(') >= 8, '14: every case asserts the no-residue invariants')
+    c14("layout.toolGroupAccordionSpan == nil" in entry, '14: the stage asserts no reveal window')
+    c14("layout.toolGroupAccordionAbort == nil" in entry, '14: the stage asserts no abort channel')
+    c14('TOOLGROUP_ORIGINAL_TOGGLE_\\(verdict)' in entry,
+        '14: the stage marker is built from the VERDICT (never a fixed _PASS)')
+    c14('"TOOLGROUP_ORIGINAL_TOGGLE_PASS"' not in entry,
+        '14: frozen negative — no unconditional _PASS literal in the stage')
+    c14("'TOOLGROUP_ORIGINAL_TOGGLE_PASS checks=" in driver, '14: the driver requires the stage marker')
+    c14("'TOOLGROUP_ORIGINAL_TOGGLE_STAGE_MISSING'" in driver, '14: a skipped stage is named, not passed')
+    print('TOOLGROUP_ORIGINAL_TOGGLE_PASS static=%d' % _sec14)
+
     return c
 
 
@@ -769,6 +869,7 @@ def delivery_checks(delivery_root):
     c.absent(ct, 'png=12', 'collect_sign.py has no stale png=12 gate')
     c.absent(ct, 'TOOLFOLD_UIKIT_PASS checks=33', 'collect_sign.py has no stale 33-check gate')
     c.present((root / 'build.py').read_text(), "'TOOLGROUP_ACCORDION_PASS' in validation", 'build.py gates the new markers')
+
     return c
 
 

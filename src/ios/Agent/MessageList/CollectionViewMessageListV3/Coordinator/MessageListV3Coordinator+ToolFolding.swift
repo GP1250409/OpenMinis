@@ -197,19 +197,23 @@ extension CollectionViewMessageListV3.Coordinator {
 
         /// Open or close one folded run, keeping its row where it is on screen.
         ///
-        /// Two changes happen at once. The run's blocks enter or leave the list
-        /// (a structural apply), and the row itself re-renders — chevron, and a
-        /// different content key — so it goes through the same full
-        /// invalidation as a thinking block toggle ([T-thinking-collapse-blank]):
-        /// clear the cell's own height cache, invalidate the layout's, then
-        /// reconfigure, apply, and invalidate the layout.
+        /// [T-toolgroup-original-toggle] This is the switch the list shipped
+        /// before the accordion (b54da95), restored by user decision on
+        /// 2026-11-20: the run's blocks enter or leave the list (one structural
+        /// apply), the tapped row re-renders in place, the layout settles once,
+        /// and the row is put back at its screen anchor inside the legal offset
+        /// window. No 0.32s CADisplayLink reveal, no span, no retarget, no
+        /// measurement probe, no deferred converge — none of those objects is
+        /// created on this path.
+        ///
+        /// The invalidation shape is the one a thinking block toggle uses
+        /// ([T-thinking-collapse-blank]): clear the cell's own height cache,
+        /// invalidate the layout's, reconfigure, apply, invalidate the layout.
+        /// The transaction itself is `ToolGroupOriginalToggle`
+        /// (Support/ToolGroupOriginalToggle.swift) — the SAME `run(_:in:)` the
+        /// UIKit harness drives, so its regression evidence is about this code.
         func toggleToolGroup(firstBlockId: UUID) {
             let log = AppLogger(category: "ToolFold")
-            // [T-toolgroup-accordion] A close whose reveal was interrupted may
-            // still own its rows (`deferConverge`). Settle it BEFORE the anchor
-            // is read, so this tap acts on the structure the business state
-            // describes instead of collapsing and re-expanding by hand.
-            flushToolGroupAccordionConverge(force: true)
             guard let vm, let run = toolFoldRunByFirstBlock[firstBlockId],
                   let cv = viewController?.collectionView,
                   let layout = viewController?.messageListLayout,
@@ -247,52 +251,11 @@ extension CollectionViewMessageListV3.Coordinator {
             // sight — the tap would look like it did nothing.
             scrollMode = .userBrowsing
 
-            // [T-toolgroup-accordion] Two writers may not own the viewport at
-            // once. A system scroll-to-top flight started before this tap is
-            // finished here (reason: this toggle, restoring=false) so its
-            // per-frame offset writer cannot fight the reveal; the reverse
-            // direction is in `beginStatusBarScrollToTop`, which cancels this
-            // flight. Neither path changes the status-bar feature itself.
-            if statusBarScrollToTop.isActive {
-                // Same call shape as `.askToggle`: end the flight at the offset
-                // the system animation had reached, let its resume pass thaw
-                // self-sizing/streaming, and only then let the reveal write.
-                _ = // `.superseded` is the existing reason for "another list writer owns
-                // the viewport now"; the enum is deliberately NOT extended (the
-                // status-bar gate enumerates its reasons).
-                finishStatusBarScrollToTop(reason: .superseded, offset: cv.contentOffset.y)
-                log.info("[ToolFold][Accordion] took the viewport from a status-bar flight")
-            }
-
-            // [T-toolgroup-accordion] A second tap while the run is still
-            // moving flips it in place: the frozen heights are still valid
-            // because the rows never left the snapshot, so this is a direction
-            // change from the CURRENT reveal, not a restart (no flash, no
-            // re-measure, no structural churn).
-            if let flight = toolGroupAccordionFlight, flight.isRunning,
-               let live = flight.currentPlan, live.headerIndex == oldIdx,
-               ds.snapshot().itemIdentifiers.firstIndex(of: item) == oldIdx {
-                flight.retarget(expanding ? .expand : .collapse)
-                // A retarget flips the business state too, and no diffable
-                // apply re-renders the row for it: render it here.
-                refreshToolGroupToggleRow(item)
-                log.info("[ToolFold][Accordion] retarget group=\(firstBlockId.uuidString.prefix(8)) direction=\(expanding ? "expand" : "collapse") reveal=\(String(format: "%.3f", flight.reveal))")
-                return
-            }
-            // One flight at a time: another run's flight is dropped (geometry
-            // settles exactly, no callback — this tap owns the list now).
-            if let other = toolGroupAccordionFlight {
-                toolGroupAccordionFlight = nil
-                other.cancel()
-            }
-
-            // [T-toolgroup-accordion] The reveal transaction is production code
-            // that lives OUTSIDE this coordinator (Support/ToolGroupAccordionToggle.swift)
-            // so the UIKit regression harness runs the same `run(_:in:)` this tap
-            // runs, instead of a look-alike next to it. The business half above
-            // (expanded / manually-folded sets, `scrollMode`, the status-bar
-            // handoff) stays here, unchanged.
-            let env = ToolGroupAccordionToggle.Environment(
+            // [T-toolgroup-original-toggle] The business half above is the old
+            // switch verbatim; ordering, invalidation and the anchored offset
+            // are the shared transaction below. Its closures are the list's own
+            // operations (the coordinator's diffable data source), one line each.
+            let env = ToolGroupOriginalToggle.Environment(
                 collectionView: cv,
                 layout: layout,
                 items: { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] },
@@ -300,124 +263,18 @@ extension CollectionViewMessageListV3.Coordinator {
                     guard let self, let vm = self.vm else { return }
                     self.applySnapshot(messages: vm.messages, caller: caller)
                 },
-                configureForMeasurement: { [weak self] cell, item, ip in
-                    // Measurement mode: the probe's index path belongs to its
-                    // container, never to this list (see `registerCellContentKey`).
-                    self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)
-                },
-                refreshHeader: { [weak self] item in
-                    // The tapped row's `isExpanded` is baked into its cell when
-                    // it is configured; no diffable apply re-renders an item
-                    // whose identity did not change, so the transaction asks
-                    // for this explicit re-render.
-                    self?.refreshToolGroupToggleRow(item)
-                },
-                deferConverge: { [weak self] caller in
-                    self?.deferToolGroupAccordionConverge(caller: caller)
-                },
-                restoreAnchor: { [weak self] item, anchorY in
-                    self?.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
-                },
-                storeFlight: { [weak self] flight in self?.toolGroupAccordionFlight = flight },
-                currentFlight: { [weak self] in self?.toolGroupAccordionFlight },
-                isReduceMotion: { UIAccessibility.isReduceMotionEnabled },
-                // [T-toolgroup-accordion] "The list is still PRODUCING this
-                // run", never "streaming updates are suspended": the old
-                // predicate means the opposite — the UI updates are PAUSED
-                // while a session switches or the user scrolls, and it is false
-                // exactly while tokens arrive. A token inside the 0.32s reveal
-                // re-applies the list (cutting the animation) and grows the
-                // member rows (so the frozen heights end out of date); that is
-                // the case this fallback exists for.
-                isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive(messageId: run.messageId) ?? false },
+                indexOf: { [weak self] item in self?.dataSource?.snapshot().indexOfItem(item) },
+                reconfigure: { [weak self] item in self?.refreshToolGroupToggleRow(item) },
                 log: { message in log.info(message) })
-            let request = ToolGroupAccordionToggle.Request(
+            let request = ToolGroupOriginalToggle.Request(
                 item: item,
                 memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) },
                 expanding: expanding,
                 oldIndex: oldIdx,
                 anchorY: anchorY,
                 groupTag: firstBlockId.uuidString.prefix(8).description)
-            let outcome = ToolGroupAccordionToggle.run(request, in: env)
-            switch outcome {
-            case .started:
-                break
-            case .fallback(let reason), .invalid(let reason):
-                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
-                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
-                                             cv: cv, layout: layout, ds: ds, log: log)
-                log.info("[ToolFold][Accordion] instant group=\(firstBlockId.uuidString.prefix(8)) reason=\(reason)")
-            }
-        }
-
-        /// [T-toolgroup-accordion] Called immediately BEFORE a diffable apply is
-        /// committed. The per-frame check alone is too late: UIKit can lay the
-        /// old span out against the new items inside the apply itself. If the
-        /// upcoming items no longer hold this flight's rows at its indices (a
-        /// row inserted above, a session swap with the same count, a replaced
-        /// span row), the span is cleared here — the animation stops, the rows
-        /// are laid out normally, and nothing is clipped against the wrong row.
-        /// Ordinary content updates keep the very same items, so they keep the
-        /// animation.
-        func cancelAccordionIfSpanBroken(beforeApplying items: [MessageListItem]) {
-            guard let flight = toolGroupAccordionFlight, flight.isRunning else { return }
-            guard !flight.planStillMatches(items) else { return }
-            toolGroupAccordionFlight = nil
-            viewController?.messageListLayout?.toolGroupAccordionAbort = nil
-            flight.cancel()
-            AppLogger(category: "ToolFold").info("[ToolFold][Accordion] cancel=preapply-broken-span rows=\(items.count)")
-        }
-
-        /// [T-toolgroup-accordion] The pre-accordion switch, kept verbatim for
-        /// the two cases that must not animate: reduce motion, and a run whose
-        /// member rows are not a contiguous span. Same calls in the same order
-        /// as before, so its behaviour (and its regression evidence) is
-        /// unchanged.
-        private func legacyInstantToolGroupToggle(item: MessageListItem, run: ToolFoldRun, firstBlockId: UUID,
-                                                  expanding: Bool, oldIdx: Int, anchorY: CGFloat,
-                                                  cv: UICollectionView,
-                                                  layout: MessageListLayout,
-                                                  ds: UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>,
-                                                  log: AppLogger) {
-            guard let vm else { return }
-            // [T-toolgroup-accordion] Unconditional, exactly like the original
-            // implementation: on a CLOSE this apply is what drops the member
-            // rows, so gating it on `expanding` left the business state
-            // (expandedToolGroups says closed) out of sync with the snapshot.
-            applySnapshot(messages: vm.messages, caller: "toolGroupToggle")
-            guard let idx = ds.snapshot().indexOfItem(item) else { return }
-            let ip = IndexPath(item: idx, section: 0)
-            (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
-            layout.invalidateHeight(at: idx)
-            var snap = ds.snapshot()
-            snap.reconfigureItems([item])
-            UIView.performWithoutAnimation {
-                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = true
-                ds.apply(snap, animatingDifferences: false)
-                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = false
-            }
-            layout.invalidateLayout()
-            cv.layoutIfNeeded()
-            restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
-            log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(idx) anchorY=\(String(format: "%.1f", anchorY)) mode=instant")
-        }
-
-        /// Put the tapped row back at `anchorY` on screen, inside the legal
-        /// offset window. Shared by the instant path and the accordion's end.
-        private func restoreToolGroupToggleAnchor(item: MessageListItem, anchorY: CGFloat) {
-            guard let cv = viewController?.collectionView,
-                  let layout = viewController?.messageListLayout,
-                  let ds = dataSource,
-                  let idx = ds.snapshot().indexOfItem(item) else { return }
-            layout.invalidateLayout()
-            cv.layoutIfNeeded()
-            if let newMinY = cv.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))?.frame.minY {
-                let minOff = -cv.adjustedContentInset.top
-                let maxOff = max(minOff, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
-                let target = min(max(newMinY - anchorY, minOff), maxOff)
-                if abs(target - cv.contentOffset.y) > 0.5 {
-                    cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)
-                }
+            if case .missing(let reason) = ToolGroupOriginalToggle.run(request, in: env) {
+                log.warning("[ToolFold] toggle MISS group=\(firstBlockId.uuidString.prefix(8)) reason=\(reason)")
             }
             if isNearBottom() { scrollMode = .autoScrolling }
         }
@@ -455,18 +312,6 @@ extension CollectionViewMessageListV3.Coordinator {
             layout.invalidateLayout()
         }
 
-        /// [T-toolgroup-accordion] True while THIS message is still producing:
-        /// the run's member rows can grow under a frozen height, so the reveal
-        /// would end out of date. Scoped to the message, not the session — a
-        /// finished run of an older message is stable content, and a turn
-        /// running elsewhere in the chat must not turn the accordion off for
-        /// every historical group. `isProcessing` alone was exactly that bug.
-        /// `streamingUIUpdatesSuspended` is the opposite thing again (the UI
-        /// updates are PAUSED, e.g. scroll suspend / session switch).
-        func isToolGroupAccordionProductionLive(messageId: UUID) -> Bool {
-            guard let vm else { return false }
-            return vm.toolFoldRunningMessageId == messageId
-        }
 
         /// [T-toolgroup-accordion] A close that a finger (or the status-bar
         /// flight) took over: `finish` already restored the member rows to
@@ -478,15 +323,14 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         /// Converge a deferred close if, and only if, the viewport is free —
-        /// no live reveal, no status-bar flight, no drag or deceleration. The
+        /// no status-bar flight, no drag or deceleration. The
         /// apply keeps the offset (the rows are already at their natural height,
         /// so the only motion is the collapse the user asked for, now with the
         /// finger off the screen).
         func flushToolGroupAccordionConverge(force: Bool = false) {
             guard let caller = toolGroupAccordionPendingConverge, let vm else { return }
             if !force {
-                guard toolGroupAccordionFlight?.isRunning != true,
-                      !statusBarScrollToTop.isActive,
+                guard !statusBarScrollToTop.isActive,
                       let cv = viewController?.collectionView,
                       !cv.isTracking, !cv.isDecelerating else { return }
             }
