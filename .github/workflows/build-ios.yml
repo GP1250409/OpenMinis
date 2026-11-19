@@ -86,6 +86,9 @@ jobs:
           set -o pipefail
           python3 scripts/streaming_resume_regression.py 2>&1 | tee streaming-resume-regression.log
           grep -E 'STREAMING_RESUME_PASS|STREAMING_RESUME_COMBINE_PASS|STREAMING_RESUME_WIRING_PASS|STREAMING_RESUME_SELFTEST_PASS' streaming-resume-regression.log
+          # [T-ios-streaming-resume-reentry] the exact incremental-scope exemption
+          # for THIS module (34 real-git cases); keeps the allowlist honest in CI.
+          python3 scripts/streaming-resume-tests/scope_contract.py 2>&1 | tee streaming-resume-scope.log
       - name: ShowUI interaction theme (typography, palette, action contrast)
         if: steps.scope.outputs.run_theme_suite == 'true'
         run: |
@@ -234,6 +237,10 @@ jobs:
             # the card anchor gate, and the status-bar flight gate (its own log
             # is the current-run evidence for STATUSBAR_SCROLL_*).
             statusbar-scroll-regression.log
+            # [T-ios-streaming-resume-reentry] the resume-notification gate and
+            # its incremental-scope self-proof (34 real-git cases).
+            streaming-resume-regression.log
+            streaming-resume-scope.log
             ask-card-anchor-regression.log
             ask-card-anchor-uikit.log
             # Exactly seven case PNGs + compile.log/results.log. The root gate

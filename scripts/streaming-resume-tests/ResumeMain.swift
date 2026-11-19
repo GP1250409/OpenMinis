@@ -61,32 +61,54 @@ var frameDepth = 0
 print("\n[1] Resume from inside the update/teardown frame publishes nothing inline")
 do {
     let vm = makeVM()
+    let block = vm.messages[0].blocks[0]
     var publishes = 0
     var insideFrame = 0
     var hooks = 0
     var hookInsideFrame = 0
+    var blockPublishes = 0
+    var blockInsideFrame = 0
+    var hookSawText = "<not called>"
     vm.startObservingPublishes { publishes += 1; if frameDepth > 0 { insideFrame += 1 } }
-    vm.onStreamingUIUpdatesResumed = { hooks += 1; if frameDepth > 0 { hookInsideFrame += 1 } }
+    block.startObservingPublishes { blockPublishes += 1; if frameDepth > 0 { blockInsideFrame += 1 } }
+    vm.onStreamingUIUpdatesResumed = {
+        hooks += 1
+        if frameDepth > 0 { hookInsideFrame += 1 }
+        hookSawText = block.content
+    }
 
     vm.setStreamingUIUpdatesSuspended(true)          // beginStatusBarScrollToTop
+    vm.setStreamingTextBlockContent(msgIdx: 0, blockIdx: 0, text: "final answer",
+                                    parsedMarkdown: nil, cacheAttributedString: true,
+                                    requestScroll: false)
+    checkEq(block.content, "", "while suspended the text waits in the deferred queue")
+
     frameDepth += 1                                   // dismantleUIViewController
     vm.setStreamingUIUpdatesSuspended(false)          // → finish → resume → clear
     frameDepth -= 1
 
     checkEq(publishes, 0, "no objectWillChange delivery inside the teardown frame")
+    checkEq(blockPublishes, 0,
+            "no @Published content delivery inside the teardown frame (the deferred flush is deferred too)")
+    checkEq(blockInsideFrame, 0, "the block publisher never re-entered the teardown frame")
+    checkEq(block.content, "", "the deferred text is NOT applied by the resume call itself")
     checkEq(hooks, 0, "no coordinator resume hook inside the teardown frame")
-    checkEq(insideFrame, 0, "the publisher never re-entered the teardown frame")
+    checkEq(insideFrame, 0, "the VM publisher never re-entered the teardown frame")
     checkEq(hookInsideFrame, 0, "the resume hook never re-entered the teardown frame")
     checkEq(vm.streamingUIUpdatesSuspended, false,
             "the suspend flag is still cleared SYNCHRONOUSLY (state before notification)")
-    checkEq(vm.streamingResumeNotificationScheduled, true, "exactly one notification is queued")
+    checkEq(vm.streamingResumeNotificationScheduled, true, "exactly one transaction is queued")
     pump()
-    checkEq(publishes, 1, "one publish after the hop")
+    checkEq(block.content, "final answer", "the queued transaction flushes the deferred text")
+    checkEq(blockPublishes, 1, "…exactly one content publish, after the hop")
+    checkEq(hookSawText, "final answer", "the resume hook sees the FINAL text")
+    checkEq(publishes, 1, "one VM publish after the hop")
     checkEq(hooks, 1, "one resume hook after the hop")
     checkEq(vm.streamingResumeNotificationScheduled, false, "the queue slot is released")
     checkEq(vm.streamingResumeNotificationPending, false, "nothing is left owed")
     pump()
     checkEq(publishes, 1, "a second pump replays nothing (no self-feeding hop)")
+    checkEq(blockPublishes, 1, "…and applies no text twice")
 }
 
 // MARK: - [2] Coalescing
@@ -193,14 +215,19 @@ do {
     checkEq(vm.needsSnapshotReloadOnResume, false, "flag consumed exactly once")
 }
 
-// MARK: - [6] Deferred streaming text: coalesced, newest wins, applied synchronously
+// MARK: - [6] Deferred streaming text: coalesced, newest wins, flushed in the transaction
 
-print("\n[6] Deferred text is flushed by the resume itself, before any notification")
+print("\n[6] Deferred text is flushed by the queued transaction, not by the resume call")
 do {
     let vm = makeVM()
     let block = vm.messages[0].blocks[0]
     var publishes = 0
+    var blockPublishes = 0
+    var hookSawText = "<not called>"
     vm.startObservingPublishes { publishes += 1 }
+    block.startObservingPublishes { blockPublishes += 1 }
+    vm.onStreamingUIUpdatesResumed = { hookSawText = block.content }
+    let flushesBefore = StreamingHangLogger.shared.flushes
     vm.setStreamingUIUpdatesSuspended(true)
     vm.setStreamingTextBlockContent(msgIdx: 0, blockIdx: 0, text: "alpha",
                                     parsedMarkdown: nil, cacheAttributedString: false,
@@ -214,21 +241,55 @@ do {
                                     requestScroll: true)
     checkEq(vm.deferredStreamingTextUpdates.count, 1, "one block → one deferred entry (coalesced)")
     checkEq(block.content, "", "nothing is written while suspended")
-    checkEq(StreamingHangLogger.shared.flushes, 3, "every flush still reaches the hang logger")
+    checkEq(StreamingHangLogger.shared.flushes - flushesBefore, 3,
+            "every flush still reaches the hang logger")
 
     vm.setStreamingUIUpdatesSuspended(false)
-    checkEq(block.content, "alpha beta gamma", "the newest text is applied by the resume, synchronously")
+    checkEq(block.content, "", "the resume call applies no text (assigning content publishes)")
+    checkEq(blockPublishes, 0, "…so it publishes nothing to the cells")
+    checkEq(vm.deferredStreamingTextUpdates.count, 1, "the queue is still pending at that point")
+    checkEq(publishes, 0, "…and the VM has not published either")
+    pump()
+    checkEq(block.content, "alpha beta gamma", "the transaction applies the newest text")
+    checkEq(blockPublishes, 1, "…in exactly one content publish")
+    checkEq(hookSawText, "alpha beta gamma", "the hook sees the final text (flush runs before it)")
     checkEq(vm.deferredStreamingTextUpdates.count, 0, "the deferred queue is drained")
     checkEq(vm.cacheCalls, 1, "the final attributed string is cached once")
     checkEq(block.cachedMarkdown?.text, "alpha beta gamma",
             "…and the final markdown snapshot is the newest text")
     checkEq(vm.scrollToBottomSignal.sendCount, 0, "no scroll request while isNearBottom is false")
-    checkEq(publishes, 0, "…and still no publish inside the resume call")
-    pump()
-    checkEq(publishes, 1, "the notification follows the flush")
+    checkEq(publishes, 1, "one VM publish follows the flush")
 }
 
-print("\n[6b] Near the bottom the flushed text still asks for a scroll")
+print("\n[6b] SSE text that lands in the resume window is not overwritten by the older entry")
+do {
+    let vm = makeVM()
+    let block = vm.messages[0].blocks[0]
+    var blockPublishes = 0
+    var hookSawText = "<not called>"
+    block.startObservingPublishes { blockPublishes += 1 }
+    vm.onStreamingUIUpdatesResumed = { hookSawText = block.content }
+    vm.setStreamingUIUpdatesSuspended(true)
+    vm.setStreamingTextBlockContent(msgIdx: 0, blockIdx: 0, text: "old snapshot",
+                                    parsedMarkdown: nil, cacheAttributedString: false,
+                                    requestScroll: false)
+    vm.setStreamingUIUpdatesSuspended(false)          // flag cleared, transaction only queued
+    checkEq(block.content, "", "the resume window has not applied anything yet")
+    // A live SSE delta arrives BEFORE the queued transaction runs.
+    vm.setStreamingTextBlockContent(msgIdx: 0, blockIdx: 0, text: "old snapshot + newer token",
+                                    parsedMarkdown: nil, cacheAttributedString: true,
+                                    requestScroll: false)
+    checkEq(block.content, "", "the render window still defers it (no in-place apply)")
+    checkEq(blockPublishes, 0, "…and publishes nothing")
+    checkEq(vm.deferredStreamingTextUpdates.count, 1, "…merging into the same entry")
+    pump()
+    checkEq(block.content, "old snapshot + newer token",
+            "the transaction applies the NEWEST text, not the stale entry")
+    checkEq(hookSawText, "old snapshot + newer token", "the hook sees the newest text")
+    checkEq(blockPublishes, 1, "one content publish, latest value only")
+}
+
+print("\n[6c] Near the bottom the flushed text still asks for a scroll")
 do {
     let vm = makeVM()
     vm.isNearBottom = true
@@ -237,7 +298,9 @@ do {
                                     parsedMarkdown: nil, cacheAttributedString: true,
                                     requestScroll: true)
     vm.setStreamingUIUpdatesSuspended(false)
-    checkEq(vm.scrollToBottomSignal.sendCount, 1, "the resume keeps the scroll-to-bottom signal")
+    checkEq(vm.scrollToBottomSignal.sendCount, 0, "no scroll request in the resume call")
+    pump()
+    checkEq(vm.scrollToBottomSignal.sendCount, 1, "the transaction keeps the scroll-to-bottom signal")
     checkEq(vm.messages[0].blocks[0].content, "tail", "and the text")
 }
 
@@ -288,6 +351,7 @@ do {
                                     requestScroll: false)
     vm.messages[0].blocks.remove(at: 0)              // the first block disappears
     vm.setStreamingUIUpdatesSuspended(false)
+    pump()
     checkEq(vm.deferredStreamingTextUpdates.count, 0, "the queue is drained even with a stale entry")
     check(vm.messages[0].blocks.contains { $0.content == "kept" }, "the surviving entry is applied")
     checkEq(vm.scrollToBottomSignal.sendCount, 1, "the near-bottom scroll request is still made")

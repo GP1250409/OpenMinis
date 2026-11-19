@@ -67,8 +67,8 @@ OUT = pathlib.Path(tempfile.mkdtemp(prefix='streaming-resume-'))
 
 # Floors are the REVIEWED lower bound, never the observed value: the root gate
 # re-parses the printed marker and holds it against these constants.
-LOGIC_FLOOR = 46
-WIRING_FLOOR = 20
+LOGIC_FLOOR = 70
+WIRING_FLOOR = 30
 
 EXTRACT = (
     'scheduleStreamingResumeNotification',
@@ -187,14 +187,44 @@ struct MarkdownContent: Equatable {
 }
 func prepareMarkdownForRender(_ text: String) -> String { text }
 
+// ChatModels.swift:499 -> `final class AssistantBlock: Identifiable, ObservableObject`
+// with `@Published var kind` and `@Published var content`. Assigning `content`
+// publishes SYNCHRONOUSLY to every observing cell, which is why the deferred-text
+// flush is part of this regression: flushing it inline in the resume call is the
+// same re-entry as the objectWillChange publish, one frame earlier.
+#if canImport(Combine)
+final class AssistantBlock: ObservableObject {
+    let id = UUID()
+    var kind: String
+    @Published var content: String = ""
+    var cachedMarkdown: MarkdownContent?
+    var toolStatus: String = "pending"
+    private var contentSink: AnyCancellable?
+
+    init(kind: String = "text") { self.kind = kind }
+
+    func startObservingPublishes(_ body: @escaping () -> Void) {
+        contentSink = objectWillChange.sink(receiveValue: { _ in body() })
+    }
+}
+#else
 final class AssistantBlock {
     let id = UUID()
     var kind: String
-    var content: String = ""
+    // Linux has no Combine: `@Published` publishes in willSet, so this stub
+    // notifies BEFORE the new value lands — the same order ObservableObject uses.
+    var content: String = "" { willSet { for body in contentObservers { body() } } }
     var cachedMarkdown: MarkdownContent?
     var toolStatus: String = "pending"
+    private var contentObservers: [() -> Void] = []
+
     init(kind: String = "text") { self.kind = kind }
+
+    func startObservingPublishes(_ body: @escaping () -> Void) {
+        contentObservers.append(body)
+    }
 }
+#endif
 struct ChatMessage {
     let id = UUID()
     var blocks: [AssistantBlock] = []
@@ -299,8 +329,9 @@ def build_slice(inline_queue: bool = False) -> tuple[pathlib.Path, str]:
     methods = re.sub(r'(?m)^\s*@MainActor\s*\n', '', methods)
     if '@MainActor' in methods:
         fail('an @MainActor survived extraction (inline form?)')
-    if platform.system() != 'Darwin':
-        # Linux: the main queue of a script process is not drained, so the ONE
+    if platform.system() != 'Darwin' or inline_queue:
+        # Linux (or the mutation build on ANY platform): the main queue of a script
+        # process is not drained, so the ONE
         # queue dependency is swapped for the drained harness queue. The closure
         # body (the production notification) is untouched.
         if 'DispatchQueue.main.async {' not in methods:
@@ -447,13 +478,32 @@ def wiring_checks() -> int:
     case(len(re.findall(r'(?m)^\s*var streamingResumeNotification', PROD.read_text())) == 0,
          'no stored property is declared in the extension file')
 
-    # 15-16. Text state still lands BEFORE the notification in both resume paths.
+    # 15-17. The deferred-text flush is NOT in the resume call any more: assigning
+    # `AssistantBlock.content` is @Published, so flushing there is the same
+    # re-entry one frame earlier. It runs inside the transaction, before the hook.
     for name, body in (('setStreamingUIUpdatesSuspended', suspend),
                        ('setSuspendedForTransition', transition)):
-        case(body.index('flushDeferredStreamingTextUpdateIfNeeded()')
-             < body.index('clearStreamingUIUpdatesSuspended()')
+        case('flushDeferredStreamingTextUpdateIfNeeded()' not in body,
+             f'{name} no longer flushes deferred text inline')
+        case(body.index('clearStreamingUIUpdatesSuspended()')
              < body.index('scheduleStreamingResumeNotification('),
-             f'{name} flushes the deferred text before clearing and notifying')
+             f'{name} clears the flag then queues the transaction')
+    flush_at = helper.index('self.flushDeferredStreamingTextUpdateIfNeeded()')
+    case(flush_at < hook_at, 'the transaction flushes the deferred text before the hook')
+    case(flush_at < helper.index('self.streamingResumeNotificationPending = false'),
+         'the resume window closes only after the flush')
+
+    # 18-20. Live text that lands between the sync flag clear and the hop must
+    # defer, or the transaction's older entry would overwrite it.
+    stream_text = method_body(PROD, 'setStreamingTextBlockContent')
+    case('if streamingUIUpdatesSuspended || streamingResumeNotificationPending {' in stream_text,
+         'setStreamingTextBlockContent also gates on the resume window')
+    case('if streamingUIUpdatesSuspended {' not in stream_text,
+         'the pre-fix single-flag gate is gone (frozen negative below)')
+    case('if streamingUIUpdatesSuspended {' in
+         stream_text.replace('if streamingUIUpdatesSuspended || streamingResumeNotificationPending {',
+                             'if streamingUIUpdatesSuspended {'),
+         'the frozen pre-fix gate is rejected by the same detector')
 
     # 17. The slice really carries production text (not a hand-written copy).
     text = PROD.read_text()
@@ -485,11 +535,6 @@ def wiring_checks() -> int:
 def self_test(swiftc: str) -> None:
     """Mutation self-test: with the hop made synchronous (the pre-fix shape) the
     suite must fail on the crash assertion itself, not merely 'somewhere'."""
-    if platform.system() == 'Darwin':
-        # The Darwin flavour uses the real DispatchQueue.main.async, which this
-        # mutation does not touch; the Linux leg carries the sensitivity proof.
-        print('STREAMING_RESUME_SELFTEST skip=Darwin-leg-uses-real-GCD platform=Darwin')
-        return
     slice_path, _ = build_slice(inline_queue=True)
     driver = TESTS / 'ResumeMain.swift'
     self_test_dir = OUT / 'selftest'

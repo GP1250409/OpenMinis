@@ -505,7 +505,27 @@ if vmSrc.isEmpty || cv3.isEmpty || comp.isEmpty {
           !vmSrc.split(separator: "\n").drop { !$0.contains("func setSuspendedForTransition(") }
                 .prefix(22).joined().contains("objectWillChange.send()"))
     check("setStreamingUIUpdatesSuspended resumes through the chokepoint",
-          vmSrc.contains("flushDeferredStreamingTextUpdateIfNeeded()\n            clearStreamingUIUpdatesSuspended()"))
+          vmSrc.contains("clearStreamingUIUpdatesSuspended()\n")
+          && vmSrc.contains("scheduleStreamingResumeNotification(caller: \"setStreamingUIUpdatesSuspended\")"))
+    // [T-ios-streaming-resume-reentry] The deferred-text flush left the resume
+    // call: `AssistantBlock.content` is @Published, so assigning it there is the
+    // same re-entry as the objectWillChange publish, one frame earlier.
+    let suspendBody = vmSrc.range(of: "func setStreamingUIUpdatesSuspended(").flatMap { start in
+        vmSrc.range(of: "func setSuspendedForTransition(", range: start.upperBound..<vmSrc.endIndex)
+            .map { String(vmSrc[start.lowerBound..<$0.lowerBound]) }
+    } ?? ""
+    check("…and no longer flushes deferred text inline (@Published content)",
+          !suspendBody.isEmpty && !suspendBody.contains("flushDeferredStreamingTextUpdateIfNeeded()"))
+    if let helperStart = vmSrc.range(of: "private func scheduleStreamingResumeNotification(")?.lowerBound,
+       let helperEnd = vmSrc.range(of: "/// Single chokepoint for clearing", range: helperStart..<vmSrc.endIndex)?.lowerBound {
+        let helper = String(vmSrc[helperStart..<helperEnd])
+        check("the transaction flushes the deferred text before the resume hook",
+              (helper.range(of: "flushDeferredStreamingTextUpdateIfNeeded()")?.lowerBound).map { flush in
+                  (helper.range(of: "onStreamingUIUpdatesResumed?()")?.lowerBound).map { flush < $0 } ?? false
+              } ?? false)
+    } else { check("transaction located", false) }
+    check("live text defers during the resume window, so it cannot be overwritten",
+          vmSrc.contains("if streamingUIUpdatesSuspended || streamingResumeNotificationPending {"))
     check("setSuspendedForTransition resumes through the chokepoint too",
           count("\n            clearStreamingUIUpdatesSuspended()", in: vmSrc) >= 2)
     check("didBecomeActive replay is gated on the active session and keeps the flag otherwise",

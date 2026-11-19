@@ -75,6 +75,20 @@ extension AIChatViewModel {
                 return
             }
             guard self.streamingResumeNotificationPending else { return }
+            // 0. Flush the VM-side deferred streaming text FIRST — and here, not
+            //    in the resume call. `AssistantBlock` is an ObservableObject with
+            //    `@Published var content`, so `block.content = text` publishes
+            //    synchronously to every observing cell: flushing inline in
+            //    `setStreamingUIUpdatesSuspended(false)` is the SAME re-entry this
+            //    fix exists to remove, one frame earlier in the teardown stack.
+            //    Doing it first (before the hook) keeps the old ordering contract:
+            //    `messages` holds the freshest text by the time the Coordinator
+            //    rebuilds its deferred snapshot.
+            self.flushDeferredStreamingTextUpdateIfNeeded()
+            // The resume window closes only AFTER that flush: any SSE delta that
+            // landed between the sync flag clear and this hop was deferred
+            // (newest text wins in the merge), and nothing older can now land on
+            // top of live text.
             self.streamingResumeNotificationPending = false
             logger.info("[SuspendResume] notify caller=\(caller) sid=\(self.sessionId?.prefix(8).description ?? "nil") needsReplay=\(self.needsSnapshotReloadOnResume) deferredText=\(self.deferredStreamingTextUpdates.count)")
             // 1. Coordinator catch-up: rebuild a snapshot deferred while the
@@ -216,11 +230,13 @@ extension AIChatViewModel {
         if suspended {
             streamingUIUpdatesSuspended = true
         } else {
-            // [T-ios-ui-blocks-lost-suspend-resume] Flush VM-side deferred text
-            // FIRST so `messages` holds the freshest content, then clear the
-            // flag + fire the resume hook so the Coordinator rebuilds any
-            // snapshot it deferred during the suspend window.
-            flushDeferredStreamingTextUpdateIfNeeded()
+            // [T-ios-ui-blocks-lost-suspend-resume] The VM-side deferred text
+            // is flushed before the Coordinator rebuilds its deferred snapshot —
+            // but INSIDE the queued transaction below, never inline here:
+            // [T-ios-streaming-resume-reentry] the flush itself publishes
+            // (`AssistantBlock.content` is @Published), so running it in the
+            // resume call re-enters the SwiftUI pass being torn down exactly like
+            // the objectWillChange publish did.
             clearStreamingUIUpdatesSuspended()
             // [T-ios-tool-status-desync] Republish so tool-status views
             // (FloatingToolBar, ToolStatusBar) pick up any toolBlocks /
@@ -259,7 +275,8 @@ extension AIChatViewModel {
         if suspended {
             streamingUIUpdatesSuspended = true
         } else {
-            flushDeferredStreamingTextUpdateIfNeeded()
+            // [T-ios-streaming-resume-reentry] The deferred-text flush moved into
+            // the queued transaction (it publishes through @Published content).
             // [T-ios-ui-blocks-lost-suspend-resume] Clear via the chokepoint so
             // the Coordinator's resume hook fires too (rebuilds any deferred
             // snapshot), in addition to the republish below.
@@ -303,7 +320,12 @@ extension AIChatViewModel {
             finalFlush: shouldCacheAttributedString
         )
 
-        if streamingUIUpdatesSuspended {
+        // [T-ios-streaming-resume-reentry] `streamingResumeNotificationPending` is
+        // the window between the SYNCHRONOUS flag clear and the queued resume
+        // transaction (flush → hook → replay → publish). Text applied in that
+        // window would be overwritten by the transaction's older deferred entry,
+        // so it defers too and merges into the same entry (newest text wins).
+        if streamingUIUpdatesSuspended || streamingResumeNotificationPending {
             // [DIAG-SUSPEND] UI updates are suspended (e.g. tool detail sheet is presented).
             // If this is the FINAL flush (cacheAttributedString=true), the content will be
             // deferred until the sheet is dismissed. If the sheet never dismisses properly,
