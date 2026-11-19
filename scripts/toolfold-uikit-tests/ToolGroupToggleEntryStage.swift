@@ -64,6 +64,27 @@ final class EntryRowContentView: UIView, UIContentView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// [T-toolgroup-collapse-finish] A row's WIDTH is the list's and its HEIGHT
+    /// is the configuration's, so the size is known without solving the layout.
+    ///
+    /// The label only has a `<=` trailing relation (it must be free to be
+    /// narrower than the row), which leaves the content view's width ambiguous:
+    /// UIKit asked for a fitting size on every frame and got
+    /// `{1.7976931348623157e+308, 28}` — an `NSInternalInconsistencyException`
+    /// per measure of the tapped row (236 of them in run 44632268214, all
+    /// swallowed by `noff_try_objc`, each one falling back to the layout's
+    /// estimate for the row the close is anchored on). Echoing the target width
+    /// and the configured height is what a fixed-height full-width row really
+    /// is, and it keeps the `isExpanded` value the stage reads off the live
+    /// cell (`BridgedToolGroupV3.isExpanded` is baked in at configure time).
+    override func systemLayoutSizeFitting(_ targetSize: CGSize,
+                                          withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+                                          verticalFittingPriority: UILayoutPriority) -> CGSize {
+        let configured = (configuration as? EntryRowConfiguration)?.height ?? targetSize.height
+        let width = targetSize.width.isFinite && targetSize.width > 0 ? targetSize.width : 390
+        return CGSize(width: width, height: configured)
+    }
+
     private func apply() {
         guard let config = configuration as? EntryRowConfiguration else { return }
         label.text = config.isExpanded.map { $0 ? "Hide tool calls" : "Show tool calls" } ?? ""
@@ -282,17 +303,34 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         // right after the consume is the "commit" geometry the regression asserts.
         layout.consumeToolGroupAccordionTerminalHandoff()
         if !terminalCaseTag.isEmpty { terminalSample("commit") }
+        // [T-toolgroup-collapse-finish] Mirror the production commit's HEIGHT
+        // BOOKKEEPING, not only its handoff. `applySnapshot` remaps the
+        // index-keyed height cache by row IDENTITY before it applies
+        // (`MessageListV3Coordinator+Snapshot.swift`: `layout.updateCacheForSnapshot`)
+        // and keeps `suppressContentOffsetAdjustment` on for the whole commit.
+        // Without the remap this harness kept OLD indices: the row that moves
+        // up into a deleted member's slot inherited that member's cached height,
+        // its first self-size correction then carried a `contentOffsetAdjustment`
+        // of (real - stale) — the viewport "compensated" by exactly that much
+        // (748 → 548 for a 320pt member, 748 → −32 for a 900pt one in run
+        // 44632268214) and a re-inserted member kept the follower's 120pt.
+        // Production cannot see either number; the harness must not invent them.
+        let oldItems = items
         let members = memberItems
         items.removeAll { members.contains($0) }
         if pendingExpanded, let at = items.firstIndex(of: groupItem).map({ $0 + 1 }) {
             items.insert(contentsOf: members, at: at)
         }
+        let wasSuppressing = layout.suppressContentOffsetAdjustment
+        layout.suppressContentOffsetAdjustment = true
+        layout.updateCacheForSnapshot(oldIds: oldItems, newIds: items)
         for (index, item) in items.enumerated() {
             layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
         list.reloadData()
         list.setNeedsLayout()
         list.layoutIfNeeded()
+        layout.suppressContentOffsetAdjustment = wasSuppressing
     }
 
     // MARK: - UICollectionViewDataSource
@@ -761,7 +799,36 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         } else {
             check(false, "\(label): the expand started (outcome=\(outcome))")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { next() }
+        waitForFlightToEnd(label) { next() }
+    }
+
+    /// [T-toolgroup-collapse-finish] Wait for the LIST's flight to end, then
+    /// continue (bounded). A fixed delay is not a schedule: a flight needs its
+    /// 0.32s of display-link ticks *plus* whatever else the main run loop had
+    /// to do, and one that is still in the air leaks its structural apply into
+    /// the NEXT case's trace. Run 44632268214 showed exactly that in
+    /// `close-retarget`: its trace opened with the previous expand's apply
+    /// (`apply-entry rows=10 ch=2148 members=[320,300,280] window=-`), so the
+    /// arm/entry/commit/post pairs no longer described one close.
+    ///
+    /// This adds no tolerance to any assertion — it only lets the transaction a
+    /// case started reach its own end before that case starts measuring. A
+    /// flight that never ends is still a failure, with its state in the label.
+    private func waitForFlightToEnd(_ label: String, timeout: TimeInterval = 2.0,
+                                    then next: @escaping () -> Void) {
+        let deadline = Date().addingTimeInterval(timeout)
+        func poll() {
+            guard let live = flight else { next(); return }
+            if Date() >= deadline {
+                check(false, "\(label): the flight ended before the next case starts "
+                        + "(frames=\(live.framesApplied) reveal=\(f2(live.reveal)) "
+                        + "running=\(live.isRunning) direction=\(live.finalDirection))")
+                next()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { poll() }
+        }
+        poll()
     }
 
     /// Close the open run through the production transaction, with the trace armed.
@@ -889,7 +956,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         } else {
             check(false, "\(label): the expand started (outcome=\(outcome))")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+        waitForFlightToEnd(label) {
             var heights: [CGFloat] = []
             var cached: [CGFloat] = []
             for item in self.memberItems {
@@ -949,7 +1016,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
                 flight.retarget(.collapse)
                 self.check(flight.finalDirection == .collapse,
                            "\(label): the flight ends on the collapse side (\(flight.finalDirection))")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                self.waitForFlightToEnd(label) {
                     self.list.layoutIfNeeded()
                     self.terminalSample("settled")
                     self.printTerminalTrace(label)

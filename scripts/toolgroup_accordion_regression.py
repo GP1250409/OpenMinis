@@ -893,6 +893,50 @@ def static_checks():
     c.present(entry, CONTRACT_BEGIN, 'the same rule is exported for the Linux math phase')
     c.ok(math_src_has_contract(), 'the Linux math phase compiles and runs that rule')
 
+    # 19. [T-toolgroup-collapse-finish] The close's terminal frame is only "the
+    #     last frame's geometry" if the COMMIT does not re-interpret it. Run
+    #     44632268214 failed the four normal/long cases with
+    #     748 → 548 / 748 → −32 and the re-opened members measured 120 instead of
+    #     900: the harness applied the structure without the height-cache remap
+    #     production does, so the row that moved into a deleted member's slot
+    #     inherited its cached height and its first self-size correction was
+    #     applied as a contentOffsetAdjustment of exactly that difference.
+    #
+    #     The two production guards are pinned here (they are what makes the
+    #     product immune), and the harness is pinned to MIRROR them instead of
+    #     inventing an apply the app never performs.
+    c.ok(ordered_ok(snap_src, ['layout.updateCacheForSnapshot(oldIds: previousSnapshotIds, newIds: newItems)',
+                               'snapshotLayout?.suppressContentOffsetAdjustment = true',
+                               'consumeToolGroupAccordionTerminalHandoff()',
+                               'dataSource.apply(snapshot, animatingDifferences: false)']),
+         'the production commit remaps the height cache by identity, suppresses the '
+         'offset adjustment, then consumes the window and applies — in that order')
+    c.present(snap_src, 'snapshotLayout?.suppressContentOffsetAdjustment = false',
+              'the commit restores the offset-adjustment suppression after it settles')
+    sync_body = entry[entry.index('private func syncStructure() {'):]
+    sync_body = sync_body[:sync_body.index('\n    }\n')]
+    c.ok(ordered_ok(sync_body, ['layout.updateCacheForSnapshot(oldIds: oldItems, newIds: items)',
+                                'list.reloadData()']),
+         'the harness remaps its height cache by identity before the structural reload '
+         '(the app does it in applySnapshot; an index-keyed cache hands a deleted '
+         "member's height to the row that moves up)")
+    c.ok(ordered_ok(sync_body, ['layout.suppressContentOffsetAdjustment = true',
+                                'list.reloadData()',
+                                'layout.suppressContentOffsetAdjustment = wasSuppressing']),
+         'the harness commit mirrors the production suppression window, so a self-size '
+         'correction cannot shift the viewport the close just settled')
+    c.present(sync_body, 'layout.consumeToolGroupAccordionTerminalHandoff()',
+              'the harness commit still consumes the window at the same point the app does')
+    c.ok(ordered_ok(sync_body, ['layout.updateCacheForSnapshot(oldIds: oldItems, newIds: items)',
+                                'layout.setEstimatedHeight(estimateHeight(item), at: index)']),
+         'estimates are seeded only AFTER the cache remap — an estimate written first '
+         'keeps the stale index and no row is ever re-measured')
+    c.present(entry, 'override func systemLayoutSizeFitting(',
+              'the tapped row\'s content view answers its fitting size instead of leaving '
+              'the width ambiguous (236 swallowed NSExceptions in run 44632268214)')
+    c.present(entry, 'return CGSize(width: width, height: configured)',
+              'that size is the configured row height at the asked-for width')
+
     return c
 
 
