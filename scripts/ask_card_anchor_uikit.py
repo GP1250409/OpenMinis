@@ -284,8 +284,9 @@ def manifest_contract(block, bridge):
         stripped = [s for s in current if s[0] != label]
         case(audit_closure(stripped, bridge) != [], f'contract is sensitive to dropping {label}')
     # The anchor math and the launch host are structural, not optional.
-    names = [s[0] for s in current]
-    case('layout' in names and 'cellSlice' in names and 'toggleBlock' in names,
+    labels = [s[0] for s in current]
+    file_names = {pathlib.Path(path).name for _, path in current}
+    case('layout' in labels and 'cellSlice' in labels and 'toggleBlock' in labels,
          'the manifest compiles the shipping layout, cell slice and toggle block')
     host = (TESTS / 'AskCardUIKitMain.swift').read_text()
     case('@main' in host and 'UIApplicationDelegate' in host and 'runAskCardUIKitCases()' in host,
@@ -307,6 +308,17 @@ def manifest_contract(block, bridge):
     # The bridge must carry the shipping body, not a hand-written one.
     case('@try {' in bridge.fn and '@catch (NSException' in bridge.fn and 'NSLog' in bridge.fn,
          'the bridge carries the shipping @try/@catch body')
+
+    # Cross-check against the already-green drivers: every production support
+    # file the thinking / genui fixtures compile must be in this list too. Those
+    # two are the runs that proved the layout's dependency set on Darwin, so a
+    # new fixture that omits one of them repeats run 44428916963.
+    for driver in ('thinking_transaction_regression.py', 'genui_height_regression.py'):
+        text = (ROOT / 'scripts' / driver).read_text()
+        for dep in ('Support/QueuedCandidateSpacing.swift', 'Support/StatusBarScrollToTop.swift'):
+            if dep in text:
+                case(dep.rsplit('/', 1)[-1] in file_names,
+                     f'{driver} compiles {dep.rsplit("/", 1)[-1]} and so does ask-card')
     return cases
 
 
