@@ -552,19 +552,26 @@ def static_checks():
     #     errors (frozen) and against re-introductions in the REAL files.
     lint = _load_fixture_lint()
     flight_src = FLIGHT_SRC.read_text()
-    for label, text in (('ToolFoldUIKitFixture.swift', fixture),
-                        ('ToolGroupToggleEntryStage.swift', entry)):
-        findings = lint.lint_text(text, flight_src)
+    owners = lint.nested_types(LAYOUT_SRC.read_text())
+    linked = [(p.name, p.read_text()) for p in lint.TARGETS]
+    for label, text in linked:
+        findings = lint.lint_text(text, flight_src, owners, label)
         c.ok(not findings, 'fixture lint: %s has no Darwin-only type error (%d: %s)'
              % (label, len(findings), [str(f) for f in findings[:3]]))
+    # run 44490117255: the PRODUCTION flight had never been compiled either
+    # (the app job is skipped in incremental scope), so it is linted here too.
+    c.ok(any(name == 'ToolGroupAccordionFlight.swift' for name, _ in linked),
+         'the lint covers the production flight the UIKit job links')
+    c.ok(len(lint.TARGETS) >= 5, 'the lint covers every linked file (%d)' % len(lint.TARGETS))
     for rule, where, src, what in lint.FROZEN:
-        got = {f.rule for f in lint.lint_text(src, flight_src)}
+        got = {f.rule for f in lint.lint_text(src, flight_src, owners, 'SomeOtherFile.swift')}
         c.ok(rule in got, 'fixture lint catches the frozen negative %s (%s)' % (where, what))
     for rule, mutate in lint.MUTATIONS:
-        hits = [t for t in (fixture, entry) if mutate(t) != t]
+        hits = [t for _, t in linked if mutate(t) != t]
         c.ok(bool(hits), 'fixture lint mutation %s still applies to a real file' % rule)
-        c.ok(all(rule in {f.rule for f in lint.lint_text(mutate(t), flight_src)} for t in hits),
-             'fixture lint catches %s re-introduced into the real fixture' % rule)
+        c.ok(all(rule in {f.rule for f in lint.lint_text(mutate(t), flight_src, owners, 'mutated.swift')}
+                 for t in hits),
+             'fixture lint catches %s re-introduced into the real file' % rule)
 
     return c
 

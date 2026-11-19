@@ -134,9 +134,9 @@ final class ToolGroupAccordionFlight {
         self.fromReveal = direction == .expand ? 0 : 1
         self.reveal = fromReveal
         self.startedAt = CACurrentMediaTime()
-        layout.setToolGroupAccordion(ToolGroupAccordionSpan(lowerBound: plan.memberRange.lowerBound,
-                                                           naturalHeights: plan.naturalHeights,
-                                                           reveal: fromReveal))
+        layout.setToolGroupAccordion(MessageListLayout.ToolGroupAccordionSpan(lowerBound: plan.memberRange.lowerBound,
+                                                                             naturalHeights: plan.naturalHeights,
+                                                                             reveal: fromReveal))
         applyFrame(cv: cv, logFrame: false)
 
         if reduceMotion() || duration <= 0 {
@@ -214,7 +214,14 @@ final class ToolGroupAccordionFlight {
     // MARK: - Frames
 
     @objc private func tick(_ link: CADisplayLink) {
-        guard let cv = collectionView, plan != nil else { finish(.cancelled); return }
+        // [T-toolgroup-accordion] Bind the plan HERE: `plan` is `Plan?` and every
+        // use below (identity log, structural bounds, the frame itself) reads its
+        // members. `plan != nil` alone left them all looking at an Optional, which
+        // is a compile error (`value of optional type 'Plan?' must be unwrapped`)
+        // and a crash waiting behind a force unwrap. The flight still OWNS the
+        // plan (`self.plan`), so the local binding changes no lifetime: `finish`
+        // nils the property and every path here returns right after it.
+        guard let cv = collectionView, let plan = self.plan else { finish(.cancelled); return }
         // The list must be on a window to be laid out at all (production
         // self-sizing refuses off-window cells) — a flight cannot continue
         // without it.

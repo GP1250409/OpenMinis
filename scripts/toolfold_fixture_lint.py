@@ -60,6 +60,14 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "scripts/toolfold-uikit-tests/ToolFoldUIKitFixture.swift"
 ENTRY = ROOT / "scripts/toolfold-uikit-tests/ToolGroupToggleEntryStage.swift"
 FLIGHT = ROOT / "src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift"
+TXN = ROOT / "src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionToggle.swift"
+MEASURE = ROOT / "src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionMeasurement.swift"
+LAYOUT = ROOT / "src/ios/Agent/MessageList/MessageListLayout.swift"
+# Everything the Tool fold UIKit job links. The production files belong here:
+# run 44490117255 proved `ToolGroupAccordionFlight.swift` had never been compiled
+# either (the app job is skipped in incremental scope), so it carries the same
+# Darwin-only traps as the fixture and must be linted with it.
+TARGETS = (FIXTURE, ENTRY, FLIGHT, TXN, MEASURE)
 
 SWIFT_KEYWORDS = {
     "self", "Self", "super", "true", "false", "nil", "return", "if", "else", "guard",
@@ -311,13 +319,18 @@ def closure_bodies(text: str, call_end_paren: int, body_text: str):
 
 
 def map_closures(text: str):
-    """Yield (offset, api, closure_text) for `.api { ... }` / `.api(label:) { ... }`."""
+    """Yield (offset, api, body_start, body_end) for `.api { ... }`.
+
+    Offsets are used so the caller can read the RAW slice: string interpolation
+    (`{ "\\($0)" }`) is invisible in the comment/string-stripped text, and a
+    closure that only mentions `$0` inside interpolation is NOT ignoring it.
+    """
     out = []
     for api in CALL_LIKE:
         for m in re.finditer(r"\.%s\s*(?:\([^(){}]*\)\s*)?\{" % api, text):
             brace = text.index("{", m.end() - 1)
             end = match_brace(text, brace)
-            out.append((m.start(), api, text[brace + 1:end - 1]))
+            out.append((m.start(), api, brace + 1, end - 1))
     return out
 
 
@@ -402,9 +415,11 @@ def rule_live_items(raw: str, clean: str, findings):
 
 
 def rule_closure_arity(raw: str, clean: str, findings):
-    for at, api, body in map_closures(clean):
-        has_in = re.search(r"\bin\b", body.split("\n")[0]) or re.match(r"\s*[\w,\s]*\bin\b", body)
-        uses_arg = "$0" in body
+    for at, api, body_lo, body_hi in map_closures(clean):
+        body = raw[body_lo:body_hi]
+        head = body.split("\n")[0]
+        has_in = re.search(r"\bin\b", head) or re.match(r"\s*[\w,\s]*\bin\b", body)
+        uses_arg = "$0" in clean[body_lo:body_hi] or "$0" in body
         if not has_in and not uses_arg and body.strip():
             line, col = line_col(raw, at)
             findings.append(Finding("closure-arity", line, col,
@@ -428,10 +443,78 @@ def rule_self_capture(raw: str, clean: str, findings):
 
 
 RULES = ("unscoped-identifier", "plan-labels", "plan-identity", "stale-member",
-         "live-items", "closure-arity", "self-capture")
+         "live-items", "closure-arity", "self-capture",
+         "nested-type-scope", "optional-unwrapped")
 
 
-def lint_text(raw: str, flight_src: str) -> list:
+def nested_types(text: str) -> dict:
+    """{nested type name: owner} for types declared at indent 4 in a top-level type."""
+    out = {}
+    for m in re.finditer(r"^(?:final\s+)?(?:class|struct|enum|actor)\s+(\w+)", text, re.M):
+        owner = m.group(1)
+        brace = text.find("{", m.end())
+        if brace < 0:
+            continue
+        body = text[brace:match_brace(text, brace)]
+        for n in re.finditer(r"^ {4}(?:final\s+)?(?:class|struct|enum)\s+(\w+)", body, re.M):
+            out[n.group(1)] = owner
+    return out
+
+
+def rule_nested_type_scope(raw: str, clean: str, owners: dict, filename: str, findings):
+    """A type nested in another type must be qualified outside its own file.
+
+    `MessageListLayout.ToolGroupAccordionSpan` is declared INSIDE
+    `MessageListLayout` (indent 4). `ToolGroupAccordionSpan(...)` in
+    ToolGroupAccordionFlight.swift was therefore "cannot find
+    'ToolGroupAccordionSpan' in scope" — run 44490117255:137.
+    """
+    for name, owner in owners.items():
+        if filename == LAYOUT.name:
+            continue          # its own file: unqualified is legal inside the owner
+        for m in re.finditer(r"(?<![\w.])%s\b" % re.escape(name), clean):
+            before = clean[max(0, m.start() - 40):m.start()]
+            if re.search(r"(?:class|struct|enum|actor|typealias)\s+$", before):
+                continue      # its own declaration
+            if re.search(r"%s\.\s*$" % re.escape(owner), before):
+                continue      # already qualified
+            line, col = line_col(raw, m.start())
+            findings.append(Finding("nested-type-scope", line, col,
+                                    "`%s` is nested in `%s`; outside %s it must be written "
+                                    "`%s.%s` (cannot find it in scope)" %
+                                    (name, owner, LAYOUT.name, owner, name)))
+
+
+def rule_optional_unwrapped(raw: str, clean: str, findings):
+    """A member of an OPTIONAL property needs a binding, not a `!= nil` guard.
+
+    `guard let cv = collectionView, plan != nil` then `plan.headerIndex` is
+    "value of optional type 'Plan?' must be unwrapped" (run 44490117255:235/240).
+    """
+    optional = set()
+    for m in re.finditer(r"^ {4}(?:@\w+\s+)?(?:private\(set\)\s+|private\s+|weak\s+|lazy\s+)*"
+                         r"var\s+`?(\w+)`?\s*:\s*[^=\n{]*\?\s*(?:=|$)", clean, re.M):
+        optional.add(m.group(1))
+    if not optional:
+        return
+    for name, lo, hi, params in function_spans(clean):
+        body = clean[lo:hi]
+        # `guard let plan`, `if let plan`, `let plan = self.plan` or a parameter
+        bound = declared_names(clean, lo, hi, params)
+        for m in re.finditer(r"(?<![\w.?])(\w+)\.(?=[a-z_])", body):
+            prop = m.group(1)
+            if prop not in optional or prop in bound:
+                continue
+            if clean[lo + m.start() - 2:lo + m.start()] .strip().endswith("."):
+                continue
+            line, col = line_col(raw, lo + m.start(1))
+            findings.append(Finding("optional-unwrapped", line, col,
+                                    "`%s` is an Optional property of this type: bind it "
+                                    "(`guard let %s = %s`), do not read `%s.%s` directly" %
+                                    (prop, prop, prop, prop, m.group(0)[len(prop) + 1:])))
+
+
+def lint_text(raw: str, flight_src: str, owners: dict = None, filename: str = "") -> list:
     clean = strip_comments_and_strings(raw)
     members = enclosing_type_members(clean)
     findings: list = []
@@ -441,6 +524,9 @@ def lint_text(raw: str, flight_src: str) -> list:
     rule_live_items(raw, clean, findings)
     rule_closure_arity(raw, clean, findings)
     rule_self_capture(raw, clean, findings)
+    if owners:
+        rule_nested_type_scope(raw, clean, owners, filename, findings)
+    rule_optional_unwrapped(raw, clean, findings)
     findings.sort(key=lambda f: (f.line, f.col, f.rule))
     return findings
 
@@ -472,6 +558,15 @@ FROZEN = [
     ("self-capture", "ToolFoldUIKitFixture.swift:782:19",
      "final class C {\n    func f() {\n        g { \n            guard let self else { return }\n            self.h()\n        }\n    }\n}\n",
      "initializer for conditional binding must have Optional type, not 'C'"),
+    ("nested-type-scope", "ToolGroupAccordionFlight.swift:137:38",
+     "final class F {\n    func start(_ layout: L) {\n        layout.set(ToolGroupAccordionSpan(lowerBound: 0))\n    }\n}\n",
+     "cannot find 'ToolGroupAccordionSpan' in scope (it is nested in MessageListLayout)"),
+    ("optional-unwrapped", "ToolGroupAccordionFlight.swift:235:98",
+     "struct Plan { var headerIndex: Int }\nfinal class F {\n    private var plan: Plan?\n    func tick() {\n        guard plan != nil else { return }\n        print(plan.headerIndex)\n    }\n}\n",
+     "value of optional type 'Plan?' must be unwrapped to refer to member 'headerIndex'"),
+    ("optional-unwrapped", "ToolGroupAccordionFlight.swift:240:44",
+     "struct Plan { var memberRange: ClosedRange<Int> }\nfinal class F {\n    var plan: Plan?\n    func tick() {\n        guard plan != nil else { return }\n        print(plan.memberRange.upperBound)\n    }\n}\n",
+     "same site: memberRange read through the Optional"),
     ("live-items", "ToolFoldUIKitFixture.swift:521:21",
      "final class C {\n    func f() {\n        let flight = ToolGroupAccordionFlight(collectionView: list, layout: l)\n        flight.start(p, direction: .expand) { _ in }\n    }\n}\n",
      "a flight with no liveItems can never retire on identity"),
@@ -492,32 +587,38 @@ MUTATIONS = [
     ("plan-identity", lambda t: t.replace("headerItem: scene.items[0],",
                                           "headerItem: .toolGroup(scene.message.id, scene.run.firstBlockId),", 1)),
     ("live-items", lambda t: t.replace("flight.liveItems = { [weak self] in self?.listItems }", "// removed", 1)),
+    # run 44490117255: the two PRODUCTION errors, reverted in the real file
+    ("optional-unwrapped", lambda t: t.replace(
+        "guard let cv = collectionView, let plan = self.plan else",
+        "guard let cv = collectionView, plan != nil else", 1)),
+    ("nested-type-scope", lambda t: t.replace(
+        "MessageListLayout.ToolGroupAccordionSpan(", "ToolGroupAccordionSpan(", 1)),
 ]
 
 
 def self_test(verbose=False) -> int:
     """Every frozen negative and every mutation must be caught; the files must be clean."""
     flight_src = FLIGHT.read_text()
+    owners = nested_types(LAYOUT.read_text())
     bad = 0
     for rule, where, src, what in FROZEN:
-        got = {f.rule for f in lint_text(src, flight_src)}
+        got = {f.rule for f in lint_text(src, flight_src, owners, "SomeOtherFile.swift")}
         ok = rule in got
         bad += 0 if ok else 1
         if verbose or not ok:
             print("  %s frozen negative %-38s %-22s %s" % ("OK " if ok else "FAIL", rule, where, what))
-    base = FIXTURE.read_text()
-    entry = ENTRY.read_text()
+    texts = [(p, p.read_text()) for p in TARGETS]
     applied = 0
     for mut_rule, mutate in MUTATIONS:
         # each mutation must apply to at least one of the two files, and be
         # caught in EVERY file it applied to
         hit_any = False
-        for path, text in ((FIXTURE, base), (ENTRY, entry)):
+        for path, text in texts:
             mutated = mutate(text)
             if mutated == text:
                 continue
             hit_any = True
-            got = {f.rule for f in lint_text(mutated, flight_src)}
+            got = {f.rule for f in lint_text(mutated, flight_src, owners, path.name)}
             ok = mut_rule in got
             bad += 0 if ok else 1
             if verbose or not ok:
@@ -527,6 +628,14 @@ def self_test(verbose=False) -> int:
         else:
             bad += 1
             print("  FAIL mutation %-22s did not apply to either file" % mut_rule)
+    for path, text in texts:
+        found = lint_text(text, flight_src, owners, path.name)
+        if found:
+            bad += 1
+            print("  FAIL clean file %s has %d finding(s): %s" %
+                  (path.name, len(found), [str(f) for f in found[:3]]))
+        elif verbose:
+            print("  OK  clean file %-38s 0 findings" % path.name)
     print("TOOLFOLD_FIXTURE_LINT_SELFTEST_%s cases=%d failed=%d" %
           ("PASS" if bad == 0 else "FAIL", len(FROZEN) + len(MUTATIONS), bad))
     return 0 if bad == 0 else 1
@@ -534,10 +643,11 @@ def self_test(verbose=False) -> int:
 
 def main(argv) -> int:
     flight_src = FLIGHT.read_text()
+    owners = nested_types(LAYOUT.read_text())
     failed = 0
     total = 0
-    for path in (FIXTURE, ENTRY):
-        findings = lint_text(path.read_text(), flight_src)
+    for path in TARGETS:
+        findings = lint_text(path.read_text(), flight_src, owners, path.name)
         total += 1
         if findings:
             failed += 1

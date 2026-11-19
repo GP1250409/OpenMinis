@@ -38,10 +38,15 @@ def prepare():
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
     flight_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift').read_text()
+    # Every file this job links: the fixture, the entry stage AND the production
+    # flight/toggle/measurement (run 44490117255: the app job is skipped in
+    # incremental scope, so `ToolGroupAccordionFlight.swift` had never been
+    # compiled either and carried two real type errors of its own).
+    owners = lint.nested_types((IOS / 'Agent/MessageList/MessageListLayout.swift').read_text())
     lint_bad = []
-    for name in ('ToolFoldUIKitFixture.swift', 'ToolGroupToggleEntryStage.swift'):
-        text = (ROOT / 'scripts/toolfold-uikit-tests' / name).read_text()
-        lint_bad += ['%s:%s' % (name, f) for f in lint.lint_text(text, flight_src)]
+    for path in lint.TARGETS:
+        lint_bad += ['%s:%s' % (path.name, f)
+                     for f in lint.lint_text(path.read_text(), flight_src, owners, path.name)]
     if lint_bad:
         print('\n'.join(lint_bad), flush=True)
         raise SystemExit('TOOLFOLD_FIXTURE_LINT_FAILED')
