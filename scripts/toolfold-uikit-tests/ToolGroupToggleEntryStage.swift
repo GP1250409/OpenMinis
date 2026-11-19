@@ -155,6 +155,13 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         // the member rows' natural height before they are deleted), and the
         // production layout reports each one through this hook.
         layout.prepareObserver = { [weak self] generation, rows, contentHeight, window in
+            // [R1] This harness lays out on main only. A pass from another thread
+            // could not be appended without a data race, and reporting it would
+            // just move the race into the failure counter — so it fails loudly
+            // here instead: the trace is meaningless off main.
+            guard Thread.isMainThread else {
+                fatalError("terminal trace: prepare() arrived off the main thread")
+            }
             self?.prepareEvents.append(PrepareEvent(generation: generation, rows: rows,
                                                     contentHeight: contentHeight, window: window))
         }

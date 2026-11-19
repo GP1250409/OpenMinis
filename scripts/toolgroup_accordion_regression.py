@@ -799,12 +799,19 @@ def static_checks():
          'the commit consumes the handoff, validates the span of the UPCOMING rows, then applies — in that order')
     c.ok(snap_src.index('consumeToolGroupAccordionTerminalHandoff()') > snap_src.index('cv.endEditing(true)'),
          'the window survives every preparation step of applySnapshot (endEditing included)')
-    c.present(layout, 'private(set) var prepareGeneration: Int = 0',
+    c.present(layout, 'private var prepareGenerationStore = 0',
               'every layout pass is counted: the claim is about passes, not about a final frame')
+    c.present(layout, 'var prepareGeneration: Int {', 'the counter is read through its lock ([R1])')
+    c.present(layout, 'private let prepareDiagnosticsLock = NSLock()',
+              'the diagnostics storage has its own lock (prepare() can run off main)')
     c.present(layout, 'var prepareObserver: ((Int, Int, CGFloat, String) -> Void)?',
               'a regression can see WHAT each pass saw (rows + reveal window + content height)')
-    c.present(layout, 'if let observe = prepareObserver {',
-              'production pays one nil check per prepare for that evidence')
+    c.present(layout, 'let observe = prepareObserverStore',
+              'production pays one locked read per prepare for that evidence')
+    ho = layout[layout.index('let observe = prepareObserverStore'):]
+    ho = ho[:ho.index('let window =')]
+    c.present(ho, 'prepareDiagnosticsLock.unlock()',
+              'the observer is called OUTSIDE the lock, so it can read the layout back without deadlocking ([R1])')
     c.present(txn, 'env.layout.toolGroupAccordionTerminalHandoff = {',
               'the transaction parks the handoff on the layout')
     c.ok(txn.index('env.layout.toolGroupAccordionTerminalHandoff = {')

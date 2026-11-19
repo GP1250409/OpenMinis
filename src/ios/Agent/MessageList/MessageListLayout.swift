@@ -74,12 +74,36 @@ final class MessageListLayout: UICollectionViewLayout {
     /// structural delete. A regression can only prove that if it can see every
     /// pass. Production leaves the observer nil (one branch per prepare); the
     /// UIKit fixture installs it.
-    private(set) var prepareGeneration: Int = 0
+    /// [R1] Guarded by its own lock: `prepare()` can run on UIKit's background
+    /// async-render pass as well as on main (see the thread note above
+    /// `toolGroupAccordionSpan`), and these two are written/read from both. The
+    /// observer is CALLED outside the lock, so it may read any layout property
+    /// back without deadlocking.
+    private let prepareDiagnosticsLock = NSLock()
+    private var prepareGenerationStore = 0
+    private var prepareObserverStore: ((Int, Int, CGFloat, String) -> Void)?
+
+    var prepareGeneration: Int {
+        prepareDiagnosticsLock.lock()
+        defer { prepareDiagnosticsLock.unlock() }
+        return prepareGenerationStore
+    }
 
     /// Called at the end of every `prepare()` when set:
     /// (generation, item count, total height, reveal window as
     /// "lower...upper@reveal", or "-" when no window is installed).
-    var prepareObserver: ((Int, Int, CGFloat, String) -> Void)?
+    var prepareObserver: ((Int, Int, CGFloat, String) -> Void)? {
+        get {
+            prepareDiagnosticsLock.lock()
+            defer { prepareDiagnosticsLock.unlock() }
+            return prepareObserverStore
+        }
+        set {
+            prepareDiagnosticsLock.lock()
+            prepareObserverStore = newValue
+            prepareDiagnosticsLock.unlock()
+        }
+    }
 
     /// [T-toolgroup-accordion] Cross-feature takeover channel.
     ///
@@ -607,12 +631,18 @@ final class MessageListLayout: UICollectionViewLayout {
         heightDeltaSincePrepare = 0
         lastItemCount = itemCount
         // [T-toolgroup-collapse-finish] Report the pass (see prepareObserver).
-        prepareGeneration &+= 1
-        if let observe = prepareObserver {
+        // [R1] Read/increment under the diagnostics lock, then call the observer
+        // OUTSIDE it: the observer is a test hook and may touch the layout.
+        prepareDiagnosticsLock.lock()
+        prepareGenerationStore &+= 1
+        let passGeneration = prepareGenerationStore
+        let observe = prepareObserverStore
+        prepareDiagnosticsLock.unlock()
+        if let observe = observe {
             let window = toolGroupAccordionSpan.map {
                 "\($0.lowerBound)...\($0.upperBound)@\(String(format: "%.3f", $0.reveal))"
             } ?? "-"
-            observe(prepareGeneration, itemCount, y, window)
+            observe(passGeneration, itemCount, y, window)
         }
         // [ScrollStall] prepare() runs on every invalidateLayout; on long
         // sessions iterating the full itemCount can show up as scroll hitches.
