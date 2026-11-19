@@ -85,8 +85,12 @@ enum ToolGroupAccordionMeasurement {
             // touching the main list's diffable data source.
             let cell = view.dequeueReusableCell(withReuseIdentifier: Self.reuseIdentifier, for: indexPath)
             guard let sizingCell = cell as? SelfSizingCell, let item else { return cell }
+            // A recycled cell has already been cleaned by the cell's own
+            // `prepareForReuse` (it clears the clip window and the receipt), and
+            // a brand-new one starts clean — the probe must not reach for the
+            // cell's file-private hooks from here. Only the shared, internal
+            // cache reset is called.
             sizingCell.clearCachedHeight()
-            sizingCell.resetAccordionWindowIfNeeded()
             configure?(sizingCell, item, indexPath)
             lastConfigured = item
             return sizingCell

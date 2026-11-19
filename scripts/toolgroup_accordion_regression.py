@@ -234,6 +234,46 @@ def _load_fixture_lint():
     return mod
 
 
+def swift_declared_access(text, name):
+    """How `name` is declared in `text`: 'open' when it is reachable from another
+    file, 'private' when the declaration is restricted to its own file.
+
+    Only the declaration that followed the member use matters here: a `func` /
+    `var` / `let` line whose modifiers say `private` (or `fileprivate`) cannot be
+    called from a different file of the same module — exactly the compile error
+    an off-collection helper hits when it reuses a cell's own cleanup hook.
+    """
+    pattern = (r'^[ \t]*(?:@[A-Za-z_][\w.]*(?:\([^)]*\))?[ \t]+)*'
+               r'((?:(?:private|fileprivate|internal|public|open|final|override|static|class|'
+               r'mutating|nonisolated|lazy)[ \t]+)*)'
+               r'(?:func|var|let)[ \t]+' + re.escape(name) + r'\b')
+    m = re.search(pattern, text, re.M)
+    if not m:
+        return None
+    modifiers = m.group(1) or ''
+    # `private(set) var x` is still readable from anywhere.
+    if 'private(set)' in modifiers.replace(' ', ''):
+        return 'open'
+    if re.search(r'\b(private|fileprivate)\b', modifiers):
+        return 'private'
+    return 'open'
+
+
+def inaccessible_cell_members(source, infra):
+    """Members of `SelfSizingCell` this source uses that it cannot actually reach.
+
+    A helper that lives in another file may only touch the cell's internal API;
+    reaching for a `private` hook compiles nowhere but the cell's own file, so
+    the check is static and needs no Darwin toolchain.
+    """
+    bad = []
+    for name in sorted(set(re.findall(r'\b(?:sizingCell|cell)\.([A-Za-z_][A-Za-z0-9_]*)', source))):
+        access = swift_declared_access(infra, name)
+        if access == 'private':
+            bad.append(name)
+    return bad
+
+
 def static_checks():
     c = Contract()
     math = MATH_SRC.read_text()
@@ -389,6 +429,20 @@ def static_checks():
              'frozen negative: never return a bare SelfSizingCell() from UICollectionViewDataSource (NSInternalInconsistencyException)')
     c.absent(measure, 'return UICollectionViewCell()',
              'frozen negative: never return a bare UICollectionViewCell() from UICollectionViewDataSource')
+    # Cross-file access: the probe lives in its own file, so it may only use the
+    # cell's internal API. `private` hooks compile only inside the cell's file —
+    # the exact failure a dequeue-time cleanup call produced on Darwin.
+    bad_members = inaccessible_cell_members(measure, infra) + inaccessible_cell_members(txn, infra)
+    c.ok(not bad_members,
+         'the measuring host and the toggle transaction only touch SelfSizingCell members reachable from another file '
+         '(inaccessible=%s)' % ','.join(sorted(set(bad_members))))
+    c.ok(swift_declared_access(infra, 'clearCachedHeight') == 'open',
+         'the probe uses clearCachedHeight, which is declared without file restrictions')
+    c.ok(inaccessible_cell_members('sizingCell.resetAccordionWindowIfNeeded()', infra)
+         == ['resetAccordionWindowIfNeeded'],
+         'frozen negative: a call to the cell\'s private reuse hook IS reported as unreachable')
+    c.ok(inaccessible_cell_members('sizingCell.clearCachedHeight()', infra) == [],
+         'the same rule accepts a call to an internal member')
     c.present(measure, 'container.reloadData()', 'each row is measured in its own UIKit request cycle')
     c.absent(measure, 'estimated + 40', 'frozen negative: no container sized from the estimates')
     c.absent(measure, '20_000', 'frozen negative: no magic height cap')
