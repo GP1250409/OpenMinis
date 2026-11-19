@@ -444,12 +444,30 @@ def fixture_assertion_contract():
     case(re.search(r'expanded\[card\]\s*==\s*false', frozen_round) is not None,
          'frozen run-44439673271 round-trip assertion is rejected')
 
-    # (3) run 44439673271 S1/S4: the expanded card measured 61.3 (the collapsed
-    #     height) because UIHostingConfiguration renders its first frame after
-    #     the first layout pass. Every case must start from a settled geometry.
-    before_attach = harness.split('spy.attach(cv)')[0]
-    case('        settle()\n' in before_attach,
-         'the fixture settles before the first case measures anything')
+    # (3) run 44439673271 / 44449400147 S1/S4: the expanded card measured 61.3
+    #     (the collapsed height) because UIHostingConfiguration renders its first
+    #     frame after the first layout pass - and, in 44449400147, because the
+    #     settle ran from `init`, before the list had ever been in a window.
+    #     Every case must start from a geometry measured AFTER attach.
+    init_body = harness.split('init(items: Int = 8, tail: Bool = false) {')[1].split('\n    }\n')[0]
+    case('settle()' not in init_body and 'settleAfterAttach()' not in init_body
+         and 'makeKeyAndVisible' not in init_body,
+         'init neither shows the window nor settles (attach comes first, settle after)')
+    case('func attach(to hostView: UIWindow? = nil) -> Bool' in harness
+         and 'host.makeKeyAndVisible()' in harness,
+         'the host attaches the list to a real window (attach(to:))')
+    case('func settleAfterAttach(maxRounds: Int = 8) -> Bool' in harness,
+         'the settle is a post-attach, bounded (maxRounds) pass')
+    settle_body = harness.split('func settleAfterAttach(')[1].split('\n    /// Re-apply every row')[0]
+    case('guard cv.window != nil else' in settle_body,
+         'settle refuses to run unless cv.window != nil')
+    case('measureRow(' in settle_body and 'func measureRow' in harness
+         and 'cell.preferredLayoutAttributesFitting(attrs)' in harness
+         and 'abs((measured[i] ?? h) - h) <= 0.5' in settle_body
+         and 'layout.setMeasuredHeight(fitted, at: i)' in settle_body,
+         'settle stops only when two consecutive production measurements agree')
+    case(tests.count('.attachAndSettle()') >= 8,
+         'every case attaches and settles its fixture before measuring anything')
     case(all(tok in harness for tok in ('clearCachedHeight()', 'invalidateHeight(at: i)',
                                        'reconfigureItems(items)', 'layout.invalidateLayout()')),
          'settle re-asks the shipping layout (cache + measured heights), not a stub')
@@ -468,10 +486,19 @@ def fixture_assertion_contract():
                    '        spy.attach(cv)\n')
     case('settle()' not in frozen_init,
          'frozen run-44439673271 unsettled init is rejected')
+    # run 44449400147: the init-time settle is what measured 61.3 off-window.
+    frozen_offwindow = ('        window.rootViewController = vc\n'
+                        '        window.makeKeyAndVisible()\n'
+                        '        cv.contentInset = ')
+    case('settleAfterAttach' not in frozen_offwindow
+         and '        settle()\n' in ('        ds.apply(snap, animatingDifferences: false)\n'
+                                       '        cv.layoutIfNeeded()\n'
+                                       '        settle()\n'),
+         'frozen run-44449400147 init-time settle is rejected')
 
-    # Sensitivity: the clamp and the settle are both load-bearing.
-    case('        settle()\n' not in harness.replace('        settle()\n', '', 1),
-         'contract is sensitive to dropping the initial settle')
+    # Sensitivity: the attach gate and the settle are both load-bearing.
+    case('guard cv.window != nil else' not in settle_body.replace('guard cv.window != nil else', '', 1),
+         'contract is sensitive to dropping the cv.window != nil gate')
     case('max(minOffset, maxOffset)' not in harness.replace('max(minOffset, maxOffset)', 'maxOffset'),
          'contract is sensitive to dropping the legal-range clamp')
     return cases

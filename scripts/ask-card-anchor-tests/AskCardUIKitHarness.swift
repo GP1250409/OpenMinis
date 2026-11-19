@@ -27,6 +27,15 @@ struct FixtureAskCard: View {
     let expanded: Bool
     let questions: Int
     var body: some View {
+        // [T-ask-fixture-settle-after-attach] The expanded questions are part of
+        // the CARD'S OWN LAYOUT FLOW (VStack), not an `.overlay`, and the card
+        // no longer fills `maxHeight: .infinity`. With an overlay the expanded
+        // content contributes nothing to the ideal height, so whether the row
+        // measured 61.3 or 133.0 depended on HOW MUCH HEIGHT the measure
+        // proposed (compressed proposal → header only; unspecified proposal →
+        // overlay counted) - a fixture artefact, not the production card. The
+        // real card is header + questions below it (see the comment above), so
+        // its height must be a function of `expanded` alone.
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Circle().fill(Color.blue.opacity(0.15)).frame(width: 34, height: 34)
@@ -36,11 +45,6 @@ struct FixtureAskCard: View {
                 }
                 Spacer(minLength: 4)
             }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue.opacity(0.07)))
-        .frame(maxHeight: .infinity, alignment: .top)
-        .overlay(alignment: .bottomLeading) {
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(0..<questions, id: \.self) { i in
@@ -50,9 +54,12 @@ struct FixtureAskCard: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.leading, 46).padding(.top, 54)
+                .padding(.leading, 46)
             }
         }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue.opacity(0.07)))
     }
 }
 
@@ -134,8 +141,11 @@ final class AskCardFixture {
         coordinator = CollectionViewMessageListV3.Coordinator()
         coordinator.viewController = vc
         coordinator.scrollMode = .autoScrolling
-        window.rootViewController = vc
-        window.makeKeyAndVisible()
+        // [T-ask-fixture-settle-after-attach] NO window attach and NO settle
+        // here: this fixture is built, and only then put on screen by the host
+        // (`attach(to:)`); the settle runs after that, when the collection view
+        // really is in a window. Settling a hosting row that has never been on
+        // screen measured its collapsed height (run 44449400147: 61.3).
         cv.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 20, right: 0)
 
         let reg = UICollectionView.CellRegistration<SelfSizingCell, MessageListItem> { [unowned self] cell, _, item in
@@ -173,14 +183,30 @@ final class AskCardFixture {
         snap.appendSections([0]); snap.appendItems(items_)
         ds.apply(snap, animatingDifferences: false)
         cv.layoutIfNeeded()
-        // [T-ask-fixture-settle] run 44439673271: a freshly built fixture measured
-        // the EXPANDED card at its collapsed height (61.3 instead of 133.0) -
-        // UIHostingConfiguration renders its first frame after the first layout
-        // pass, so the layout cached the pre-expand height. Every case must start
-        // from a settled geometry, exactly like a list that has been on screen.
-        settle()
         spy.attach(cv)
         scrollToBottom()
+    }
+
+    /// Put the list on screen. The collection view becomes the window's root
+    /// view and the window is made key and visible - nothing is measured here,
+    /// so the ordering "attach first, settle after" is visible in the code.
+    @discardableResult
+    func attach(to hostView: UIWindow? = nil) -> Bool {
+        let host = hostView ?? window
+        if host.rootViewController !== vc { host.rootViewController = vc }
+        host.makeKeyAndVisible()
+        host.layoutIfNeeded()
+        cv.layoutIfNeeded()
+        attached = cv.window != nil
+        return attached
+    }
+
+    /// Host entry point: attach, then settle. This is the only ordering the
+    /// fixture allows - `settleAfterAttach` refuses to run off-window.
+    @discardableResult
+    func attachAndSettle() -> Bool {
+        guard attach() else { return false }
+        return settleAfterAttach()
     }
 
     var contentSizeHeight: CGFloat { cv.contentSize.height }
@@ -196,37 +222,164 @@ final class AskCardFixture {
 
     var legalUpperOffset: CGFloat { max(minOffset, maxOffset) }
 
-    /// Re-ask every visible cell for its height through the SHIPPING layout
-    /// (`clearCachedHeight` + `invalidateHeight` + reconfigure, the same
-    /// invalidation path `remeasureVisibleCells` uses) and let UIKit lay out
-    /// again. No height is ever written by hand.
-    func settle(passes: Int = 2) {
-        pump(0.15)
-        for _ in 0..<passes {
-            let items = ds.snapshot().itemIdentifiers
-            for (i, _) in items.enumerated() {
-                let ip = IndexPath(item: i, section: 0)
-                layout.invalidateHeight(at: i)
-                guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell else { continue }
-                cell.clearCachedHeight()
-                cell.contentView.setNeedsLayout()
-                cell.contentView.layoutIfNeeded()
-                // The SAME channel the shipping toggle uses: measure the real
-                // cell, then install that number through the production layout.
-                let fitted = cell.preferredLayoutAttributesFitting(
-                    UICollectionViewLayoutAttributes(forCellWith: ip)).size.height
-                if fitted.isFinite, fitted > 1 {
-                    layout.setMeasuredHeight(fitted, at: i)
-                }
-            }
-            var snap = ds.snapshot()
-            snap.reconfigureItems(items)
-            ds.apply(snap, animatingDifferences: false)
-            layout.invalidateLayout()
-            cv.layoutIfNeeded()
-            pump(0.15)
+    /// [T-ask-fixture-settle-after-attach] Settle the INITIAL geometry - but only
+    /// after the list is really on screen, and only with a number the SHIPPING
+    /// measure channel produced for a RENDERED card.
+    ///
+    /// History: run 44449400147 settled from `init`, before the collection view
+    /// had ever been in a window. `preferredLayoutAttributesFitting` then
+    /// answered with the collapsed 61.3 for the EXPANDED card, and `settle`
+    /// installed that number through `layout.setMeasuredHeight` - so S1 started
+    /// collapsed and S4's row never agreed with its own 133.0 measurement.
+    ///
+    /// Each round re-applies every configuration (a FRESH hosting
+    /// configuration, exactly what the production toggle does, inside the same
+    /// no-animation transaction), lets UIKit lay out and the run loop turn,
+    /// then measures the real cell through
+    /// `SelfSizingCell.preferredLayoutAttributesFitting` at the collection
+    /// view's own width. Rounds stop when two consecutive measurements agree;
+    /// only that stable number is installed with `layout.setMeasuredHeight`.
+    /// No height literal exists anywhere in here.
+    @discardableResult
+    func settleAfterAttach(maxRounds: Int = 8) -> Bool {
+        // The precondition the whole fix rests on: nothing can be measured for
+        // a row that is not in a window. Refuse loudly instead of settling a
+        // number no render ever produced.
+        guard cv.window != nil else {
+            settleTrace = "window=nil"
+            print("[settle] refused window=nil attached=\(attached) cv=\(fmt(cv.frame)) content=\(fmt(cv.contentSize))")
+            return false
         }
+        guard let cardIndex = ds.snapshot().itemIdentifiers.firstIndex(where: {
+            if case .assistantBlock(_, let b) = $0 { return cardIds.contains(b) }
+            return false
+        }) else {
+            settleTrace = "no-card"
+            print("[settle] refused no answered-question card in the snapshot")
+            return false
+        }
+        let card = cardIds[0]
+        let cardIsExpanded = expanded[card] ?? false
+
+        var rounds = 0
+        var previous: [Int: CGFloat] = [:]
+        var latest: [Int: CGFloat] = [:]
+        var cardTrace: [CGFloat] = []
+        while rounds < maxRounds {
+            rounds += 1
+            reconfigureAllRows()
+            let measured = measureAllRows()
+            guard !measured.isEmpty else { break }
+            latest = measured
+            if let h = measured[cardIndex] { cardTrace.append(h) }
+            if previous.count == measured.count,
+               previous.allSatisfy({ (i, h) in abs((measured[i] ?? h) - h) <= 0.5 }) {
+                break
+            }
+            previous = measured
+        }
+        settleRounds = rounds
+
+        // Can this fixture express the expanded card at all? Ask the SAME cell
+        // through the SAME channel for its collapsed height and compare. If the
+        // expanded state does not measure taller, the fixture - not the card -
+        // is the problem, and the cases must fail saying so (the three
+        // assertions are never weakened).
+        var collapsedProbe: CGFloat?
+        if cardIsExpanded, let live = latest[cardIndex] {
+            collapsedProbe = collapsedHeightProbe(cardIndex)
+            if let c = collapsedProbe, live <= c + 1.0 {
+                settleTrace = cardTrace.map { f($0) }.joined(separator: ",")
+                print("[settle] UNREPRESENTABLE expanded=\(f(live)) collapsed=\(f(c)) trace=\(settleTrace) "
+                      + "window=1 cv=\(fmt(cv.bounds)) content=\(fmt(cv.contentSize)) rounds=\(rounds)")
+                return false
+            }
+            // The probe reconfigured the row; measure the real state again.
+            reconfigureAllRows()
+            if let h = measureRow(cardIndex) { latest[cardIndex] = h; cardTrace.append(h) }
+        }
+
+        var installed = 0
+        for (i, fitted) in latest.sorted(by: { $0.key < $1.key }) where fitted > 1 {
+            // `fitted` is the stable number `measureRow` got from the SHIPPING
+            // cell - never a literal, never an estimate.
+            layout.setMeasuredHeight(fitted, at: i)
+            installed += 1
+        }
+        layout.invalidateLayout()
+        cv.layoutIfNeeded()
+        window.layoutIfNeeded()
+        pump(0.1)
+        scrollToBottom()
+        settleTrace = cardTrace.map { f($0) }.joined(separator: ",")
+        print("[settle] window=1 rounds=\(rounds) installed=\(installed) card=\(settleTrace) "
+              + "collapsed=\(collapsedProbe.map { f($0) } ?? "-") cv=\(fmt(cv.bounds)) content=\(fmt(cv.contentSize))")
+        return installed > 0
     }
+
+    /// Re-apply every row's configuration inside the same "no animation"
+    /// transaction the production toggle uses, so the hosting view applies the
+    /// new state before the measure runs instead of on its next update.
+    private func reconfigureAllRows() {
+        let items = ds.snapshot().itemIdentifiers
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            var noAnim = Transaction(animation: nil)
+            noAnim.disablesAnimations = true
+            withTransaction(noAnim) {
+                var snap = ds.snapshot()
+                snap.reconfigureItems(items)
+                ds.apply(snap, animatingDifferences: false)
+                for (i, _) in items.enumerated() { layout.invalidateHeight(at: i) }
+                layout.invalidateLayout()
+                cv.layoutIfNeeded()
+                window.layoutIfNeeded()
+            }
+            CATransaction.commit()
+        }
+        pump(0.05)
+    }
+
+    private func measureAllRows() -> [Int: CGFloat] {
+        var measured: [Int: CGFloat] = [:]
+        for (i, _) in ds.snapshot().itemIdentifiers.enumerated() {
+            if let h = measureRow(i) { measured[i] = h }
+        }
+        return measured
+    }
+
+    /// One REAL measurement of the live cell for `index` through the shipping
+    /// self-sizing channel. `nil` when the row has no cell on screen - nothing
+    /// can honestly be measured then.
+    private func measureRow(_ index: Int) -> CGFloat? {
+        let ip = IndexPath(item: index, section: 0)
+        guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell,
+              cell.window != nil, cell.contentConfiguration != nil else { return nil }
+        cell.contentView.setNeedsLayout()
+        cell.contentView.layoutIfNeeded()
+        cell.clearCachedHeight()
+        let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
+        // The width UIKit hands a cell in a real self-sizing pass. A zero-width
+        // attributes object is not what the shipping path sees.
+        attrs.size = CGSize(width: cv.bounds.width, height: cell.bounds.height)
+        let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+        return fitted.isFinite ? fitted : nil
+    }
+
+    /// Height the SAME cell reports for its COLLAPSED card, through the same
+    /// production channel. Diagnostics only - this number is never installed.
+    private func collapsedHeightProbe(_ index: Int) -> CGFloat? {
+        guard let card = cardIds.first else { return nil }
+        expanded[card] = false
+        reconfigureAllRows()
+        let h = measureRow(index)
+        expanded[card] = true
+        return h
+    }
+
+    private func fmt(_ r: CGRect) -> String { "\(f(r.width))x\(f(r.height))" }
+    private func fmt(_ s: CGSize) -> String { "\(f(s.width))x\(f(s.height))" }
 
     func scrollToBottom() {
         cv.setContentOffset(CGPoint(x: 0, y: max(0, maxOffset)), animated: false)

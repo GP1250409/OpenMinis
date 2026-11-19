@@ -22,8 +22,19 @@ func runAskCardUIKitCases() {
     // ---- S1: card collapses above a COLLAPSED tool group, list at the bottom ----
     do {
         let fx = AskCardFixture(items: 6, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         let card = fx.cardIds[0]
+        // [T-ask-fixture-settle-after-attach] The settle only runs once the list
+        // is really on screen; this check names that precondition (and prints
+        // the measured sequence) so a failure says whether the fixture or the
+        // card is at fault.
+        check("S1 the fixture was attached to a real window before the settle",
+              fx.attached && fx.settleRounds > 0,
+              "attached=\(fx.attached) rounds=\(fx.settleRounds) trace=\(fx.settleTrace)")
         let before = fx.frame(of: card)
         let offsetBefore = fx.cv.contentOffset.y
         fx.spy.reset()
@@ -55,6 +66,10 @@ func runAskCardUIKitCases() {
     // ---- S2: same collapse with the tool group EXPANDED (the case that did not jump) ----
     do {
         let fx = AskCardFixture(items: 6, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.toggleTool()
         fx.pump(0.4)
         let card = fx.cardIds[0]
@@ -79,6 +94,10 @@ func runAskCardUIKitCases() {
     // ---- S3: 6 expand/collapse rounds mid-list: no cumulative drift ----
     do {
         let fx = AskCardFixture(items: 10, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         // park mid-list so the anchor is always reachable
         fx.cv.setContentOffset(CGPoint(x: 0, y: max(0, fx.maxOffset - 260)), animated: false)
@@ -111,6 +130,10 @@ func runAskCardUIKitCases() {
     // ---- S4: rapid double tap: last intent wins, height agrees, nothing stale ----
     do {
         let fx = AskCardFixture(items: 8, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         let card = fx.cardIds[0]   // starts expanded
         fx.spy.reset()
@@ -137,6 +160,10 @@ func runAskCardUIKitCases() {
     // ---- S5: a drag in flight must not be moved by the toggle or its verify chain ----
     do {
         let fx = AskCardFixture(items: 8, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         let card = fx.cardIds[0]
         fx.cv.setContentOffset(CGPoint(x: 0, y: max(0, fx.maxOffset - 300)), animated: false)
@@ -158,6 +185,10 @@ func runAskCardUIKitCases() {
     // ---- S6: snapshot / session swap right after a toggle: old chain must go quiet ----
     do {
         let fx = AskCardFixture(items: 8, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         let card = fx.cardIds[0]
         fx.spy.reset()
@@ -191,6 +222,10 @@ func runAskCardUIKitCases() {
         // A dedicated fixture: the swap above removed this block's card, and the
         // tap path only runs for a row that is still in the data source.
         let cross = AskCardFixture(items: 6, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        cross.attachAndSettle()
         cross.pump(0.4)
         let crossCard = cross.cardIds[0]
         // What the flight's begin does in production: it suspends streaming UI
@@ -243,6 +278,10 @@ func runAskCardUIKitCases() {
     // ---- S7 (P0): content SHORTER than the viewport (maxOff < minOff) ----
     do {
         let fx = AskCardFixture(items: 1, tail: false)
+        // [T-ask-fixture-settle-after-attach] the host puts the list on screen FIRST
+        // and only then settles: a hosting row that was never in a window measures
+        // its collapsed height (run 44449400147).
+        fx.attachAndSettle()
         fx.pump(0.4)
         let minOff = -fx.cv.adjustedContentInset.top
         let short = fx.contentSizeHeight - fx.cv.bounds.height + fx.cv.adjustedContentInset.bottom < minOff
