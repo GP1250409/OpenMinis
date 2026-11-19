@@ -59,12 +59,13 @@ func runAskCardUIKitCases() {
         fx.pump(0.4)
         let card = fx.cardIds[0]
         let before = fx.frame(of: card)
-        check("S2 the card row has layout attributes", before != nil && after != nil)
+        check("S2 the card row has layout attributes before the toggle", before != nil)
         let anchorY = (before?.minY ?? 0) - fx.cv.contentOffset.y
         fx.spy.reset()
         fx.toggleCard(card)
         fx.pump(1.4)
         let after = fx.frame(of: card)
+        check("S2 the card row still has layout attributes after the toggle", after != nil)
         let anchorAfter = (after?.minY ?? 0) - fx.cv.contentOffset.y
         check("S2 tool group expanded (range is larger)", fx.toolExpanded)
         check("S2 no out-of-range offset at any contentSize change",
