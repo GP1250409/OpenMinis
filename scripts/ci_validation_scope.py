@@ -74,7 +74,20 @@ SKIPPABLE_MODULES = {
 
 # Files that are safe to modify in an incremental toolfold/message-list build
 # without invalidating the unchanged map/chart/theme/card_dark modules.
+# [T-ios-streaming-resume-reentry] These exact Chat VM files change only the
+# suspension/resume transaction, not any of the five skippable render suites.
+# The NEW production-slice + real Combine step is unconditional; MOD/Thinking/
+# toolfold and the full app still run. Keep exact matches: no Agent/Chat/ blanket
+# exemption, and no prefix match that would approve AIChatViewModel.swift.bak.
+ALLOWED_RESUME_EXACT_FILES = frozenset({
+    'src/ios/Agent/Chat/AIChatViewModel.swift',
+    'src/ios/Agent/Chat/AIChatViewModel+StreamingUI.swift',
+    'src/ios/MinisTests/Standalone/UnobservedSnapshotFlushTests.swift',
+    'scripts/streaming_resume_regression.py',
+})
+
 ALLOWED_INCREMENTAL_PREFIXES = (
+    'scripts/streaming-resume-tests/',
     '.github/workflows/build-ios.yml',
     'scripts/ci_validation_scope.py',
     'scripts/toolfold',
@@ -204,7 +217,8 @@ def module_tree_hash(repo: pathlib.Path, commit: str, specs: list[str]) -> tuple
 
 
 def path_is_allowed_incremental(path: str) -> bool:
-    return any(path == p or path.startswith(p) for p in ALLOWED_INCREMENTAL_PREFIXES)
+    return (path in ALLOWED_RESUME_EXACT_FILES
+            or any(path == p or path.startswith(p) for p in ALLOWED_INCREMENTAL_PREFIXES))
 
 
 PBXPROJ_PATH = 'src/ios/Minis.xcodeproj/project.pbxproj'
