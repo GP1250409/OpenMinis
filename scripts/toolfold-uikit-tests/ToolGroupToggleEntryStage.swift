@@ -101,6 +101,11 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private var terminalTrace: [TerminalSample] = []
     private var terminalCaseTag = ""
     private var terminalNext: (() -> Void)?
+    /// [B1] The members of the case THAT IS RUNNING, never a global three: the
+    /// short case closes a one-member run, and a sample that keeps asking for the
+    /// module's three members would report two phantom `-1`s (and make the row
+    /// arithmetic subtract rows that were never in the list).
+    private var terminalMembers: [MessageListItem] = []
 
     /// One geometry sample of the terminal window, taken at a named point of the
     /// close (armed / apply-pre / apply-post / settled).
@@ -606,7 +611,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         let headerY = (list.layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?.frame.minY ?? 0)
             - list.contentOffset.y
         var heights: [CGFloat] = []
-        for item in memberItems {
+        for item in terminalMembers {
             if let index = items.firstIndex(of: item) {
                 heights.append(list.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame.height ?? -1)
             } else {
@@ -696,8 +701,14 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         } else {
             check(false, "\(label): the trace contains the animation's passes")
         }
-        check(post.rows == arm.rows - entry.memberHeights.count,
-              "\(label): the members are really removed by the commit (\(entry.rows) → \(post.rows))")
+        check(ToolGroupTerminalMemberContract.isComplete(entry.memberHeights, caseMembers: terminalMembers.count),
+              "\(label): the entry sample describes exactly this case's \(terminalMembers.count) member rows — "
+                + "a row that is not in the list fails instead of becoming a phantom -1 (\(entry.memberHeights))")
+        check(ToolGroupTerminalMemberContract.isComplete(commit.memberHeights, caseMembers: terminalMembers.count),
+              "\(label): the commit sample describes the same \(terminalMembers.count) rows (\(commit.memberHeights))")
+        check(post.rows == arm.rows - terminalMembers.count,
+              "\(label): the members are really removed by the commit (\(entry.rows) → \(post.rows), "
+                + "\(terminalMembers.count) members)")
         check(abs(post.contentHeight - commit.contentHeight) <= 1,
               "\(label): deleting them does not change the content height — they were 0 high (\(f2(commit.contentHeight)) → \(f2(post.contentHeight)))")
         check(abs(post.offset - commit.offset) <= 0.5,
@@ -712,6 +723,26 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
               "\(label): the structure converged through the production apply (\(applyCallers.last ?? "-"))")
         check(abs((anchors.last ?? -1) - arm.headerScreenY) <= 0.75,
               "\(label): the anchor restore ran with the tap's own anchor (\(f2(anchors.last ?? -1)) vs \(f2(arm.headerScreenY)))")
+    }
+
+    /// [B1] Positive AND negative control for the sample rule, executed here on
+    /// every run: the old fixed-three sample (three entries against a one-member
+    /// case) must be rejected, the one-member and three-member samples must pass,
+    /// and a single missing row must never be masked. The same predicate is also
+    /// compiled and run on Linux by `toolgroup_accordion_regression.py`.
+    private func terminalMemberContractSelfTest() {
+        check(!ToolGroupTerminalMemberContract.isComplete([-1, -1, -1], caseMembers: 1),
+              "contract[B1]: the fixed-three sample is rejected for a one-member case")
+        check(!ToolGroupTerminalMemberContract.isComplete([0, 0, -1], caseMembers: 3),
+              "contract[B1]: one missing member is never masked by the other two")
+        check(!ToolGroupTerminalMemberContract.isComplete([0, 0], caseMembers: 3),
+              "contract[B1]: a short sample is rejected for a three-member case")
+        check(ToolGroupTerminalMemberContract.isComplete([40], caseMembers: 1),
+              "contract[B1]: the one-member short case samples exactly one row")
+        check(ToolGroupTerminalMemberContract.isComplete([0, 0, 0], caseMembers: 3),
+              "contract[B1]: the three-member close samples three rows at reveal 0")
+        check(ToolGroupTerminalMemberContract.isComplete([], caseMembers: 0),
+              "contract[B1]: an empty run is trivially complete")
     }
 
     /// Open the run through the production transaction and wait for its OWN end.
@@ -739,6 +770,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             - list.contentOffset.y
         prepareEvents.removeAll()
         terminalTrace.removeAll()
+        terminalMembers = members ?? memberItems
         terminalCaseTag = label
         terminalNext = next
         terminalSample("arm")
@@ -768,6 +800,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// the top. This is the case the user reported ("the last bit of the collapse
     /// judders").
     private func terminalCloseCase() {
+        terminalMemberContractSelfTest()
         rebuildFolded()
         openThroughTransaction("close-normal") {
             self.runTerminalClose("close-normal") { self.terminalNearBottomCase() }
@@ -831,6 +864,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         let label = "next-expand"
         prepareEvents.removeAll()
         terminalTrace.removeAll()
+        terminalMembers = memberItems
         terminalCaseTag = label
         terminalSample("arm")
         pendingExpanded = true
@@ -899,6 +933,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             // is the one under test.
             self.prepareEvents.removeAll()
             self.terminalTrace.removeAll()
+            self.terminalMembers = self.memberItems
             self.terminalSample("arm")
             self.deferredConverges.removeAll()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -1038,3 +1073,20 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         report(failures.isEmpty, "entry stage: \(checks) checks")
     }
 }
+
+// === BEGIN TerminalMemberContract ===
+/// [B1] A terminal sample describes exactly the case's OWN member rows: one
+/// height per member, and every one of them really found in the list while the
+/// run is open. `0` is a legal height at reveal 0; `missing` (-1) means "not in
+/// the list" and must never be hidden by an intersection or by counting the
+/// module's three members instead of the case's.
+enum ToolGroupTerminalMemberContract {
+    static let missing: CGFloat = -1
+
+    static func isComplete(_ heights: [CGFloat], caseMembers: Int) -> Bool {
+        guard caseMembers >= 0, heights.count == caseMembers else { return false }
+        for value in heights where value < 0 { return false }
+        return true
+    }
+}
+// === END TerminalMemberContract ===

@@ -42,6 +42,10 @@ FIXTURE = ROOT / 'scripts/toolfold-uikit-tests/ToolFoldUIKitFixture.swift'
 DRIVER = ROOT / 'scripts/toolfold_uikit_regression.py'
 
 BEGIN = '// === BEGIN ToolGroupAccordion ==='
+# [B1] the entry stage's terminal-sample rule, compiled and run here too so the
+# positive/negative control is executable on Linux, not only in the UIKit run.
+CONTRACT_BEGIN = '// === BEGIN TerminalMemberContract ==='
+CONTRACT_END = '// === END TerminalMemberContract ==='
 END = '// === END ToolGroupAccordion ==='
 
 SWIFT_MAIN = r'''
@@ -118,6 +122,20 @@ let a2 = ToolGroupAccordion.anchoredOffset(headerY: 2000, anchorY: 300, contentH
                                            viewportHeight: 800, topInset: 0, bottomInset: 0)
 ck(a2 == 1300, "anchor clamps at the bottom edge instead of scrolling past it (\(a2))")
 
+// --- [B1] the terminal sample follows the case's OWN members ---
+ck(!ToolGroupTerminalMemberContract.isComplete([-1, -1, -1], caseMembers: 1),
+   "the old fixed-three sample is REJECTED for a one-member case")
+ck(!ToolGroupTerminalMemberContract.isComplete([0, 0, -1], caseMembers: 3),
+   "one missing member is never masked by the other two")
+ck(!ToolGroupTerminalMemberContract.isComplete([0, 0], caseMembers: 3),
+   "a short sample is rejected for a three-member case")
+ck(ToolGroupTerminalMemberContract.isComplete([40], caseMembers: 1),
+   "the one-member short case samples exactly one row")
+ck(ToolGroupTerminalMemberContract.isComplete([0, 0, 0], caseMembers: 3),
+   "the three-member close samples three rows at reveal 0 (0 is legal)")
+ck(ToolGroupTerminalMemberContract.isComplete([], caseMembers: 0),
+   "an empty run is trivially complete")
+
 print("MATH checks=\(checks) failed=\(failed)")
 exit(failed == 0 ? 0 : 2)
 '''
@@ -129,9 +147,15 @@ def math_checks():
     end = src.index(END) + len(END)
     block = src[begin:end]
     assert 'enum ToolGroupAccordion' in block, 'the shipping block does not declare ToolGroupAccordion'
+    entry_src = ENTRY.read_text()
+    cbegin = entry_src.index(CONTRACT_BEGIN)
+    cend = entry_src.index(CONTRACT_END) + len(CONTRACT_END)
+    contract = entry_src[cbegin:cend]
+    assert 'enum ToolGroupTerminalMemberContract' in contract, \
+        'the entry stage does not declare the terminal member contract'
     out = ROOT / 'build' / 'toolgroup-accordion'
     out.mkdir(parents=True, exist_ok=True)
-    (out / 'main.swift').write_text('import Foundation\n\n' + block + '\n' + SWIFT_MAIN)
+    (out / 'main.swift').write_text('import Foundation\n\n' + block + '\n' + contract + '\n' + SWIFT_MAIN)
     swiftc = sys.argv[sys.argv.index('--swiftc') + 1] if '--swiftc' in sys.argv else 'swiftc'
     build = subprocess.run([swiftc, '-swift-version', '5', '-o', str(out / 'accordion'), str(out / 'main.swift')],
                            capture_output=True, text=True)
@@ -212,6 +236,14 @@ def swift_call_labels(text, callee):
             labels.append(m.group(1) if m else "")
         out.append(labels)
         at = k + 1
+
+def math_src_has_contract():
+    """True when this script's compiled math program really runs the [B1]
+    contract cases (a positive AND a negative control), not just declares them."""
+    return ('ToolGroupTerminalMemberContract.isComplete([-1, -1, -1], caseMembers: 1)' in SWIFT_MAIN
+            and 'ToolGroupTerminalMemberContract.isComplete([40], caseMembers: 1)' in SWIFT_MAIN
+            and 'ToolGroupTerminalMemberContract.isComplete([], caseMembers: 0)' in SWIFT_MAIN)
+
 
 def ordered_ok(text, parts):
     """True when every part appears, in this order."""
@@ -836,6 +868,23 @@ def static_checks():
     ]:
         c.present(entry, needle, 'terminal regression: ' + why)
     c.absent(entry, 'check(true,', 'frozen negative: no vacuous always-true check in the entry stage')
+    # [B1] The sample must follow the case's OWN members, and the row arithmetic
+    # must come from that same list: a fixed three reported two phantom rows for
+    # the one-member short case and failed the delete check by construction.
+    sample_body = entry[entry.index('private func terminalSample(_ tag: String) -> TerminalSample {'):
+                        entry.index('private func printTerminalTrace')]
+    c.present(sample_body, 'for item in terminalMembers',
+              'the geometry sample iterates the RUNNING case\'s members')
+    c.absent(sample_body, 'for item in memberItems',
+             'frozen negative: the sample never walks the module-wide member list')
+    c.present(entry, 'ToolGroupTerminalMemberContract.isComplete(entry.memberHeights, caseMembers: terminalMembers.count)',
+              'the entry sample is validated against the case\'s member count')
+    c.present(entry, 'arm.rows - terminalMembers.count',
+              'the row arithmetic subtracts the case\'s members, the same list the sample used')
+    c.present(entry, 'private func terminalMemberContractSelfTest() {',
+              'the sample rule has its own positive/negative control inside the UIKit run')
+    c.present(entry, CONTRACT_BEGIN, 'the same rule is exported for the Linux math phase')
+    c.ok(math_src_has_contract(), 'the Linux math phase compiles and runs that rule')
 
     return c
 
