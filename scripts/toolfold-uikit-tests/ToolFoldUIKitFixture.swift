@@ -93,6 +93,21 @@ final class SelectableMarkdownTextView: UIView {
         let message: ChatMessage
         let run: ToolFoldPlanner.FoldedRun
         let expanded: Bool
+        /// [T-toolgroup-accordion] The REAL list item this row stands for. The
+        /// flight's identity check compares `MessageListItem`s, so the fixture
+        /// must own the same identities the production data source would hold —
+        /// a scalar stand-in (`msg.id`/`run` re-derived at the call site, or a
+        /// local `Bool`) could never be replaced or shifted by a real update.
+        let item: MessageListItem
+
+        init(label: String, message: ChatMessage, run: ToolFoldPlanner.FoldedRun,
+             expanded: Bool, item: MessageListItem? = nil) {
+            self.label = label
+            self.message = message
+            self.run = run
+            self.expanded = expanded
+            self.item = item ?? .toolGroup(message.id, run.firstBlockId)
+        }
     }
 
     // Deliberately non-28 initial layout estimate to prove real self-sizing
@@ -103,7 +118,16 @@ final class SelectableMarkdownTextView: UIView {
     var window: UIWindow?
     var listLayout: MessageListLayout!
     var list: UICollectionView!
-    var rows: [RowCase] = []
+    /// The rows the list draws. `listItems` mirrors their REAL identities in the
+    /// same order — that array is what `ToolGroupAccordionFlight.liveItems`
+    /// reads, exactly like the coordinator hands the flight its snapshot.
+    var rows: [RowCase] = [] {
+        didSet { listItems = rows.map(\.item) }
+    }
+    private(set) var listItems: [MessageListItem] = []
+    /// The scene the current accordion case was built from (its message, its run
+    /// and the real items). Every plan of that case addresses these items.
+    var currentScene: AccordionScene?
     var checks = 0
     var failures: [String] = []
     var diagLines: [String] = []
@@ -398,7 +422,7 @@ final class SelectableMarkdownTextView: UIView {
         let layoutMatchesCells = allCellsReady && currentHeights.count == rows.count
             && abs(contentSize.height - sumHeights) <= 0.5
         let sameAsPrev = allCellsReady && previousHeights.count == currentHeights.count
-            && zip(previousHeights, currentHeights).allSatisfy { abs($0 - $1) <= 0.1 }
+            && zip(previousHeights, currentHeights).allSatisfy { pair in abs(pair.0 - pair.1) <= 0.1 }
 
         let nextStable = (allCellsReady && allCachedReady && allLeftEstimate && layoutMatchesCells && sameAsPrev && list.safeAreaInsets.top <= 0.5)
             ? (stableTicks + 1) : 0
@@ -486,27 +510,104 @@ final class SelectableMarkdownTextView: UIView {
 
     // MARK: - [T-toolgroup-accordion] Real accordion flight
 
-    /// One folded run (header row + 3 member rows) followed by two rows that
-    /// must move smoothly while the run opens. The rows are ToolGroupCellV3 for
-    /// every slot on purpose: this stage is about GEOMETRY (the accordion is
-    /// row-type agnostic), and the production `ToolGroupAccordionFlight` +
-    /// `MessageListLayout` are the real ones the chat list uses.
-    func startAccordionStage() {
-        let msg = ChatMessage(blocks: [AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "acc")])
-        let run = ToolFoldPlanner.foldedRuns(in: msg.blocks, ended: true).first!
-        rows = (0..<6).map { i in
-            RowCase(label: "acc-\(i)", message: msg, run: run, expanded: i == 0)
+    /// [T-toolgroup-accordion] One accordion case's REAL data: a message whose
+    /// consecutive tool calls fold into a single run, the list items the
+    /// production list holds for it (the group row, every member row, then the
+    /// reply block and the message footer), and nothing invented.
+    ///
+    /// The plan the flight receives is addressed with THESE items
+    /// (`items[headerIndex]`, `items[memberRange]`), which are the same values
+    /// the layout's data source is built from. `MessageListItem` carries real
+    /// `UUID`s, so a same-count replacement or an insert above genuinely changes
+    /// them — that is what the identity check must react to.
+    struct AccordionScene {
+        let message: ChatMessage
+        let run: ToolFoldPlanner.FoldedRun
+        let items: [MessageListItem]
+    }
+
+    func makeScene(tag: String, tools: Int) -> AccordionScene {
+        let blocks = (0..<tools).map { index in
+            AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "\(tag)-tool-\(index)")
         }
+        let reply = AssistantBlock(kind: .text, content: "\(tag) reply")
+        let message = ChatMessage(blocks: blocks + [reply])
+        let run = ToolFoldPlanner.foldedRuns(in: message.blocks, ended: true).first!
+        var items: [MessageListItem] = [.toolGroup(message.id, run.firstBlockId)]
+        items += run.memberIds.map { MessageListItem.assistantBlock(message.id, $0) }
+        items.append(.assistantBlock(message.id, reply.id))
+        items.append(.assistantFooter(message.id))
+        return AccordionScene(message: message, run: run, items: items)
+    }
+
+    /// The rows the list draws for a scene. Every slot hosts the group row's
+    /// content on purpose (this stage is about GEOMETRY, and the accordion is
+    /// row-type agnostic), but each row CARRIES the item it really stands for.
+    func makeRows(for scene: AccordionScene, prefix: String) -> [RowCase] {
+        scene.items.enumerated().map { index, item in
+            RowCase(label: "\(prefix)-\(index)", message: scene.message, run: scene.run,
+                    expanded: index == 0, item: item)
+        }
+    }
+
+    /// Load a scene into the list: real rows, real identities, estimates, layout.
+    func applyScene(_ scene: AccordionScene, prefix: String, limit: Int? = nil) {
+        currentScene = scene
+        let all = makeRows(for: scene, prefix: prefix)
+        rows = limit.map { Array(all.prefix($0)) } ?? all
         listLayout.clearToolGroupAccordion()
         listLayout.clearHeightCache()
         for i in 0..<rows.count { listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i) }
         list.reloadData()
         list.setNeedsLayout()
         list.layoutIfNeeded()
+    }
+
+    /// Replace the data source WITHOUT touching the reveal window: the flying
+    /// driver has to notice by itself (that is the identity-retirement case).
+    func replaceRows(_ newRows: [RowCase]) {
+        rows = newRows
+        list.reloadData()
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+    }
+
+    /// The plan for a scene, addressed with the scene's REAL items.
+    func makePlan(for scene: AccordionScene, memberRange: ClosedRange<Int>,
+                  heights: [CGFloat], anchorY: CGFloat) -> ToolGroupAccordionFlight.Plan {
+        ToolGroupAccordionFlight.Plan(memberRange: memberRange,
+                                      naturalHeights: heights,
+                                      headerIndex: 0,
+                                      anchorY: anchorY,
+                                      headerItem: scene.items[0],
+                                      memberItems: Array(scene.items[memberRange]))
+    }
+
+    /// A flight wired the way the coordinator wires it: `liveItems` is the
+    /// list's current snapshot, so retirement is decided by real identities and
+    /// never by a local flag of this fixture.
+    func makeFlight() -> ToolGroupAccordionFlight {
+        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        flight.liveItems = { [weak self] in self?.listItems }
+        accordionFlight = flight
+        return flight
+    }
+
+    /// One folded run (header row + 3 member rows) followed by two rows that
+    /// must move smoothly while the run opens. The rows are ToolGroupCellV3 for
+    /// every slot on purpose: this stage is about GEOMETRY (the accordion is
+    /// row-type agnostic), and the production `ToolGroupAccordionFlight` +
+    /// `MessageListLayout` are the real ones the chat list uses.
+    func startAccordionStage() {
+        let scene = makeScene(tag: "acc", tools: 3)
+        check(scene.run.memberIds.count == 3 && scene.items.count == 6,
+              "accordion scene: one run of 3 calls, 6 real rows (\(scene.run.memberIds.count)/\(scene.items.count))")
+        applyScene(scene, prefix: "acc")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.beginAccordionFlight() }
     }
 
     func beginAccordionFlight() {
+        guard let scene = currentScene else { check(false, "the accordion stage keeps its scene"); return }
         list.setNeedsLayout()
         list.layoutIfNeeded()
         let heights = (1...3).map { listLayout.naturalHeightForAccordion(at: $0) }
@@ -514,13 +615,11 @@ final class SelectableMarkdownTextView: UIView {
         let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
         accordionHeaderY = headerY
         accordionFollowYBefore = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
-        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
-                                                headerIndex: 0, anchorY: headerY,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: (1...3).map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: headerY)
+        check(plan.headerItem == listItems[0] && plan.memberItems == Array(listItems[1...3]),
+              "accordion plan addresses exactly the rows the list holds")
+        let flight = makeFlight()
         flight.reduceMotion = { false }
-        accordionFlight = flight
         flight.start(plan, direction: .expand) { outcome in
             self.check(outcome == .completed, "accordion expand completed (outcome=\(outcome.rawValue))")
             self.captureAccordionFrame("accordion-end")
@@ -593,16 +692,13 @@ final class SelectableMarkdownTextView: UIView {
     }
 
     func startAccordionCollapse() {
+        guard let scene = currentScene else { check(false, "the collapse stage keeps its scene"); return }
         let heights = (1...3).map { listLayout.cachedHeight(at: $0) ?? ToolGroupRowView.rowHeight }
         let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
         accordionHeaderY = headerY
-        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
-                                                headerIndex: 0, anchorY: headerY,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: (1...3).map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: headerY)
+        let flight = makeFlight()
         flight.reduceMotion = { false }
-        accordionFlight = flight
         flight.start(plan, direction: .collapse) { outcome in
             self.check(outcome == .completed, "accordion collapse completed (outcome=\(outcome.rawValue))")
             self.check(self.listLayout.toolGroupAccordionSpan == nil, "collapse cleared its span")
@@ -633,12 +729,11 @@ final class SelectableMarkdownTextView: UIView {
     }
 
     func startReduceMotionCase() {
-        let heights = (1...3).map { ToolGroupRowView.rowHeight }
-        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
-                                                headerIndex: 0, anchorY: 0,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: heights.enumerated().map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        let scene = makeScene(tag: "reduce", tools: 3)
+        applyScene(scene, prefix: "reduce")
+        let heights = (1...3).map { _ in ToolGroupRowView.rowHeight }
+        let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: 0)
+        let flight = makeFlight()
         flight.reduceMotion = { true }
         flight.start(plan, direction: .expand) { outcome in
             self.check(outcome == .instant, "reduce motion applies the terminal state without animating")
@@ -660,19 +755,13 @@ final class SelectableMarkdownTextView: UIView {
     /// only legal offset is the top inset. The reveal must still run and the
     /// offset must never leave the legal window (no bounce, no crash).
     func startShortContentCase() {
-        let msg = ChatMessage(blocks: [AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "short")])
-        let run = ToolFoldPlanner.foldedRuns(in: msg.blocks, ended: true).first!
-        rows = (0..<2).map { RowCase(label: "short-\($0)", message: msg, run: run, expanded: $0 == 0) }
-        reloadForAccordionStage()
+        let scene = makeScene(tag: "short", tools: 1)
+        applyScene(scene, prefix: "short", limit: 2)   // header + its one member row
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
             let heights = [self.listLayout.naturalHeightForAccordion(at: 1)]
-            let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...1, naturalHeights: heights,
-                                                    headerIndex: 0, anchorY: 0,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: heights.enumerated().map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-            let flight = ToolGroupAccordionFlight(collectionView: self.list, layout: self.listLayout)
+            let plan = self.makePlan(for: scene, memberRange: 1...1, heights: heights, anchorY: 0)
+            let flight = self.makeFlight()
             flight.reduceMotion = { false }
-            self.accordionFlight = flight
             flight.start(plan, direction: .expand) { outcome in
                 self.check(outcome == .completed, "short content: the reveal still runs (outcome=\(outcome.rawValue))")
                 self.check(self.list.contentSize.height <= self.list.bounds.height + 1,
@@ -689,22 +778,17 @@ final class SelectableMarkdownTextView: UIView {
     /// A run taller than the viewport: rows below the fold must move by exactly
     /// the revealed amount, and nothing may be left clipped after the flight.
     func startLongGroupCase() {
-        let msg = ChatMessage(blocks: [AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "long")])
-        let run = ToolFoldPlanner.foldedRuns(in: msg.blocks, ended: true).first!
-        rows = (0..<34).map { RowCase(label: "long-\($0)", message: msg, run: run, expanded: $0 == 0) }
-        reloadForAccordionStage()
+        let scene = makeScene(tag: "long", tools: 32)
+        check(scene.run.memberIds.count == 32, "long group: the planner folds its 32 calls into one run (\(scene.run.memberIds.count))")
+        applyScene(scene, prefix: "long")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             let heights = (1...32).map { self.listLayout.naturalHeightForAccordion(at: $0) }
             self.check(heights.reduce(0, +) > self.list.bounds.height,
                        "long group: the members really are taller than the viewport (\(heights.reduce(0, +)) vs \(self.list.bounds.height))")
             let headerY = (self.list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame.minY ?? 0) - self.list.contentOffset.y
-            let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...32, naturalHeights: heights,
-                                                    headerIndex: 0, anchorY: headerY,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: (1...3).map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-            let flight = ToolGroupAccordionFlight(collectionView: self.list, layout: self.listLayout)
+            let plan = self.makePlan(for: scene, memberRange: 1...32, heights: heights, anchorY: headerY)
+            let flight = self.makeFlight()
             flight.reduceMotion = { false }
-            self.accordionFlight = flight
             flight.start(plan, direction: .expand) { outcome in
                 self.check(outcome == .completed, "long group: the flight completes (outcome=\(outcome.rawValue))")
                 self.check(flight.framesApplied >= 5, "long group: many frames, not an instant cut (frames=\(flight.framesApplied))")
@@ -721,29 +805,60 @@ final class SelectableMarkdownTextView: UIView {
 
     /// The plan's rows are replaced by others (same count): the driver must
     /// retire on identity, not keep clipping whatever now lives at those rows.
+    /// The replacement is a REAL data source swap — another message's run, so
+    /// every index holds a different `MessageListItem` while the row count and
+    /// the reveal window stay exactly as they were.
     func startIdentityInvalidationCase() {
-        let msg = ChatMessage(blocks: [AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "ident")])
-        let run = ToolFoldPlanner.foldedRuns(in: msg.blocks, ended: true).first!
-        rows = (0..<6).map { RowCase(label: "ident-\($0)", message: msg, run: run, expanded: $0 == 0) }
-        reloadForAccordionStage()
+        let scene = makeScene(tag: "ident", tools: 3)
+        applyScene(scene, prefix: "ident")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
             let heights = (1...3).map { self.listLayout.naturalHeightForAccordion(at: $0) }
-            let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
-                                                    headerIndex: 0, anchorY: 0,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: heights.enumerated().map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-            let flight = ToolGroupAccordionFlight(collectionView: self.list, layout: self.listLayout)
+            let plan = self.makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: 0)
+            let flight = self.makeFlight()
             flight.reduceMotion = { false }
-            var valid = true
-            flight.spanIsValid = { _ in valid }
-            self.accordionFlight = flight
             flight.start(plan, direction: .expand) { outcome in
                 self.check(outcome == .interrupted, "identity: the flight retires instead of clipping the wrong rows")
                 self.check(self.listLayout.toolGroupAccordionSpan == nil, "identity: the span is cleared at once")
+                self.startInsertAboveCase()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                let other = self.makeScene(tag: "ident-other", tools: 3)
+                let replacement = self.makeRows(for: other, prefix: "ident-other")
+                self.check(replacement.count == self.rows.count,
+                           "identity: the replacement really has the same row count (\(replacement.count)/\(self.rows.count))")
+                self.check(replacement.map(\.item) != self.listItems,
+                           "identity: the replacement really changes every list identity")
+                self.replaceRows(replacement)   // same count, different rows
+            }
+        }
+    }
+
+    /// A row inserted ABOVE the run: the count grows by one and every stored
+    /// identity moves one row down. The count alone cannot see this; the items
+    /// can, so the driver must retire.
+    func startInsertAboveCase() {
+        let scene = makeScene(tag: "insert", tools: 3)
+        applyScene(scene, prefix: "insert")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            let heights = (1...3).map { self.listLayout.naturalHeightForAccordion(at: $0) }
+            let plan = self.makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: 0)
+            let flight = self.makeFlight()
+            flight.reduceMotion = { false }
+            flight.start(plan, direction: .expand) { outcome in
+                self.check(outcome == .interrupted, "insert above: the flight retires instead of clipping shifted rows")
+                self.check(self.listLayout.toolGroupAccordionSpan == nil, "insert above: the span is cleared at once")
                 self.startReduceMotionCollapseCase()
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                valid = false   // same count, different rows
+                let earlier = ChatMessage(blocks: [AssistantBlock(kind: .text, content: "earlier")])
+                var grown = self.rows
+                grown.insert(RowCase(label: "insert-above-prior", message: earlier, run: scene.run,
+                                     expanded: false, item: .wholeMessage(earlier.id)), at: 0)
+                self.check(grown.count == self.rows.count + 1,
+                           "insert above: the list really grew by one row (\(grown.count)/\(self.rows.count))")
+                self.check(grown[1].item == plan.headerItem,
+                           "insert above: the run's header now lives one row below the plan's index")
+                self.replaceRows(grown)
             }
         }
     }
@@ -751,12 +866,11 @@ final class SelectableMarkdownTextView: UIView {
     /// Reduce motion in the CLOSING direction must reach reveal 0 and drop the
     /// span without a single intermediate frame.
     func startReduceMotionCollapseCase() {
-        let heights = (1...3).map { ToolGroupRowView.rowHeight }
-        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
-                                                headerIndex: 0, anchorY: 0,
-                                                headerItem: .toolGroup(msg.id, run.firstBlockId),
-                                                memberItems: heights.enumerated().map { _ in .assistantBlock(msg.id, run.firstBlockId) })
-        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        let scene = makeScene(tag: "reduce-close", tools: 3)
+        applyScene(scene, prefix: "reduce-close")
+        let heights = (1...3).map { _ in ToolGroupRowView.rowHeight }
+        let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: 0)
+        let flight = makeFlight()
         flight.reduceMotion = { true }
         flight.start(plan, direction: .collapse) { outcome in
             self.check(outcome == .instant, "reduce motion close: instant outcome")
@@ -778,7 +892,11 @@ final class SelectableMarkdownTextView: UIView {
         })
         entryStage = stage
         stage.start()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+        // [T-toolgroup-accordion] `self` is the app delegate (it outlives the
+        // run) and `entryStage` retains the stage, so a weak capture cannot cut
+        // the stage short — it only keeps `guard let self` legal, which a strong
+        // capture does not (a non-optional self can never be bound again).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
             guard let self, let stage = self.entryStage else { return }
             self.check(stage.failures.isEmpty, "entry stage finished without failures (\(stage.failures))")
             self.check(stage.checks >= 18, "entry stage ran its cases (checks=\(stage.checks))")
@@ -786,6 +904,7 @@ final class SelectableMarkdownTextView: UIView {
         }
     }
 
+    /// The rows of a scene, loaded with the estimates the style stage uses.
     func reloadForAccordionStage() {
         listLayout.clearToolGroupAccordion()
         listLayout.clearHeightCache()

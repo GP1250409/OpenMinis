@@ -27,6 +27,26 @@ def slice_between(text, start, end, label):
 
 
 def prepare():
+    # [T-toolgroup-accordion] Fail with a NAMED rule before swiftc runs: run
+    # 44485598270 burned a whole CI job to learn that the fixture used `msg.id`
+    # and `run` outside their scope (and a removed `spanIsValid`). Those are the
+    # Darwin-only error classes no `-parse` can see; the analyser re-checks them
+    # here so the job that pays for the compile already knows why.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('toolfold_fixture_lint',
+                                                  ROOT / 'scripts/toolfold_fixture_lint.py')
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    flight_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift').read_text()
+    lint_bad = []
+    for name in ('ToolFoldUIKitFixture.swift', 'ToolGroupToggleEntryStage.swift'):
+        text = (ROOT / 'scripts/toolfold-uikit-tests' / name).read_text()
+        lint_bad += ['%s:%s' % (name, f) for f in lint.lint_text(text, flight_src)]
+    if lint_bad:
+        print('\n'.join(lint_bad), flush=True)
+        raise SystemExit('TOOLFOLD_FIXTURE_LINT_FAILED')
+    print('TOOLFOLD_FIXTURE_LINT_OK', flush=True)
+
     abv = (IOS / 'Views/Chat/AssistantBlockView.swift').read_text()
     row_start = abv.index('struct ToolGroupRowView: View {')
     row_end = abv.index('\nextension Notification.Name {', row_start)

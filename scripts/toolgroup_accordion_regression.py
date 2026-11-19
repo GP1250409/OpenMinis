@@ -224,6 +224,16 @@ def ordered_ok(text, parts):
     return True
 
 
+def _load_fixture_lint():
+    """The Swift-source analyser of the fixture (scope/member/arity/capture)."""
+    import importlib.util
+    path = Path(__file__).resolve().parent / 'toolfold_fixture_lint.py'
+    spec = importlib.util.spec_from_file_location('toolfold_fixture_lint', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def static_checks():
     c = Contract()
     math = MATH_SRC.read_text()
@@ -299,9 +309,19 @@ def static_checks():
     c.absent(delegate, 'toolGroupAccordionFlight', 'frozen negative: no coordinator-only symbol in the status-bar slice')
 
     # 5. the UIKit fixture drives THIS class, on a window, with intermediate frames
-    c.present(fixture, 'ToolGroupAccordionFlight(collectionView: list, layout: listLayout)', 'fixture uses the shipping driver')
-    c.ok(fixture.count('ToolGroupAccordionFlight(collectionView: list, layout: listLayout)') >= 3,
-         'fixture covers expand, collapse and reduce motion with the shipping driver')
+    c.present(fixture, 'ToolGroupAccordionFlight(collectionView: list, layout: listLayout)',
+              'fixture uses the shipping driver')
+    # [T-toolgroup-accordion] Run 44485598270: the fixture used to build a flight
+    # at every call site and addressed it with `headerItem: .toolGroup(msg.id,
+    # run.firstBlockId)` — scalars that were not even in scope there. One factory
+    # now builds every flight and wires it to the fixture's OWN list identities,
+    # and every case starts it.
+    c.ok(fixture.count('ToolGroupAccordionFlight(collectionView:') == 1,
+         'every flight is built in ONE place, the factory that wires liveItems')
+    c.present(fixture, 'flight.liveItems = { [weak self] in self?.listItems }',
+              'the factory feeds the flight the fixture\'s real list identities')
+    c.ok(fixture.count('.start(plan, direction: .') >= 6,
+         'fixture covers expand, collapse, reduce motion, short, long and identity with the shipping driver')
     c.present(fixture, 'self.checkAccordionMidFlight()', 'fixture samples an intermediate frame')
     c.present(fixture, 'accordion-mid', 'intermediate-frame PNG')
     c.present(fixture, 'accordion-end', 'end-frame PNG')
@@ -521,7 +541,30 @@ def static_checks():
                            'ToolGroupAccordionToggle.Environment')[0] == env_members,
          'the parser reads a well-ordered call back exactly')
 
-
+    # 14. [T-toolgroup-accordion] The Darwin-only type errors of the fixture.
+    #     Run 44485598270 was the FIRST run that actually compiled
+    #     `scripts/toolfold-uikit-tests/ToolFoldUIKitFixture.swift` (UIKit), and it
+    #     died with 24 type errors: `msg.id`/`run` used in functions that never
+    #     declared them, the removed `flight.spanIsValid`, `(1...3).map { expr }`
+    #     without `_ in`, and `guard let self` under a STRONG capture. `-parse`
+    #     cannot see any of those. `toolfold_fixture_lint.py` re-checks exactly
+    #     those classes here, on Linux, and is validated against the original
+    #     errors (frozen) and against re-introductions in the REAL files.
+    lint = _load_fixture_lint()
+    flight_src = FLIGHT_SRC.read_text()
+    for label, text in (('ToolFoldUIKitFixture.swift', fixture),
+                        ('ToolGroupToggleEntryStage.swift', entry)):
+        findings = lint.lint_text(text, flight_src)
+        c.ok(not findings, 'fixture lint: %s has no Darwin-only type error (%d: %s)'
+             % (label, len(findings), [str(f) for f in findings[:3]]))
+    for rule, where, src, what in lint.FROZEN:
+        got = {f.rule for f in lint.lint_text(src, flight_src)}
+        c.ok(rule in got, 'fixture lint catches the frozen negative %s (%s)' % (where, what))
+    for rule, mutate in lint.MUTATIONS:
+        hits = [t for t in (fixture, entry) if mutate(t) != t]
+        c.ok(bool(hits), 'fixture lint mutation %s still applies to a real file' % rule)
+        c.ok(all(rule in {f.rule for f in lint.lint_text(mutate(t), flight_src)} for t in hits),
+             'fixture lint catches %s re-introduced into the real fixture' % rule)
 
     return c
 
