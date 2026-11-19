@@ -468,6 +468,18 @@ def fixture_assertion_contract():
          'settle stops only when two consecutive production measurements agree')
     case(tests.count('.attachAndSettle()') >= 8,
          'every case attaches and settles its fixture before measuring anything')
+    # run 44452239211: the cases read `fx.attached` / `fx.settleRounds`, but the
+    # fixture never declared them - the failure only showed up as a Darwin
+    # compile error, after the harness parse had passed. Cross-check every
+    # `fx.<member>` the cases touch against the fixture's declarations.
+    declared = set(re.findall(r'(?:var|let|func)\s+([A-Za-z_][A-Za-z0-9_]*)', harness))
+    touched = set(re.findall(r'fx\.([A-Za-z_][A-Za-z0-9_]*)', tests))
+    missing = sorted(touched - declared)
+    case(not missing,
+         'every fx.<member> used by the cases is declared by the fixture '
+         '(missing: %s)' % (', '.join(missing) or 'none'))
+    case({'attached', 'settleRounds', 'settleTrace'} <= declared,
+         'the fixture exposes the attach/settle diagnostics the cases assert on')
     case(all(tok in harness for tok in ('clearCachedHeight()', 'invalidateHeight(at: i)',
                                        'reconfigureItems(items)', 'layout.invalidateLayout()')),
          'settle re-asks the shipping layout (cache + measured heights), not a stub')

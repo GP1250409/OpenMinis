@@ -127,6 +127,12 @@ final class AskCardFixture {
     var toolExpanded = false
     var cardIds: [UUID] = []
     var msgId = UUID()
+    /// Set by `attach(to:)`: the list only measures inside a real window.
+    private(set) var attached = false
+    /// How many settle rounds ran after the attach; 0 means "not settled".
+    private(set) var settleRounds = 0
+    /// Human-readable measurement sequence, used in failure messages only.
+    private(set) var settleTrace = "not-run"
 
     init(items: Int = 8, tail: Bool = false) {
         // `UICollectionViewLayout.collectionView` is get-only: the binding is
