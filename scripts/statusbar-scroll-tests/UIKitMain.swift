@@ -21,9 +21,14 @@ import UIKit
 
 var checks = 0
 func check(_ condition: Bool, _ name: String) {
-    guard condition else { fatalError("FAIL: " + name) }
+    guard condition else {
+        print("FAIL: " + name)
+        fflush(stdout)
+        fatalError("FAIL: " + name)
+    }
     checks += 1
     print("PASS: " + name)
+    fflush(stdout)
 }
 
 /// Requests a real `contentOffsetAdjustment` from UIKit, gated by the
@@ -278,8 +283,13 @@ func stageAfterFlight() {
     // 9. The native scroll-to-top eligibility flag is untouched.
     check(cv.scrollsToTop, "the list still opts into the system status-bar gesture")
 
+    // `simctl launch --console-pty` hands the console to the caller, but bytes
+    // still sitting in stdio when the process leaves are dropped: the marker
+    // then never reaches the runner even though every check passed. Flush, then
+    // stay alive briefly so the reader drains the pty.
     print("STATUSBAR_SCROLL_UIKIT_PASS checks=\(checks)")
-    // Console-pty reader sees the marker before the process leaves.
+    fflush(stdout)
+    Thread.sleep(forTimeInterval: 0.5)
     exit(0)
 }
 
