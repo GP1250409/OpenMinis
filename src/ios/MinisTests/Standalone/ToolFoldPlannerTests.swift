@@ -704,12 +704,18 @@ func accordionChainMissing(_ s: AccordionChainSources) -> [String] {
     need("tap-userBrowsing", s.tap.contains("scrollMode = .userBrowsing"))
     need("tap-transaction", s.tap.contains("ToolGroupAccordionToggle.run(request, in: env)"))
     need("tap-retarget-refresh", s.tap.contains("refreshToolGroupToggleRow(item)"))
+    need("tap-flush-converge", s.tap.contains("flushToolGroupAccordionConverge(force: true)"))
     // 2. the transaction drives the invalidation, the structure and the anchor
     need("transaction-refreshHeader", s.txn.contains("env.refreshHeader(request.item)"))
     need("transaction-applyStructure",
          s.txn.contains("env.applyStructure(\"toolGroupAccordionEnd\")")
          && s.tap.contains("self.applySnapshot(messages: vm.messages, caller: caller)"))
     need("transaction-restoreAnchor", s.txn.contains("env.restoreAnchor(request.item, request.anchorY)"))
+    // an interrupted CLOSE keeps its rows until the viewport is free, and the
+    // side is decided by the flight's FINAL direction (a retarget flips it)
+    need("transaction-final-direction",
+         s.txn.contains("if flight.finalDirection == .collapse {")
+         && s.txn.contains("env.deferConverge(\"toolGroupAccordionEnd-deferred\")"))
     // 3. the header refresh IS the full invalidation, in the old order
     need("refresh-chain", ordered(s.refresh, ["clearCachedHeight()",
                                               "layout.invalidateHeight(at: idx)",
@@ -741,6 +747,8 @@ let stepLosses: [(String, WritableKeyPath<AccordionChainSources, String>, String
     ("tap-userBrowsing", \.tap, "scrollMode = .userBrowsing"),
     ("tap-transaction", \.tap, "ToolGroupAccordionToggle.run(request, in: env)"),
     ("tap-retarget-refresh", \.tap, "refreshToolGroupToggleRow(item)"),
+    ("tap-flush-converge", \.tap, "flushToolGroupAccordionConverge(force: true)"),
+    ("transaction-final-direction", \.txn, "if flight.finalDirection == .collapse {"),
     ("transaction-refreshHeader", \.txn, "env.refreshHeader(request.item)"),
     ("transaction-applyStructure", \.txn, "env.applyStructure(\"toolGroupAccordionEnd\")"),
     ("transaction-restoreAnchor", \.txn, "env.restoreAnchor(request.item, request.anchorY)"),

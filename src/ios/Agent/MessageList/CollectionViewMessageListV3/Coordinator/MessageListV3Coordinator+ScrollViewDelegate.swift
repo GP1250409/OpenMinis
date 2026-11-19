@@ -483,6 +483,9 @@ extension CollectionViewMessageListV3.Coordinator {
                                                 restoreStreaming: end.restoreStreaming)
             }
             AppLogger(category: "StatusBarScroll").info("[StatusBarScroll][end] token=\(end.token) reason=\(reason.rawValue) ms=\(String(format: "%.0f", end.activeMs)) offset=\(offset.map { String(format: "%.1f", $0) } ?? "-") restoreStream=\(end.restoreStreaming ? 1 : 0) restoreSelfSize=\(end.restoreSelfSizing ? 1 : 0) begins=\(statusBarScrollToTop.beginCount) completed=\(statusBarScrollToTop.completedCount) interrupted=\(statusBarScrollToTop.interruptionCount)")
+            // [T-toolgroup-accordion] The status-bar flight owned the viewport;
+            // a close it interrupted can converge now.
+            flushToolGroupAccordionConverge()
             return true
         }
 
@@ -539,6 +542,10 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             guard let layout = viewController?.messageListLayout,
                   let cv = viewController?.collectionView else { return }
+            // [T-toolgroup-accordion] The drag is over and the viewport is free
+            // again: a close it interrupted can now drop its rows (the flush
+            // refuses while a reveal or a status-bar flight still owns it).
+            flushToolGroupAccordionConverge()
 
             let deferredCount = layout.deferredHeightCount
             AppLogger(category: "Settle").debug("[Settle] BEGIN mode=\(scrollMode == .autoScrolling ? "auto" : "browse") nearBottom=\(nearBottom) offset=\(String(format: "%.1f", cv.contentOffset.y)) contentSize=\(String(format: "%.1f", cv.contentSize.height)) deferredHeights=\(deferredCount) hasPendingSnapshot=\(hasPendingSnapshot)")

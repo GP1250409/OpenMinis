@@ -252,6 +252,12 @@ extension CollectionViewMessageListV3 {
         /// drag finishes it. See Coordinator+ToolFolding `toggleToolGroup`.
         var toolGroupAccordionFlight: ToolGroupAccordionFlight?
 
+        /// [T-toolgroup-accordion] A close whose reveal was interrupted before it
+        /// converged (drag takeover, status-bar flight). The caller name is kept
+        /// until the list can drop the rows with nobody's finger on the screen;
+        /// see Coordinator+ToolFolding `flushToolGroupAccordionConverge`.
+        var toolGroupAccordionPendingConverge: String?
+
         // === Attachment mount invalidation ===
         // [T-ios-user-attach-mount-invalidate] Drain mounts attachments onto an
         // already-inserted user message; see .minisUserAttachmentsMounted.

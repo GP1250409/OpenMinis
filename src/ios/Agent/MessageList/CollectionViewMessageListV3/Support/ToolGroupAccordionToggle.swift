@@ -49,6 +49,12 @@ struct ToolGroupAccordionToggle {
         /// "Shows / Hides each tool call" accessibility label keep the OLD
         /// state for the whole flight (and until some unrelated reconfigure).
         var refreshHeader: (MessageListItem) -> Void
+        /// Record that a CLOSE was interrupted before it converged, so the list
+        /// can delete the rows at the first moment nobody owns the viewport
+        /// (drag settle / status-bar flight end / the next tap). Deleting them
+        /// inside `finish` would move everything below them while the finger is
+        /// still down.
+        var deferConverge: (String) -> Void
         /// Put the tapped row back at its screen Y (the coordinator clamps it
         /// into the list's legal offset window).
         var restoreAnchor: (MessageListItem, CGFloat) -> Void
@@ -251,15 +257,27 @@ struct ToolGroupAccordionToggle {
             // its end. `.interrupted` means a finger (or the status-bar flight)
             // owns the viewport, and `finish` has just cleared the span — the
             // member rows are back at their natural heights, so deleting them
-            // right here would move everything below them under the drag. The
-            // row list is derived from `expandedToolGroups`, so the next
-            // ordinary snapshot converges the business state; the interrupted
-            // frame stays exactly where the user left it.
+            // right here would move everything below them under the drag.
+            //
+            // Which side of the run to settle is decided by the flight's FINAL
+            // direction, never by `request.expanding`: a retarget flips the
+            // direction mid-air, so the request's value is stale by definition.
+            //  * an interrupted EXPAND already matches the business state (the
+            //    member rows are in the list) — nothing to converge;
+            //  * an interrupted CLOSE leaves an open run behind a closed
+            //    business state, so it is handed to `deferConverge` and settled
+            //    once nobody owns the viewport;
+            //  * `.cancelled` means the list is going away / being rebuilt, and
+            //    that rebuild derives the structure from the business state.
             switch outcome {
             case .completed, .instant:
                 env.applyStructure("toolGroupAccordionEnd")
                 env.restoreAnchor(request.item, request.anchorY)
-            case .interrupted, .cancelled:
+            case .interrupted:
+                if flight.finalDirection == .collapse {
+                    env.deferConverge("toolGroupAccordionEnd-deferred")
+                }
+            case .cancelled:
                 break
             }
             log("end outcome=\(outcome.rawValue) structure=\(outcome == .completed || outcome == .instant ? "settled" : "deferred") frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")

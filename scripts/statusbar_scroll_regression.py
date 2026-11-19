@@ -107,6 +107,8 @@ def wiring_checks() -> int:
          'the status-bar start aborts the accordion through the layout channel')
     need('func abortToolGroupAccordion()' in SLICE_STUBS,
          'the slice stub must declare the takeover channel')
+    need('func flushToolGroupAccordionConverge(force: Bool = false)' in SLICE_STUBS,
+         'the slice stub must declare the deferred-converge settle')
     helper = PROD.read_text()
     need('watchdogMaxMs' not in helper, 'no hard-coded animation deadline')
     need('beganAt = now' in helper and 'stalledWatchdogSamples = 0' in helper,
@@ -236,6 +238,10 @@ final class SliceCoordinator {
     func isAtContentTop() -> Bool { false }
     func scheduleCoalescedScroll() {}
     func flushPendingSnapshotIfNeeded(caller: String) { pendingFlushCaller = caller }
+    // [T-toolgroup-accordion] A deferred close converges at the settle; the
+    // slice only needs the symbol (the real function lives in +ToolFolding).
+    var toolGroupConvergeFlushes = 0
+    func flushToolGroupAccordionConverge(force: Bool = false) { toolGroupConvergeFlushes += 1 }
     static func forEachMarkdownTextView(in cell: StubCell, _ body: (StubText) -> Void) {
         body(cell.text)
     }

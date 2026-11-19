@@ -93,6 +93,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private var headerRefreshes = 0
     private var headerRefreshExpanded: Bool?
     private var headerRefreshedWhileFlying = true
+    private var deferredConverges: [String] = []
 
     private var reduceMotion = false
     private var streaming = false
@@ -237,6 +238,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
                 self.configureRow(cell, item: item)
             },
             refreshHeader: { [unowned self] item in self.refreshHeader(item) },
+            deferConverge: { [unowned self] caller in self.deferredConverges.append(caller) },
             restoreAnchor: { [unowned self] _, anchorY in self.anchors.append(anchorY) },
             storeFlight: { [unowned self] flight in self.flight = flight },
             currentFlight: { [unowned self] in self.flight },
@@ -393,8 +395,104 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             let top = -self.list.adjustedContentInset.top
             self.check(abs(self.list.contentOffset.y - top) < 0.5,
                        "short content: the list stays at its legal top (\(self.list.contentOffset.y) vs \(top))")
-            self.done()
+            self.closeInterruptedCase()
         }
+    }
+
+    // MARK: - Interrupted flights (B2)
+
+    /// The coordinator's `flushToolGroupAccordionConverge` at the moment the
+    /// finger is off the screen: run the recorded converge once.
+    private func settleDeferredConverge() {
+        guard !deferredConverges.isEmpty else { return }
+        let caller = deferredConverges.removeFirst()
+        applyCallers.append(caller)
+        syncStructure()
+    }
+
+    /// A close taken over by a drag must NOT delete its rows under the finger
+    /// (that is the "content jumps mid-gesture" trap), and it must NOT be left
+    /// open behind a closed business state either. The transaction hands the
+    /// converge to the caller, and the rows go at the settle.
+    private func closeInterruptedCase() {
+        rebuildFolded()
+        pendingExpanded = true
+        syncStructure()
+        pendingExpanded = false
+        let before = anchors.count
+        _ = ToolGroupAccordionToggle.run(request(expanding: false), in: environment())
+        guard let flight else { check(false, "close-interrupt: a flight is live"); return }
+        flight.finish(.interrupted)
+        check(items.count == expectedExpandedCount,
+              "close-interrupt: the rows are not deleted under the finger (\(items.count)/\(expectedExpandedCount))")
+        check(layout.toolGroupAccordionSpan == nil, "close-interrupt: the reveal window is gone")
+        check(deferredConverges == ["toolGroupAccordionEnd-deferred"],
+              "close-interrupt: the close asked for a deferred converge (\(deferredConverges))")
+        check(anchors.count == before, "close-interrupt: no anchor write while the finger owns the list")
+        settleDeferredConverge()
+        check(items.count == expectedFoldedCount,
+              "close-interrupt: after the settle the rows are gone (\(items.count)/\(expectedFoldedCount))")
+        check(applyCallers.last == "toolGroupAccordionEnd-deferred",
+              "close-interrupt: the converge ran through applySnapshot")
+        expandInterruptCase()
+    }
+
+    /// The other side: an interrupted EXPAND already matches the business state,
+    /// so it must NOT schedule a converge (that would delete rows that are
+    /// supposed to be there).
+    private func expandInterruptCase() {
+        rebuildFolded()
+        deferredConverges.removeAll()
+        pendingExpanded = true
+        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        guard let flight else { check(false, "expand-interrupt: a flight is live"); return }
+        flight.finish(.interrupted)
+        check(items.count == expectedExpandedCount, "expand-interrupt: the opened rows stay")
+        check(deferredConverges.isEmpty,
+              "expand-interrupt: nothing to converge (the open state IS the business state)")
+        retargetInterruptCase()
+    }
+
+    /// A retarget flips the FINAL direction: the close must be deferred even
+    /// though the request that started the flight said `expanding: true`, so
+    /// `request.expanding` can never decide this.
+    private func retargetInterruptCase() {
+        rebuildFolded()
+        deferredConverges.removeAll()
+        pendingExpanded = true
+        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        guard let flight else { check(false, "retarget-interrupt: a flight is live"); return }
+        pendingExpanded = false
+        flight.retarget(.collapse)
+        check(flight.finalDirection == .collapse, "retarget-interrupt: the flight's final direction is the close")
+        flight.finish(.interrupted)
+        check(deferredConverges == ["toolGroupAccordionEnd-deferred"],
+              "retarget-interrupt: the close is deferred from the FINAL direction, not the request (\(deferredConverges))")
+        settleDeferredConverge()
+        check(items.count == expectedFoldedCount, "retarget-interrupt: the rows are gone after the settle")
+        takeoverCase()
+    }
+
+    /// Status-bar takeover goes through the layout's abort channel; a cancelled
+    /// list drop must clear it (no layout → flight → layout retain cycle).
+    private func takeoverCase() {
+        rebuildFolded()
+        deferredConverges.removeAll()
+        pendingExpanded = true
+        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        check(flight != nil, "takeover: a flight is live")
+        check(layout.toolGroupAccordionAbort != nil, "takeover: the abort channel is armed")
+        layout.toolGroupAccordionAbort?()
+        check(flight == nil, "takeover: the status-bar channel finished the reveal")
+        check(layout.toolGroupAccordionAbort == nil, "takeover: the abort channel is disarmed after the takeover")
+        // A cancelled list (window gone / session swap) must not leave the
+        // closure armed on the layout either.
+        rebuildFolded()
+        pendingExpanded = true
+        _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        flight?.cancel()
+        check(layout.toolGroupAccordionAbort == nil, "cancel: the abort channel is cleared")
+        done()
     }
 
     private func done() {

@@ -107,6 +107,10 @@ final class ToolGroupAccordionFlight {
 
     var isRunning: Bool { link != nil }
     var currentPlan: Plan? { plan }
+    /// The direction the flight will END in (a retarget changes it). The
+    /// transaction decides what to converge with THIS, never with the direction
+    /// of the tap that started it.
+    var finalDirection: Direction { direction }
 
     // MARK: - Start / retarget / finish
 

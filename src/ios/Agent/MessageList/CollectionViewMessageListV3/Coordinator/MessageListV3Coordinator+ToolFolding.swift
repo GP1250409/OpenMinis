@@ -205,6 +205,11 @@ extension CollectionViewMessageListV3.Coordinator {
         /// reconfigure, apply, and invalidate the layout.
         func toggleToolGroup(firstBlockId: UUID) {
             let log = AppLogger(category: "ToolFold")
+            // [T-toolgroup-accordion] A close whose reveal was interrupted may
+            // still own its rows (`deferConverge`). Settle it BEFORE the anchor
+            // is read, so this tap acts on the structure the business state
+            // describes instead of collapsing and re-expanding by hand.
+            flushToolGroupAccordionConverge(force: true)
             guard let vm, let run = toolFoldRunByFirstBlock[firstBlockId],
                   let cv = viewController?.collectionView,
                   let layout = viewController?.messageListLayout,
@@ -321,7 +326,10 @@ extension CollectionViewMessageListV3.Coordinator {
                 // re-applies the list (cutting the animation) and grows the
                 // member rows (so the frozen heights end out of date); that is
                 // the case this fallback exists for.
-                isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive() ?? false },
+                isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive(messageId: run.messageId) ?? false },
+                deferConverge: { [weak self] caller in
+                    self?.deferToolGroupAccordionConverge(caller: caller)
+                },
                 log: { message in log.info(message) })
             let request = ToolGroupAccordionToggle.Request(
                 item: item,
@@ -447,15 +455,47 @@ extension CollectionViewMessageListV3.Coordinator {
             layout.invalidateLayout()
         }
 
-        /// [T-toolgroup-accordion] True while this list is still PRODUCING the
-        /// run: a token or a tool result can land inside the 0.32s reveal,
-        /// re-applying the list and growing the member rows whose heights the
-        /// flight froze. `streamingUIUpdatesSuspended` is the opposite thing —
-        /// the UI updates are PAUSED (scroll suspend, session switch) and it is
-        /// false exactly while the model streams.
-        func isToolGroupAccordionProductionLive() -> Bool {
+        /// [T-toolgroup-accordion] True while THIS message is still producing:
+        /// the run's member rows can grow under a frozen height, so the reveal
+        /// would end out of date. Scoped to the message, not the session — a
+        /// finished run of an older message is stable content, and a turn
+        /// running elsewhere in the chat must not turn the accordion off for
+        /// every historical group. `isProcessing` alone was exactly that bug.
+        /// `streamingUIUpdatesSuspended` is the opposite thing again (the UI
+        /// updates are PAUSED, e.g. scroll suspend / session switch).
+        func isToolGroupAccordionProductionLive(messageId: UUID) -> Bool {
             guard let vm else { return false }
-            return vm.isProcessing || vm.toolFoldRunningMessageId != nil
+            return vm.toolFoldRunningMessageId == messageId
+        }
+
+        /// [T-toolgroup-accordion] A close that a finger (or the status-bar
+        /// flight) took over: `finish` already restored the member rows to
+        /// their natural heights, so the rows may only be removed once nobody
+        /// owns the viewport. Recorded here instead of deleted under the drag.
+        func deferToolGroupAccordionConverge(caller: String) {
+            toolGroupAccordionPendingConverge = caller
+            DispatchQueue.main.async { [weak self] in self?.flushToolGroupAccordionConverge() }
+        }
+
+        /// Converge a deferred close if, and only if, the viewport is free —
+        /// no live reveal, no status-bar flight, no drag or deceleration. The
+        /// apply keeps the offset (the rows are already at their natural height,
+        /// so the only motion is the collapse the user asked for, now with the
+        /// finger off the screen).
+        func flushToolGroupAccordionConverge(force: Bool = false) {
+            guard let caller = toolGroupAccordionPendingConverge, let vm else { return }
+            if !force {
+                guard toolGroupAccordionFlight?.isRunning != true,
+                      !statusBarScrollToTop.isActive,
+                      let cv = viewController?.collectionView,
+                      !cv.isTracking, !cv.isDecelerating else { return }
+            }
+            toolGroupAccordionPendingConverge = nil
+            let layout = viewController?.messageListLayout
+            let wasSuppressed = layout?.suppressContentOffsetAdjustment ?? false
+            layout?.suppressContentOffsetAdjustment = true
+            applySnapshot(messages: vm.messages, caller: caller)
+            layout?.suppressContentOffsetAdjustment = wasSuppressed
         }
 
         /// [T-user-ask-toggle-drift] A cell the user tapped open or shut

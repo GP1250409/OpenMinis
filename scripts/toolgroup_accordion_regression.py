@@ -277,8 +277,10 @@ def static_checks():
     c.present(delegate[delegate.index('func beginStatusBarScrollToTop()'):][:900],
               'abortToolGroupAccordion()',
               'the status-bar flight cancels the accordion on its own start')
-    c.present(txn, 'case .interrupted, .cancelled:\n                break',
-              'an interrupted/superseded flight never restores the old anchor')
+    c.present(txn, 'case .cancelled:\n                break',
+              'a cancelled flight never converges and never restores the old anchor')
+    c.absent(txn, 'case .interrupted:\n                env.restoreAnchor',
+             'frozen negative: an interrupted flight never restores the old anchor')
     c.absent(toggle, 'flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in\n                guard let self, let vm = self.vm else { return }\n                if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }\n                self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")\n                self.restoreToolGroupToggleAnchor',
              'frozen negative: anchor restore on every outcome (would fight a drag)')
     c.present(txn, 'if let receipt = cell.heightReceipt {',
@@ -397,10 +399,10 @@ def static_checks():
     c.ok(txn.index('flight.start(plan') < txn.index('env.refreshHeader(request.item)'),
          'the refresh runs AFTER the span is installed (a reconfigure cannot draw the members first)')
     # 8. N1: the streaming fallback means "still producing", never "UI updates suspended"
-    c.present(fold, 'isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive() ?? false }',
-              'the toggle falls back on the REAL production-live predicate')
-    c.present(fold, 'return vm.isProcessing || vm.toolFoldRunningMessageId != nil',
-              'production-live = the run is still producing')
+    c.present(fold, 'isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive(messageId: run.messageId) ?? false }',
+              'the toggle falls back on the REAL production-live predicate, scoped to THIS message')
+    c.present(fold, 'return vm.toolFoldRunningMessageId == messageId',
+              'production-live = the run of that message is still producing')
     c.absent(fold, 'isStreaming: { [weak self] in self?.vm?.streamingUIUpdatesSuspended ?? false }',
              'frozen negative: suspended UI updates is the OPPOSITE of streaming')
     # 9. N2: only a flight that reached its end may converge the structure
@@ -412,6 +414,37 @@ def static_checks():
     cancel_body = flight[flight.index('func cancel() {'):flight.index('private func restoreClip()')]
     c.present(cancel_body, 'layout.toolGroupAccordionAbort = nil',
               'cancel() clears the takeover closure it armed')
+
+    # 11. B2: an interrupted CLOSE is settled at the first free viewport, never
+    #     under the finger, and never from the stale `request.expanding`.
+    c.present(flight, 'var finalDirection: Direction { direction }',
+              'the flight exposes the direction it will END in (a retarget changes it)')
+    c.present(txn, 'if flight.finalDirection == .collapse {',
+              'the interrupted side is decided by the final direction, not by the request')
+    c.present(txn, 'env.deferConverge("toolGroupAccordionEnd-deferred")',
+              'an interrupted close hands its converge to the list')
+    c.absent(txn, 'case .interrupted, .cancelled:\n                break',
+             'frozen negative: an interrupted close is not simply dropped')
+    c.present(toggle, 'flushToolGroupAccordionConverge(force: true)',
+              'a new tap settles a deferred close first (no collapse-then-expand flash)')
+    c.present(delegate, 'flushToolGroupAccordionConverge()',
+              'the drag / status-bar end settles it')
+    c.present(fold, 'func flushToolGroupAccordionConverge(force: Bool = false)',
+              'the converge runs only with a free viewport')
+    c.present(fold, 'guard toolGroupAccordionFlight?.isRunning != true,',
+              'no live reveal may own the viewport')
+    c.present(fold, '!statusBarScrollToTop.isActive,', 'no status-bar flight may own the viewport')
+    c.present(fold, '!cv.isTracking, !cv.isDecelerating else { return }',
+              'no drag / deceleration may own the viewport')
+    c.present(fold, 'layout?.suppressContentOffsetAdjustment = true',
+              'the deferred converge keeps the offset (rows are already at natural height)')
+    # 12. N1 narrowed: only THIS message producing turns the animation off
+    c.present(fold, 'func isToolGroupAccordionProductionLive(messageId: UUID) -> Bool',
+              'the production-live test is scoped to a message')
+    c.present(fold, 'return vm.toolFoldRunningMessageId == messageId',
+              'it is the run of THAT message, not the whole session')
+    c.absent(fold, 'vm.isProcessing || vm.toolFoldRunningMessageId != nil',
+             'frozen negative: a turn running elsewhere must not disable every historical group')
 
     # 7. every gate script must know the new markers, not just build.py
     verify = (NEWROOT / 'verify_candidate.py')
