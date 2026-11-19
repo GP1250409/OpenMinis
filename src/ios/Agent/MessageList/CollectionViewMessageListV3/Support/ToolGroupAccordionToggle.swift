@@ -112,6 +112,21 @@ struct ToolGroupAccordionToggle {
         return idxs == Array(first...(first + idxs.count - 1))
     }
 
+    /// [T-toolgroup-collapse-finish] Did any of the run's member rows survive the
+    /// structural apply of a completed close?
+    ///
+    /// `applyStructure` is the coordinator's `applySnapshot`, and that call can
+    /// legitimately do nothing: it returns at once while a session loads, and the
+    /// tool-fold re-plan only defers when streaming UI updates are suspended. A
+    /// close that assumed "the rows are gone now" would leave the run drawn at
+    /// zero height forever in those cases, with no span and no owner.
+    static func membersSurvivedStructure(_ memberItems: [MessageListItem],
+                                         in env: Environment) -> Bool {
+        let live = env.items()
+        for item in memberItems where live.contains(item) { return true }
+        return false
+    }
+
     @discardableResult
     static func run(_ request: Request, in env: Environment) -> Outcome {
         let cv = env.collectionView
@@ -246,6 +261,13 @@ struct ToolGroupAccordionToggle {
         // another session with the same row count, or a replaced span row all
         // keep the numbers valid while the indices now point at the wrong rows.
         flight.liveItems = { env.items() }
+        // [T-toolgroup-collapse-finish] This transaction is the one that deletes
+        // the member rows when the run closes, so it claims the close's terminal
+        // geometry BEFORE the flight starts: `finish` then keeps the zero-reveal
+        // window (and the clip) installed and hands the delete to us instead of
+        // laying the natural heights out first. A flight that ends EXPANDED (or
+        // is retargeted to expand) ignores the claim and keeps the old teardown.
+        flight.ownsTerminalCollapseHandoff = true
         flight.armAbortChannel()
         layout.toolGroupAccordionAbort = {
             // The abort channel is reached from the layout's own takeover paths
@@ -266,6 +288,35 @@ struct ToolGroupAccordionToggle {
                 // flight owns the store.
                 env.layout.toolGroupAccordionAbort = nil
             }
+            // [T-toolgroup-collapse-finish] Atomic terminal handoff of a close.
+            //
+            // The reveal window must die in the SAME synchronous step as the
+            // structural commit, not one statement earlier and not one pass
+            // later. `applySnapshot` does real preparation between its entry and
+            // `dataSource.apply` (it re-plans the runs, remaps the height cache,
+            // may end editing, and any of that may lay out) — with the window
+            // cleared at the START of that work, the old member rows would be
+            // laid out at their natural heights for the whole preparation, which
+            // IS the rebound this task removes. So the transaction does not clear
+            // anything itself: it publishes a ONE-SHOT handoff on the layout, and
+            // `applySnapshot` consumes it immediately before the commit (see
+            // `consumeToolGroupAccordionTerminalHandoff`). Then:
+            //
+            //   ... frames at reveal 0 → [preparation: window still installed,
+            //   members still 0 high] → clear window → commit (one pass, new
+            //   rows) → verify
+            //
+            // The claim is the flight's, and the side is the flight's FINAL
+            // direction: a second tap that turned the flight around ends on the
+            // side it really converged to.
+            let closingTerminal = (outcome == .completed || outcome == .instant)
+                && flight.finalDirection == .collapse
+            var handoffCommitted = false
+            if closingTerminal {
+                env.layout.toolGroupAccordionTerminalHandoff = {
+                    handoffCommitted = flight.commitTerminalHandoff()
+                }
+            }
             // The structure may only converge when the flight really reached
             // its end. `.interrupted` means a finger (or the status-bar flight)
             // owns the viewport, and `finish` has just cleared the span — the
@@ -285,7 +336,37 @@ struct ToolGroupAccordionToggle {
             switch outcome {
             case .completed, .instant:
                 env.applyStructure("toolGroupAccordionEnd")
-                env.restoreAnchor(request.item, request.anchorY)
+                if closingTerminal {
+                    // The channel belongs to this transaction alone: whatever the
+                    // apply did, it must not stay armed for some later commit.
+                    env.layout.toolGroupAccordionTerminalHandoff = nil
+                    if membersSurvivedStructure(request.memberItems, in: env) {
+                        // The apply declined to run (a session load in flight) or
+                        // re-planned the run back in: the rows are still there. A
+                        // dead zero-height window must not stay on screen, so land
+                        // the real geometry and let the deferred converge delete
+                        // the rows at the first free viewport — the same path an
+                        // interrupted close takes.
+                        flight.commitTerminalHandoff()
+                        flight.landNaturalGeometry()
+                        env.deferConverge("toolGroupAccordionEnd-deferred")
+                        log("end handoff=declined members-still-present settle=deferred committed=\(handoffCommitted)")
+                    } else {
+                        // The rows are gone. If the apply never reached its commit
+                        // (no `applySnapshot`, e.g. a caller that rebuilt the
+                        // snapshot itself) the window is still installed: drop it
+                        // now, with no layout of its own and without touching a
+                        // cell that no longer belongs to this plan.
+                        flight.commitTerminalHandoff()
+                        // Nothing moved: the members were already 0 high when the
+                        // apply deleted them, so the header is exactly where the
+                        // last frame left it and `restoreAnchor` writes no offset
+                        // unless a legal clamp really requires it.
+                        env.restoreAnchor(request.item, request.anchorY)
+                    }
+                } else {
+                    env.restoreAnchor(request.item, request.anchorY)
+                }
             case .interrupted:
                 if flight.finalDirection == .collapse {
                     env.deferConverge("toolGroupAccordionEnd-deferred")
@@ -293,7 +374,7 @@ struct ToolGroupAccordionToggle {
             case .cancelled:
                 break
             }
-            log("end outcome=\(outcome.rawValue) structure=\(outcome == .completed || outcome == .instant ? "settled" : "deferred") frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
+            log("end outcome=\(outcome.rawValue) structure=\(outcome == .completed || outcome == .instant ? "settled" : "deferred") handoff=\(closingTerminal ? (handoffCommitted ? "atomic" : "atomic-uncommitted") : "legacy") frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
         }
         // [T-toolgroup-accordion] The tapped row must show its NEW expanded
         // state from the first frame: the diffable apply above never

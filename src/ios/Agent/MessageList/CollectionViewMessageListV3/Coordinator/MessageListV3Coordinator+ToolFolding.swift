@@ -406,10 +406,16 @@ extension CollectionViewMessageListV3.Coordinator {
         /// offset window. Shared by the instant path and the accordion's end.
         private func restoreToolGroupToggleAnchor(item: MessageListItem, anchorY: CGFloat) {
             guard let cv = viewController?.collectionView,
-                  let layout = viewController?.messageListLayout,
                   let ds = dataSource,
                   let idx = ds.snapshot().indexOfItem(item) else { return }
-            layout.invalidateLayout()
+            // [T-toolgroup-collapse-finish] Lay out only what the apply really
+            // dirtied: the structural commit already invalidated the layout, so
+            // `layoutIfNeeded` lands the new structure in ONE pass. The old
+            // unconditional `invalidateLayout()` forced a second full prepare of
+            // the whole session on every close, which is exactly the extra work
+            // the atomic handoff exists to remove. Rows that grew for other
+            // reasons still change the header's position, so the drift is read
+            // from the settled layout and only a real drift writes an offset.
             cv.layoutIfNeeded()
             if let newMinY = cv.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))?.frame.minY {
                 let minOff = -cv.adjustedContentInset.top

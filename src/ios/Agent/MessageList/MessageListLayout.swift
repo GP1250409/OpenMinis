@@ -65,6 +65,22 @@ final class MessageListLayout: UICollectionViewLayout {
         setToolGroupAccordion(nil)
     }
 
+    /// [T-toolgroup-collapse-finish] Monotonic count of completed `prepare()`
+    /// passes, plus an optional observer that reports WHAT each pass saw.
+    ///
+    /// The close's terminal handoff is a claim about LAYOUT PASSES, not about a
+    /// final screenshot: no pass may lay the run's member rows out at their
+    /// natural height between the last animated frame (reveal 0) and the
+    /// structural delete. A regression can only prove that if it can see every
+    /// pass. Production leaves the observer nil (one branch per prepare); the
+    /// UIKit fixture installs it.
+    private(set) var prepareGeneration: Int = 0
+
+    /// Called at the end of every `prepare()` when set:
+    /// (generation, item count, total height, reveal window as
+    /// "lower...upper@reveal", or "-" when no window is installed).
+    var prepareObserver: ((Int, Int, CGFloat, String) -> Void)?
+
     /// [T-toolgroup-accordion] Cross-feature takeover channel.
     ///
     /// The status-bar scroll-to-top flight lives in a file that other harnesses
@@ -79,6 +95,37 @@ final class MessageListLayout: UICollectionViewLayout {
 
     func abortToolGroupAccordion() {
         toolGroupAccordionAbort?()
+    }
+
+    /// [T-toolgroup-collapse-finish] ONE-SHOT terminal handoff of a run that is
+    /// closing.
+    ///
+    /// A close freezes its member rows at reveal 0 and the transaction that owns
+    /// the delete must land the structure in the same synchronous step in which
+    /// the reveal window dies. `applySnapshot` does real work before it commits
+    /// (`updateCacheForSnapshot`, the tool-fold re-plan, `endEditing`), and any of
+    /// that may lay out — if the window were cleared before that work, the old
+    /// member rows would be laid out at their natural heights for the whole
+    /// preparation (the rebound). If it were cleared after the commit, the new
+    /// snapshot's rows would be clipped through the OLD indices. So the
+    /// transaction parks a closure here and `applySnapshot` consumes it
+    /// immediately before `dataSource.apply`, where nothing can lay out in
+    /// between:
+    ///
+    ///     consume → clearToolGroupAccordion() (no invalidate) → dataSource.apply
+    ///
+    /// Consuming clears the slot first, so a handoff can never fire twice or for
+    /// a later commit. Like `toolGroupAccordionAbort` it is a plain closure: the
+    /// status-bar slice compiles this file, so no new type dependency.
+    var toolGroupAccordionTerminalHandoff: (() -> Void)?
+
+    /// Consume (and clear) a parked terminal handoff. True when one was waiting.
+    @discardableResult
+    func consumeToolGroupAccordionTerminalHandoff() -> Bool {
+        guard let handoff = toolGroupAccordionTerminalHandoff else { return false }
+        toolGroupAccordionTerminalHandoff = nil
+        handoff()
+        return true
     }
 
     /// True while `index` is one of the rows the accordion owns.
@@ -559,6 +606,14 @@ final class MessageListLayout: UICollectionViewLayout {
         totalHeight = y
         heightDeltaSincePrepare = 0
         lastItemCount = itemCount
+        // [T-toolgroup-collapse-finish] Report the pass (see prepareObserver).
+        prepareGeneration &+= 1
+        if let observe = prepareObserver {
+            let window = toolGroupAccordionSpan.map {
+                "\($0.lowerBound)...\($0.upperBound)@\(String(format: "%.3f", $0.reveal))"
+            } ?? "-"
+            observe(prepareGeneration, itemCount, y, window)
+        }
         // [ScrollStall] prepare() runs on every invalidateLayout; on long
         // sessions iterating the full itemCount can show up as scroll hitches.
         let elapsed = (CACurrentMediaTime() - t0) * 1000

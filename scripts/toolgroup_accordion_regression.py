@@ -423,8 +423,11 @@ def static_checks():
     c.absent(snap_src, '.snapshot.itemIdentifiers',
              'frozen negative: snapshot is a method — itemIdentifiers needs snapshot()')
     c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)') == 3
-         and snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)') == 1,
-         'all four pre-apply span checks read a real snapshot (ds.snapshot() x3 + dataSource.snapshot() x1)')
+         and snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: snapshot.itemIdentifiers)') == 1,
+         'all four pre-apply span checks read a real snapshot (the three reconfigure-only sites pass the '
+         'current items, the commit passes the items it is ABOUT to commit)')
+    c.absent(snap_src, 'cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)',
+             'frozen negative: the commit never validates the span against the OUTGOING items again')
     c.present(fold, 'UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>',
               'the coordinator helper names the app Section type, never the SwiftUI one')
     c.absent(fold, 'DiffableDataSource<Section,',
@@ -734,6 +737,105 @@ def static_checks():
               'the transaction arms the channel on the flight it started')
     c.present(txn, 'guard env.currentFlight() === flight else { return }',
               'the takeover closure still finishes only the flight that armed it')
+
+    # 17. [T-toolgroup-collapse-finish] The CLOSE's terminal handoff is ONE
+    #     synchronous step with the commit. Two facts have to hold at once, and
+    #     both are about ORDER, not about a final screenshot:
+    #
+    #       * the reveal window must SURVIVE the preparation of `applySnapshot`
+    #         (cache remap, tool-fold re-plan, endEditing — any of which may lay
+    #         out): cleared any earlier, the old member rows are laid out at their
+    #         natural height first, which is the rebound this round removes;
+    #       * the window must be GONE before `dataSource.apply` commits the new
+    #         snapshot: kept any longer, the old member indices clip the rows that
+    #         moved up into them.
+    #
+    #     So the transaction publishes a one-shot closure on the layout and the
+    #     coordinator consumes it immediately before the commit. These checks pin
+    #     the order and forbid a layout call inside the handoff itself.
+    c.present(layout, 'var toolGroupAccordionTerminalHandoff: (() -> Void)?',
+              'the layout carries the one-shot terminal handoff')
+    c.present(layout, 'func consumeToolGroupAccordionTerminalHandoff() -> Bool {',
+              'the commit consumes it (and only there)')
+    consume_body = layout[layout.index('func consumeToolGroupAccordionTerminalHandoff()'):]
+    consume_body = consume_body[:consume_body.index('\n    }')]
+    c.ok(ordered_ok(consume_body, ['toolGroupAccordionTerminalHandoff = nil', 'handoff()']),
+         'the handoff is cleared BEFORE it runs, so it can never fire twice')
+    c.ok(ordered_ok(snap_src, ['consumeToolGroupAccordionTerminalHandoff()',
+                               'cancelAccordionIfSpanBroken(beforeApplying: snapshot.itemIdentifiers)',
+                               'dataSource.apply(snapshot, animatingDifferences: false)']),
+         'the commit consumes the handoff, validates the span of the UPCOMING rows, then applies — in that order')
+    c.ok(snap_src.index('consumeToolGroupAccordionTerminalHandoff()') > snap_src.index('cv.endEditing(true)'),
+         'the window survives every preparation step of applySnapshot (endEditing included)')
+    c.present(layout, 'private(set) var prepareGeneration: Int = 0',
+              'every layout pass is counted: the claim is about passes, not about a final frame')
+    c.present(layout, 'var prepareObserver: ((Int, Int, CGFloat, String) -> Void)?',
+              'a regression can see WHAT each pass saw (rows + reveal window + content height)')
+    c.present(layout, 'if let observe = prepareObserver {',
+              'production pays one nil check per prepare for that evidence')
+    c.present(txn, 'env.layout.toolGroupAccordionTerminalHandoff = {',
+              'the transaction parks the handoff on the layout')
+    c.ok(txn.index('env.layout.toolGroupAccordionTerminalHandoff = {')
+         < txn.index('env.applyStructure("toolGroupAccordionEnd")')
+         < txn.index('env.layout.toolGroupAccordionTerminalHandoff = nil'),
+         'the handoff is parked BEFORE the apply that consumes it and cleared AFTER it')
+    c.present(txn, '&& flight.finalDirection == .collapse',
+              'only a close that ENDS on the collapse side claims it (a retarget decides)')
+    c.present(txn, 'static func membersSurvivedStructure(', 'the transaction can tell a declined apply from a real delete')
+    c.present(txn, 'membersSurvivedStructure(request.memberItems, in: env)',
+              'a close never assumes the members are gone')
+    c.present(flight, 'private func isClaimedTerminalCollapse(_ outcome: Outcome) -> Bool {',
+              'the claim is decided per flight outcome, in one place')
+    finish_body = flight[flight.index('func finish(_ outcome: Outcome) {'):flight.index('func cancel() {')]
+    c.ok(ordered_ok(finish_body, ['if isClaimedTerminalCollapse(outcome) {', 'cb?(outcome)',
+                                  'if terminalHandoffPending { commitTerminalHandoff(applyLayout: true) }']),
+         'finish keeps the window for a claimed close, and tears it down itself if nobody committed')
+    handoff_body = flight[flight.index('func commitTerminalHandoff('):flight.index('func landNaturalGeometry() {')]
+    c.present(handoff_body, 'layout.clearToolGroupAccordion()',
+              'committing drops the span (the new snapshot cannot be clipped through the old indices)')
+    c.absent(handoff_body, 'layoutIfNeeded()',
+             'frozen negative: the handoff itself never lays out — the commit is the one pass')
+    c.absent(handoff_body, 'invalidateLayout()',
+             'frozen negative: the handoff never invalidates the layout')
+    c.present(flight, 'if let items = liveItems?(), !planStillMatches(items) { return }',
+              'the clip is only restored on rows this plan still owns (never on the rows that moved up)')
+    c.present(cancel_body, 'guard terminalHandoffPending else { return }',
+              'cancel() also drops a handoff that outlived its flight (the didFinish gate does not leak it)')
+    c.present(cancel_body, 'layout.toolGroupAccordionTerminalHandoff = nil',
+              'cancel() clears the layout channel it may have parked')
+    anchor_body = fold[fold.index('private func restoreToolGroupToggleAnchor'):
+                       fold.index('func refreshToolGroupToggleRow')]
+    c.absent(anchor_body, 'layout.invalidateLayout()',
+             'frozen negative: a close no longer forces an extra full prepare to restore the anchor')
+    c.present(anchor_body, 'cv.layoutIfNeeded()', 'the anchor is read from the layout the commit already dirtied')
+    c.present(anchor_body, 'if abs(target - cv.contentOffset.y) > 0.5 {',
+              'a real drift still writes the offset (rows above may have grown meanwhile)')
+
+    # 18. [T-toolgroup-collapse-finish] The terminal window is covered
+    #     DYNAMICALLY, on the production transaction, with its own trace. These
+    #     are presence checks only; the real evidence is the UIKit run's
+    #     `TOOLGROUP_TERMINAL` lines plus the checks they feed.
+    for needle, why in [
+        ('private func terminalCloseCase() {', 'a normal close is traced from the last frame to the settled list'),
+        ('private func terminalNearBottomCase() {', 'a close that ends at the legal bottom'),
+        ('private func terminalShortCase() {', 'a run whose whole content is shorter than the viewport'),
+        ('private func terminalLongCase() {', 'a run several viewports tall'),
+        ('private func terminalNextExpandCase() {', 'the next expand still measures the real natural heights'),
+        ('private func terminalRetargetCase() {', 'a retargeted reversal goes through the same handoff'),
+        ('private func terminalInterruptCase() {', 'an interrupted close keeps its documented contract'),
+        ('private func terminalCancelCase() {', 'a cancelled close leaves no window, channel or clip behind'),
+        ('layout.prepareObserver = {', 'every layout pass of the close is recorded'),
+        ('private func checkTerminalWindow(_ label: String) {', 'the window has ONE set of invariants for every close case'),
+        ('NO layout pass restored the member rows before the delete', 'the rebound is asserted, not described'),
+        ('the members are really removed by the commit', 'the delete is asserted on the list'),
+        ('no anchor compensation on top of the commit', 'the second correction is asserted absent'),
+        ('the height cache holds the real heights, never a 0 from the close', 'a 0 can never be cached as a natural height'),
+        ('terminalSample("apply-entry")', 'the trace samples the geometry on entry to the apply'),
+        ('terminalSample("commit")', 'and again right after the commit consumed the window'),
+        ('TOOLGROUP_TERMINAL case=', 'the trace is printed as evidence, not only asserted'),
+    ]:
+        c.present(entry, needle, 'terminal regression: ' + why)
+    c.absent(entry, 'check(true,', 'frozen negative: no vacuous always-true check in the entry stage')
 
     return c
 

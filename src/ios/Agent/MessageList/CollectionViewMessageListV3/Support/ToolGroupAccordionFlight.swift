@@ -100,6 +100,23 @@ final class ToolGroupAccordionFlight {
     private(set) var framesApplied = 0
     private(set) var lastOutcome: Outcome?
 
+    /// [T-toolgroup-collapse-finish] Set by the transaction that will DELETE
+    /// this run's member rows when the close completes (see
+    /// `ToolGroupAccordionToggle.start`). It claims the terminal geometry of a
+    /// close: the zero-reveal window and the clip stay installed until the
+    /// structural apply has committed, so no layout pass can restore the
+    /// members' natural heights in between (and no second anchor correction has
+    /// to undo that growth).
+    ///
+    /// The default (false) is the shipping behaviour for a flight nobody
+    /// deletes rows for: `finish` tears the window down exactly as before.
+    var ownsTerminalCollapseHandoff = false
+
+    /// True between the last frame of a claimed close and
+    /// `commitTerminalHandoff()`. While set, `finish` has deliberately NOT
+    /// cleared the span or the clip and has NOT laid out.
+    private(set) var terminalHandoffPending = false
+
     init(collectionView: UICollectionView, layout: MessageListLayout) {
         self.collectionView = collectionView
         self.layout = layout
@@ -159,6 +176,7 @@ final class ToolGroupAccordionFlight {
         self.duration = duration
         self.onFinish = onFinish
         self.didFinish = false
+        self.terminalHandoffPending = false
         self.framesApplied = 0
         self.fromReveal = direction == .expand ? 0 : 1
         self.reveal = fromReveal
@@ -196,6 +214,22 @@ final class ToolGroupAccordionFlight {
     /// Stop at once and hand ownership back (drag, scroll-to-top flight,
     /// snapshot swap, view teardown). The caller decides what the final
     /// structure is; the layout override is already cleared here.
+    ///
+    /// [T-toolgroup-collapse-finish] ONE exception, and it is the whole point of
+    /// this task: a close that a transaction CLAIMED
+    /// (`ownsTerminalCollapseHandoff`) does not tear its window down here. The
+    /// transaction is about to delete the member rows, and the terminal geometry
+    /// must survive until that delete commits:
+    ///
+    ///   old:  reveal 0 → clear span → LAYOUT (rows back at natural height,
+    ///         contentHeight +Σh) → apply deletes them (contentHeight −Σh)
+    ///         → restoreAnchor re-derives the offset it just changed          = 3 passes
+    ///   new:  reveal 0 → clear span (no layout) → apply deletes them         = 1 pass
+    ///
+    /// The clip and the span are cleared by `commitTerminalHandoff()`, called by
+    /// the transaction in the SAME synchronous step as its structural apply, so
+    /// the old member indices are already invalid when the new snapshot is
+    /// committed — the apply can never clip the rows that shifted up into them.
     func finish(_ outcome: Outcome) {
         guard !didFinish else { return }
         didFinish = true
@@ -207,28 +241,98 @@ final class ToolGroupAccordionFlight {
         disarmAbortChannel()
         link?.invalidate()
         link = nil
-        restoreClip()
-        layout.clearToolGroupAccordion()
-        if let cv = collectionView, cv.window != nil, outcome != .cancelled {
-            // The span is gone: the rows jump back to their real heights in one
-            // layout pass. Suppress the layout's own contentOffsetAdjustment so
-            // that pass cannot move the viewport - an interrupted flight must
-            // leave the offset exactly where the finger left it.
-            let wasSuppressed = layout.suppressContentOffsetAdjustment
-            layout.suppressContentOffsetAdjustment = true
-            layout.invalidateLayout()
-            cv.layoutIfNeeded()
-            layout.suppressContentOffsetAdjustment = wasSuppressed
+        if isClaimedTerminalCollapse(outcome) {
+            terminalHandoffPending = true
+        } else {
+            restoreClip()
+            layout.clearToolGroupAccordion()
+            landNaturalGeometry(suppressFor: outcome)
+            plan = nil
         }
-        plan = nil
         let cb = onFinish
         onFinish = nil
         cb?(outcome)
+        // A completion that did not commit (no transaction, or one that returned
+        // before it committed) must never leave a live span behind: the layout
+        // override belongs to this flight alone.
+        if terminalHandoffPending { commitTerminalHandoff(applyLayout: true) }
+    }
+
+    /// True when this terminal state is a CLOSE a transaction claimed. The
+    /// direction is the flight's FINAL one, so a flight the user retargeted
+    /// mid-air is handed off to the side it really ends on - never to the
+    /// direction of the tap that started it.
+    private func isClaimedTerminalCollapse(_ outcome: Outcome) -> Bool {
+        guard ownsTerminalCollapseHandoff, direction == .collapse else { return false }
+        return outcome == .completed || outcome == .instant
+    }
+
+    /// [T-toolgroup-collapse-finish] The transaction's structural apply is about
+    /// to run: drop the clip window and the reveal span WITHOUT a layout pass,
+    /// so that apply is the ONE pass that lands the closed geometry.
+    ///
+    /// Returns false when this flight has no claimed close pending (an expand, an
+    /// interrupted/cancelled end, or a flight nobody deletes rows for), in which
+    /// case `finish` already did the legacy teardown and there is nothing to do.
+    @discardableResult
+    func commitTerminalHandoff(applyLayout: Bool = false) -> Bool {
+        guard terminalHandoffPending else { return false }
+        terminalHandoffPending = false
+        restoreClip()
+        layout.clearToolGroupAccordion()
+        // The channel must not outlive the handoff: it holds a closure that
+        // captures this flight and (through it) the layout, so a stale slot would
+        // be a retain cycle nobody clears. Consuming already nil'd it; this also
+        // covers the teardown of a handoff that was never consumed.
+        layout.toolGroupAccordionTerminalHandoff = nil
+        if applyLayout { landNaturalGeometry(suppressFor: nil) }
+        plan = nil
+        ownsTerminalCollapseHandoff = false
+        return true
+    }
+
+    /// Land the natural (unclipped) geometry in one offset-suppressed pass.
+    ///
+    /// Used by the legacy teardown, and by a transaction whose structural apply
+    /// declined to run (session loading / suspended streaming updates): the rows
+    /// are still in the list, so the zero-height window must be replaced by the
+    /// real geometry instead of being left dead on screen.
+    func landNaturalGeometry() {
+        landNaturalGeometry(suppressFor: nil)
+    }
+
+    private func landNaturalGeometry(suppressFor outcome: Outcome?) {
+        guard let cv = collectionView, cv.window != nil else { return }
+        if outcome == .cancelled { return }
+        // The span is gone: the rows jump back to their real heights in one
+        // layout pass. Suppress the layout's own contentOffsetAdjustment so
+        // that pass cannot move the viewport - an interrupted flight must
+        // leave the offset exactly where the finger left it.
+        let wasSuppressed = layout.suppressContentOffsetAdjustment
+        layout.suppressContentOffsetAdjustment = true
+        layout.invalidateLayout()
+        cv.layoutIfNeeded()
+        layout.suppressContentOffsetAdjustment = wasSuppressed
     }
 
     /// The window went away / the session changed: drop everything silently.
     func cancel() {
-        guard !didFinish else { return }
+        if didFinish {
+            // [T-toolgroup-collapse-finish] `finish` may have handed the terminal
+            // window of a CLOSE to a transaction that never committed (the list is
+            // being torn down or rebuilt before that commit). The window, the clip
+            // and the parked handoff still belong to this flight, so they die here
+            // even though it already reported its outcome: `didFinish` guards the
+            // outcome/completion, not the layout state this flight installed.
+            guard terminalHandoffPending else { return }
+            terminalHandoffPending = false
+            ownsTerminalCollapseHandoff = false
+            layout.toolGroupAccordionTerminalHandoff = nil
+            restoreClip()
+            layout.clearToolGroupAccordion()
+            plan = nil
+            return
+        }
         didFinish = true
         lastOutcome = .cancelled
         link?.invalidate()
@@ -244,6 +348,11 @@ final class ToolGroupAccordionFlight {
         // flight still owns it.
         layout.toolGroupAccordionAbort = nil
         ownsAbortChannel = false
+        // A pending terminal handoff dies with the list: nothing may keep the
+        // span alive for a structure this call will never see.
+        terminalHandoffPending = false
+        ownsTerminalCollapseHandoff = false
+        layout.toolGroupAccordionTerminalHandoff = nil
         plan = nil
         onFinish = nil
     }
@@ -347,8 +456,18 @@ final class ToolGroupAccordionFlight {
         }
     }
 
+    /// Clear the clip window on the rows this plan still owns.
+    ///
+    /// [T-toolgroup-collapse-finish] The plan addresses rows by INDEX, and a
+    /// structural apply renumbers them: once the run's members are gone, the rows
+    /// now living at those indices belong to somebody else. Touching them here
+    /// would clear a clip window (or the taller content frame) of a row this
+    /// flight never owned, so the clip is only restored while the plan still
+    /// matches the live rows. A cell that IS deleted keeps nothing anyway —
+    /// `SelfSizingCell.prepareForReuse` resets both fields.
     private func restoreClip() {
         guard let cv = collectionView, let plan = plan else { return }
+        if let items = liveItems?(), !planStillMatches(items) { return }
         for idx in plan.memberRange {
             if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell {
                 cell.accordionContentHeight = nil

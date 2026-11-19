@@ -1364,7 +1364,24 @@ extension CollectionViewMessageListV3.Coordinator {
                 cv.endEditing(true)
             }
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = true
-            cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)
+            // [T-toolgroup-collapse-finish] Consume a closing run's terminal
+            // handoff in the SAME synchronous step as the commit:
+            //   * BEFORE this line the reveal window still matches the rows that
+            //     are on screen, so every layout pass in the preparation above
+            //     (cache remap, re-plan, endEditing) kept the member rows at
+            //     their frozen zero height — no natural-height rebound;
+            //   * AFTER it no old index may clip a row of the NEW snapshot, so the
+            //     window is dropped here and `dataSource.apply` below is the one
+            //     and only pass that lays the closed structure out.
+            // The handoff is one-shot and nil'd by the consume call, so it can
+            // never fire for a later apply.
+            // The pre-apply span validation below must look at the items that are
+            // ABOUT to be committed, not at the ones being replaced: passing
+            // `dataSource.snapshot()` here meant a span broken by THIS apply was
+            // never detected (the three other call sites reconfigure items and
+            // keep the same identities, so they are correct as they are).
+            snapshotLayout?.consumeToolGroupAccordionTerminalHandoff()
+            cancelAccordionIfSpanBroken(beforeApplying: snapshot.itemIdentifiers)
             dataSource.apply(snapshot, animatingDifferences: false)
             (viewController?.collectionView as? NoAnimationCollectionView)?.isApplyingSnapshot = false
             // [T-thinking-toggle-txn] Rows are renumbered by this apply: move the

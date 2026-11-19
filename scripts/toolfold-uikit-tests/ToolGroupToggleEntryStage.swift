@@ -95,6 +95,34 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private var headerRefreshedWhileFlying = true
     private var deferredConverges: [String] = []
 
+    // [T-toolgroup-collapse-finish] The close's terminal window, recorded.
+    private var lastMemberHeights: [CGFloat] = [320, 300, 280]
+    private var prepareEvents: [PrepareEvent] = []
+    private var terminalTrace: [TerminalSample] = []
+    private var terminalCaseTag = ""
+    private var terminalNext: (() -> Void)?
+
+    /// One geometry sample of the terminal window, taken at a named point of the
+    /// close (armed / apply-pre / apply-post / settled).
+    struct TerminalSample {
+        let tag: String
+        let rows: Int
+        let offset: CGFloat
+        let contentHeight: CGFloat
+        let headerScreenY: CGFloat
+        let followMinY: CGFloat
+        let memberHeights: [CGFloat]
+        let window: String
+    }
+
+    /// What one `prepare()` pass of the production layout saw.
+    struct PrepareEvent {
+        let generation: Int
+        let rows: Int
+        let contentHeight: CGFloat
+        let window: String
+    }
+
     private var reduceMotion = false
     private var streaming = false
     private(set) var checks = 0
@@ -117,6 +145,14 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         list.register(SelfSizingCell.self, forCellWithReuseIdentifier: "entry-row")
         list.backgroundColor = .white
         window.addSubview(list)
+        // [T-toolgroup-collapse-finish] See every layout pass this list runs: the
+        // close's terminal handoff is a claim about PASSES (no pass may restore
+        // the member rows' natural height before they are deleted), and the
+        // production layout reports each one through this hook.
+        layout.prepareObserver = { [weak self] generation, rows, contentHeight, window in
+            self?.prepareEvents.append(PrepareEvent(generation: generation, rows: rows,
+                                                    contentHeight: contentHeight, window: window))
+        }
         rebuildFolded()
     }
 
@@ -170,16 +206,23 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         list.layoutIfNeeded()
     }
 
-    private func rebuildFolded(scrollHeaderVisible: Bool = true) {
+    /// [T-toolgroup-collapse-finish] The folded scene, with the member rows'
+    /// REAL content height as a parameter: the terminal cases need a run taller
+    /// than the viewport (long), one that barely fits (near bottom) and one whose
+    /// whole content is shorter than the viewport (short), and each of those is a
+    /// different measurement, not a different assertion.
+    private func rebuildFolded(scrollHeaderVisible: Bool = true,
+                               memberHeights: [CGFloat] = [320, 300, 280]) {
         items = fillerBlocks.map { .assistantBlock(messageId, $0) }
             + [groupItem, .assistantBlock(messageId, followBlock)]
         for block in fillerBlocks { contentHeights[.assistantBlock(messageId, block)] = 220 }
         contentHeights[groupItem] = 28
         contentHeights[.assistantBlock(messageId, followBlock)] = 120
-        for block in memberBlocks { contentHeights[.assistantBlock(messageId, block)] = 0 }
-        contentHeights[.assistantBlock(messageId, memberBlocks[0])] = 320
-        contentHeights[.assistantBlock(messageId, memberBlocks[1])] = 300
-        contentHeights[.assistantBlock(messageId, memberBlocks[2])] = 280
+        let heights = memberHeights.isEmpty ? [CGFloat(0)] : memberHeights
+        for (index, block) in memberBlocks.enumerated() {
+            contentHeights[.assistantBlock(messageId, block)] = heights[min(index, heights.count - 1)]
+        }
+        lastMemberHeights = heights
         pendingExpanded = false
         reload()
         if scrollHeaderVisible {
@@ -220,6 +263,13 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// The BUSINESS structure apply: insert / remove the member rows, exactly
     /// what the coordinator's `applySnapshot` does to the list.
     private func syncStructure() {
+        // [T-toolgroup-collapse-finish] Mirror `applySnapshot`'s commit point: a
+        // closing run parks its zero-reveal window on the layout and the commit
+        // consumes it IMMEDIATELY before the new rows are applied, so the OLD
+        // member indices can never clip the rows that move up into them. Sampling
+        // right after the consume is the "commit" geometry the regression asserts.
+        layout.consumeToolGroupAccordionTerminalHandoff()
+        if !terminalCaseTag.isEmpty { terminalSample("commit") }
         let members = memberItems
         items.removeAll { members.contains($0) }
         if pendingExpanded, let at = items.firstIndex(of: groupItem).map({ $0 + 1 }) {
@@ -254,7 +304,14 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             items: { [unowned self] in self.items },
             applyStructure: { [unowned self] caller in
                 self.applyCallers.append(caller)
+                // [T-toolgroup-collapse-finish] Sample the geometry on both sides
+                // of the structural commit while a terminal case is armed: that
+                // pair is what proves the delete lands on the last frame's
+                // geometry instead of after a natural-height pass.
+                let tracing = !self.terminalCaseTag.isEmpty
+                if tracing { self.terminalSample("apply-entry") }
                 self.syncStructure()
+                if tracing { self.terminalSample("apply-post") }
             },
             // Measurement mode: same content, nothing written into this list.
             configureForMeasurement: { [unowned self] cell, item, _ in
@@ -270,12 +327,13 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             log: { _ in })
     }
 
-    private func request(expanding: Bool) -> ToolGroupAccordionToggle.Request {
+    private func request(expanding: Bool, members: [MessageListItem]? = nil,
+                         anchorY: CGFloat = 40) -> ToolGroupAccordionToggle.Request {
         ToolGroupAccordionToggle.Request(item: groupItem,
-                                         memberItems: memberItems,
+                                         memberItems: members ?? memberItems,
                                          expanding: expanding,
-                                         oldIndex: fillerBlocks.count,
-                                         anchorY: 40,
+                                         oldIndex: items.firstIndex(of: groupItem) ?? fillerBlocks.count,
+                                         anchorY: anchorY,
                                          groupTag: "entry")
     }
 
@@ -522,7 +580,455 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         _ = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
         flight?.cancel()
         check(layout.toolGroupAccordionAbort == nil, "cancel: the abort channel is cleared")
-        done()
+        // [T-toolgroup-collapse-finish] The terminal window of a NORMAL close, on
+        // this same production transaction: normal / near-bottom / short / long,
+        // the next expand's natural heights, a retargeted reversal, an interrupt
+        // and a cancel, each with its own trace.
+        terminalCloseCase()
+    }
+
+    // MARK: - [T-toolgroup-collapse-finish] The close's terminal window
+
+    /// Two decimals for the trace (the numbers are points on a 390×500 viewport).
+    private func f2(_ value: CGFloat) -> String { String(format: "%.2f", value) }
+
+    private func recordedSample(_ tag: String) -> TerminalSample? {
+        for sample in terminalTrace where sample.tag == tag { return sample }
+        return nil
+    }
+
+    /// Record one geometry sample: what the list holds, where the viewport is,
+    /// where the tapped row sits on screen, where the row after the run sits, how
+    /// tall the member rows are and whether a reveal window is installed.
+    @discardableResult
+    private func terminalSample(_ tag: String) -> TerminalSample {
+        let headerIndex = items.firstIndex(of: groupItem) ?? 0
+        let headerY = (list.layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?.frame.minY ?? 0)
+            - list.contentOffset.y
+        var heights: [CGFloat] = []
+        for item in memberItems {
+            if let index = items.firstIndex(of: item) {
+                heights.append(list.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame.height ?? -1)
+            } else {
+                heights.append(-1)
+            }
+        }
+        var followY: CGFloat = -1
+        if let followIndex = items.firstIndex(of: .assistantBlock(messageId, followBlock)),
+           let attrs = list.layoutAttributesForItem(at: IndexPath(item: followIndex, section: 0)) {
+            followY = attrs.frame.minY
+        }
+        var window = "-"
+        if let span = layout.toolGroupAccordionSpan {
+            window = "\(span.lowerBound)...\(span.upperBound)@\(String(format: "%.3f", span.reveal))"
+        }
+        let sample = TerminalSample(tag: tag, rows: items.count, offset: list.contentOffset.y,
+                                    contentHeight: list.contentSize.height, headerScreenY: headerY,
+                                    followMinY: followY, memberHeights: heights, window: window)
+        terminalTrace.append(sample)
+        return sample
+    }
+
+    private func printTerminalTrace(_ label: String) {
+        for sample in terminalTrace {
+            let members = sample.memberHeights.map { f2($0) }.joined(separator: ",")
+            print("TOOLGROUP_TERMINAL case=\(label) at=\(sample.tag) rows=\(sample.rows) "
+                + "off=\(f2(sample.offset)) ch=\(f2(sample.contentHeight)) headerY=\(f2(sample.headerScreenY)) "
+                + "followY=\(f2(sample.followMinY)) members=[\(members)] window=\(sample.window)")
+        }
+        var summary = "-"
+        if let last = prepareEvents.last {
+            summary = "rows=\(last.rows) window=\(last.window) ch=\(f2(last.contentHeight))"
+        }
+        print("TOOLGROUP_TERMINAL case=\(label) passes=\(prepareEvents.count) last=\(summary)")
+    }
+
+    /// The evidence of a NORMAL close, from its own trace:
+    ///
+    ///   * no layout pass between the last animated frame and the structural apply
+    ///     laid the member rows out at their natural height (the rebound);
+    ///   * the commit starts on the geometry the last frame ended on (same
+    ///     content height, same viewport, members still 0 high);
+    ///   * the commit removes the rows without changing the content height and
+    ///     without a second anchor correction;
+    ///   * the tapped row never leaves the screen position the last frame gave it.
+    private func checkTerminalWindow(_ label: String) {
+        guard let arm = recordedSample("arm"), let entry = recordedSample("apply-entry"),
+              let commit = recordedSample("commit"), let post = recordedSample("apply-post"),
+              let settled = recordedSample("settled") else {
+            check(false, "\(label): the terminal window recorded arm / apply-entry / commit / apply-post / settled")
+            return
+        }
+        var lastFrame: PrepareEvent?
+        var rebound = 0
+        var animated = 0
+        var commits = 0
+        for event in prepareEvents {
+            if event.window != "-" && event.rows == arm.rows { lastFrame = event }
+            if event.window == "-" && event.rows == arm.rows { rebound += 1 }
+            if event.window != "-" { animated += 1 }
+            if event.window == "-" && event.rows != arm.rows { commits += 1 }
+        }
+        check(rebound == 0,
+              "\(label): NO layout pass restored the member rows before the delete (rebound passes=\(rebound), total=\(prepareEvents.count))")
+        check(animated >= 3, "\(label): the reveal window was installed across the animation (\(animated) passes)")
+        check(commits >= 1, "\(label): the commit itself laid the new structure out (\(commits) passes)")
+
+        check(entry.rows == arm.rows,
+              "\(label): the rows are all still in the list when the apply starts (\(entry.rows)/\(arm.rows))")
+        check(entry.window != "-",
+              "\(label): the window survives into the apply — the preparation did not tear it down early (\(entry.window))")
+        check(entry.memberHeights.allSatisfy { $0 >= -0.5 && $0 <= 0.5 },
+              "\(label): the member rows are still 0 high on entry to the apply — nothing restored them (\(entry.memberHeights))")
+        check(commit.window == "-",
+              "\(label): the window dies exactly at the commit (\(commit.window))")
+        check(commit.rows == entry.rows,
+              "\(label): the commit still sees the old rows (it has not applied them yet) (\(commit.rows))")
+        check(commit.memberHeights.allSatisfy { $0 >= -0.5 && $0 <= 0.5 },
+              "\(label): the members are 0 high when the commit starts (\(commit.memberHeights))")
+        check(abs(commit.contentHeight - entry.contentHeight) <= 1 && abs(commit.offset - entry.offset) <= 1,
+              "\(label): nothing moved between the apply and its commit (\(f2(entry.contentHeight))/\(f2(entry.offset)) → "
+                + "\(f2(commit.contentHeight))/\(f2(commit.offset)))")
+        if let frame = lastFrame {
+            check(abs(commit.contentHeight - frame.contentHeight) <= 1,
+                  "\(label): the commit starts from the LAST ANIMATED frame's content height "
+                    + "(\(f2(frame.contentHeight)) at pass #\(frame.generation) → \(f2(commit.contentHeight)))")
+        } else {
+            check(false, "\(label): the trace contains the animation's passes")
+        }
+        check(post.rows == arm.rows - entry.memberHeights.count,
+              "\(label): the members are really removed by the commit (\(entry.rows) → \(post.rows))")
+        check(abs(post.contentHeight - commit.contentHeight) <= 1,
+              "\(label): deleting them does not change the content height — they were 0 high (\(f2(commit.contentHeight)) → \(f2(post.contentHeight)))")
+        check(abs(post.offset - commit.offset) <= 0.5,
+              "\(label): no anchor compensation on top of the commit (\(f2(commit.offset)) → \(f2(post.offset)))")
+        check(abs(post.headerScreenY - commit.headerScreenY) <= 0.75,
+              "\(label): the tapped row stays exactly where the last frame put it (\(f2(commit.headerScreenY)) → \(f2(post.headerScreenY)))")
+        check(abs(settled.offset - commit.offset) <= 0.5,
+              "\(label): the settled viewport is the last frame's (\(f2(commit.offset)) → \(f2(settled.offset)))")
+        check(settled.window == "-" && layout.toolGroupAccordionSpan == nil,
+              "\(label): no reveal window survives the close")
+        check(applyCallers.last == "toolGroupAccordionEnd",
+              "\(label): the structure converged through the production apply (\(applyCallers.last ?? "-"))")
+        check(abs((anchors.last ?? -1) - arm.headerScreenY) <= 0.75,
+              "\(label): the anchor restore ran with the tap's own anchor (\(f2(anchors.last ?? -1)) vs \(f2(arm.headerScreenY)))")
+    }
+
+    /// Open the run through the production transaction and wait for its OWN end.
+    private func openThroughTransaction(_ label: String, next: @escaping () -> Void) {
+        pendingExpanded = true
+        let outcome = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        if case .started = outcome {
+            check(flight != nil, "\(label): the expand started through the production transaction")
+        } else {
+            check(false, "\(label): the expand started (outcome=\(outcome))")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { next() }
+    }
+
+    /// Close the open run through the production transaction, with the trace armed.
+    private func runTerminalClose(_ label: String, members: [MessageListItem]? = nil,
+                                  scrollTo: CGFloat? = nil, next: @escaping () -> Void) {
+        if let target = scrollTo {
+            list.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+            list.setNeedsLayout()
+            list.layoutIfNeeded()
+        }
+        let headerIndex = items.firstIndex(of: groupItem) ?? 0
+        let anchor = (list.layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?.frame.minY ?? 0)
+            - list.contentOffset.y
+        prepareEvents.removeAll()
+        terminalTrace.removeAll()
+        terminalCaseTag = label
+        terminalNext = next
+        terminalSample("arm")
+        pendingExpanded = false
+        let outcome = ToolGroupAccordionToggle.run(request(expanding: false, members: members, anchorY: anchor),
+                                                   in: environment())
+        if case .started = outcome {
+            check(items.count > 1, "\(label): the run is open while it collapses (\(items.count) rows)")
+        } else {
+            check(false, "\(label): the close started (outcome=\(outcome))")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { self.terminalCloseSettled(label) }
+    }
+
+    private func terminalCloseSettled(_ label: String) {
+        list.layoutIfNeeded()
+        terminalSample("settled")
+        printTerminalTrace(label)
+        checkTerminalWindow(label)
+        terminalCaseTag = ""
+        let next = terminalNext
+        terminalNext = nil
+        next?()
+    }
+
+    /// The normal close: a run taller than the viewport, the tapped row parked at
+    /// the top. This is the case the user reported ("the last bit of the collapse
+    /// judders").
+    private func terminalCloseCase() {
+        rebuildFolded()
+        openThroughTransaction("close-normal") {
+            self.runTerminalClose("close-normal") { self.terminalNearBottomCase() }
+        }
+    }
+
+    /// Near the bottom: the close starts BELOW the legal maximum of the closed
+    /// content, so its last frames clamp the viewport to the bottom edge. The
+    /// delete must then leave it there — no second correction, and the content
+    /// height must not change.
+    private func terminalNearBottomCase() {
+        let label = "close-near-bottom"
+        rebuildFolded()
+        openThroughTransaction("close-near-bottom") {
+            let headerIndex = self.items.firstIndex(of: self.groupItem) ?? 0
+            let headerMinY = self.list.layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?.frame.minY ?? 0
+            // Park the tapped row 60pt below the top of the viewport. That offset
+            // is still legal for the OPEN run and already beyond the legal bottom
+            // of the CLOSED one (the run is 900pt tall), so the last frames of the
+            // close really clamp.
+            let target = max(0, headerMinY - 60)
+            self.runTerminalClose(label, scrollTo: target) {
+                self.check(abs(self.list.contentOffset.y - self.legalMaxOffset()) <= 0.5,
+                           "\(label): the close ends exactly at the legal bottom")
+                self.check(self.list.contentOffset.y < target,
+                           "\(label): the close really clamped (the viewport had to give ground)")
+                self.terminalShortCase()
+            }
+        }
+    }
+
+    /// Short: the whole content is shorter than the viewport, so the only legal
+    /// offset is the top inset. The close must not invent motion there.
+    private func terminalShortCase() {
+        let label = "close-short"
+        installShortScene(memberHeight: 60)
+        check(list.contentSize.height <= list.bounds.height + 1,
+              "\(label): the list really is shorter than its viewport (\(f2(list.contentSize.height)) vs \(f2(list.bounds.height)))")
+        runTerminalClose(label, members: [shortMember]) {
+            self.check(abs(self.list.contentOffset.y + self.list.adjustedContentInset.top) <= 1,
+                       "\(label): the offset stays at the legal top (\(self.f2(self.list.contentOffset.y)))")
+            self.terminalLongCase()
+        }
+    }
+
+    /// Long: a run several times the viewport height, opened and closed through
+    /// the production transaction.
+    private func terminalLongCase() {
+        let label = "close-long"
+        rebuildFolded(memberHeights: [900, 800, 700])
+        openThroughTransaction("close-long") {
+            self.check(self.lastMemberHeights.reduce(0, +) > self.list.bounds.height * 3,
+                       "\(label): the run really is several viewports tall")
+            self.runTerminalClose(label) { self.terminalNextExpandCase() }
+        }
+    }
+
+    /// After all those closes the run must open again with its REAL natural
+    /// heights: no close may leave a 0 in the frozen/height cache.
+    private func terminalNextExpandCase() {
+        let label = "next-expand"
+        prepareEvents.removeAll()
+        terminalTrace.removeAll()
+        terminalCaseTag = label
+        terminalSample("arm")
+        pendingExpanded = true
+        let expected = lastMemberHeights
+        let outcome = ToolGroupAccordionToggle.run(request(expanding: true), in: environment())
+        if case .started(let flight) = outcome {
+            if let plan = flight.currentPlan {
+                check(plan.naturalHeights.allSatisfy { $0 > 100 },
+                      "\(label): the close did not poison the natural heights (\(plan.naturalHeights))")
+                check(zip(plan.naturalHeights, expected).allSatisfy { pair in abs(pair.0 - pair.1) <= 2 },
+                      "\(label): every member row is measured to its real height again (\(plan.naturalHeights))")
+            } else {
+                check(false, "\(label): the flight published its plan")
+            }
+        } else {
+            check(false, "\(label): the expand started (outcome=\(outcome))")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            var heights: [CGFloat] = []
+            var cached: [CGFloat] = []
+            for item in self.memberItems {
+                if let row = self.items.firstIndex(of: item) {
+                    heights.append(self.list.layoutAttributesForItem(at: IndexPath(item: row, section: 0))?.frame.height ?? 0)
+                    cached.append(self.layout.cachedHeight(at: row) ?? -1)
+                } else {
+                    heights.append(0)
+                    cached.append(-1)
+                }
+            }
+            self.check(zip(heights, self.lastMemberHeights).allSatisfy { pair in abs(pair.0 - pair.1) <= 2 },
+                       "\(label): every member row ends open at its real height (\(heights))")
+            self.check(cached.allSatisfy { $0 > 100 },
+                       "\(label): the height cache holds the real heights, never a 0 from the close (\(cached))")
+            self.check(self.items.count == self.memberItems.count + self.fillerBlocks.count + 2,
+                       "\(label): the open structure is complete again (\(self.items.count) rows)")
+            self.terminalCaseTag = ""
+            self.terminalRetargetCase()
+        }
+    }
+
+    /// A retargeted flight: the second tap turns an EXPAND into a CLOSE, so the
+    /// terminal side is decided by the flight's final direction. The completed
+    /// reversal must converge the structure itself (no deferred converge) and go
+    /// through the same atomic handoff.
+    private func terminalRetargetCase() {
+        let label = "close-retarget"
+        rebuildFolded()
+        openThroughTransaction("retarget-open") {
+            self.prepareEvents.removeAll()
+            self.terminalTrace.removeAll()
+            self.terminalCaseTag = label
+            self.check(self.flight == nil, "\(label): the first expand already finished")
+            let headerIndex = self.items.firstIndex(of: self.groupItem) ?? 0
+            let anchor = (self.list.layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?.frame.minY ?? 0)
+                - self.list.contentOffset.y
+            self.pendingExpanded = true
+            let outcome = ToolGroupAccordionToggle.run(self.request(expanding: true, anchorY: anchor), in: self.environment())
+            guard case .started(let flight) = outcome else {
+                self.check(false, "\(label): the expand started (outcome=\(outcome))")
+                self.terminalCaseTag = ""
+                self.terminalInterruptCase()
+                return
+            }
+            // The expand's own structural insert is NOT part of the close's window:
+            // from here on the trace describes the reversal, whose terminal state
+            // is the one under test.
+            self.prepareEvents.removeAll()
+            self.terminalTrace.removeAll()
+            self.terminalSample("arm")
+            self.deferredConverges.removeAll()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                // The user tapped again: business state closed, flight reversed.
+                self.pendingExpanded = false
+                flight.retarget(.collapse)
+                self.check(flight.finalDirection == .collapse,
+                           "\(label): the flight ends on the collapse side (\(flight.finalDirection))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    self.list.layoutIfNeeded()
+                    self.terminalSample("settled")
+                    self.printTerminalTrace(label)
+                    self.checkTerminalWindow(label)
+                    self.check(self.deferredConverges.isEmpty,
+                               "\(label): a completed reversal settles itself, never through the deferred converge (\(self.deferredConverges))")
+                    self.check(self.items.count == self.expectedFoldedCount,
+                               "\(label): the reversed run is folded at the end (\(self.items.count))")
+                    self.terminalCaseTag = ""
+                    self.terminalInterruptCase()
+                }
+            }
+        }
+    }
+
+    /// The interrupt terminal: a drag takes the viewport mid-close. The rows stay,
+    /// the viewport stays where the finger left it, and the delete is handed to
+    /// the settle. The window is gone immediately (that is the documented
+    /// contract for a takeover, not the atomic close).
+    private func terminalInterruptCase() {
+        let label = "close-interrupt"
+        rebuildFolded()
+        openThroughTransaction("interrupt-open") {
+            self.pendingExpanded = false
+            self.deferredConverges.removeAll()
+            let outcome = ToolGroupAccordionToggle.run(self.request(expanding: false), in: self.environment())
+            guard case .started(let flight) = outcome else {
+                self.check(false, "\(label): the close started (outcome=\(outcome))")
+                self.terminalCancelCase()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                let before = self.list.contentOffset.y
+                let rowsBefore = self.items.count
+                flight.finish(.interrupted)
+                self.check(abs(self.list.contentOffset.y - before) <= 0.5,
+                           "\(label): the interrupt leaves the viewport where the finger left it (\(self.f2(before)) → \(self.f2(self.list.contentOffset.y)))")
+                self.check(self.items.count == rowsBefore,
+                           "\(label): nothing is deleted under the finger (\(self.items.count)/\(rowsBefore))")
+                self.check(self.layout.toolGroupAccordionSpan == nil,
+                           "\(label): the interrupt drops the window at once (the old shape)")
+                self.check(self.deferredConverges == ["toolGroupAccordionEnd-deferred"],
+                           "\(label): the delete is handed to the settle (\(self.deferredConverges))")
+                let anchorsBefore = self.anchors.count
+                self.settleDeferredConverge()
+                self.check(self.items.count == self.expectedFoldedCount,
+                           "\(label): after the settle the rows are gone (\(self.items.count)/\(self.expectedFoldedCount))")
+                self.check(self.anchors.count == anchorsBefore,
+                           "\(label): the settle does not re-anchor the tap (\(self.anchors.count))")
+                self.terminalCancelCase()
+            }
+        }
+    }
+
+    /// The cancel terminal: the list goes away (session swap / window gone)
+    /// mid-close. Nothing is deleted, nothing is deferred, no clip window and no
+    /// takeover closure may be left behind.
+    private func terminalCancelCase() {
+        let label = "close-cancel"
+        rebuildFolded()
+        openThroughTransaction("cancel-open") {
+            self.pendingExpanded = false
+            self.deferredConverges.removeAll()
+            let outcome = ToolGroupAccordionToggle.run(self.request(expanding: false), in: self.environment())
+            guard case .started(let flight) = outcome else {
+                self.check(false, "\(label): the close started (outcome=\(outcome))")
+                self.done()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                let before = self.list.contentOffset.y
+                let rowsBefore = self.items.count
+                flight.cancel()
+                self.check(abs(self.list.contentOffset.y - before) <= 0.5,
+                           "\(label): a cancelled close does not move the viewport (\(self.f2(before)) → \(self.f2(self.list.contentOffset.y)))")
+                self.check(self.items.count == rowsBefore && rowsBefore > 1,
+                           "\(label): a cancelled close deletes nothing (\(self.items.count))")
+                self.check(self.deferredConverges.isEmpty,
+                           "\(label): a cancelled close schedules no converge (\(self.deferredConverges))")
+                self.check(self.layout.toolGroupAccordionSpan == nil, "\(label): the window is gone")
+                self.check(self.layout.toolGroupAccordionAbort == nil, "\(label): the takeover channel is disarmed")
+                self.check(self.layout.toolGroupAccordionTerminalHandoff == nil,
+                           "\(label): no terminal handoff is left parked for a later commit")
+                var cleared = false
+                if let row = self.items.firstIndex(of: self.memberItems[0]),
+                   let cell = self.list.cellForItem(at: IndexPath(item: row, section: 0)) as? SelfSizingCell {
+                    cleared = cell.accordionContentHeight == nil && !cell.clipsToBounds
+                }
+                self.check(cleared, "\(label): the member cell keeps no clip window after the cancel")
+                self.done()
+            }
+        }
+    }
+
+    /// `Short` scene: the group row plus ONE member row, with the whole content
+    /// shorter than the viewport. Its member is `memberBlocks[0]` with a real
+    /// content height of `memberHeight`, so the transaction measures it from the
+    /// live cell instead of the estimate.
+    private var shortMember: MessageListItem { .assistantBlock(messageId, memberBlocks[0]) }
+
+    private func installShortScene(memberHeight: CGFloat) {
+        items = [groupItem, shortMember]
+        contentHeights[groupItem] = 28
+        contentHeights[shortMember] = memberHeight
+        pendingExpanded = true
+        layout.clearToolGroupAccordion()
+        layout.clearHeightCache()
+        for index in items.indices {
+            layout.setEstimatedHeight(estimateHeight(items[index]), at: index)
+        }
+        list.reloadData()
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+        list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+    }
+
+    private func legalMaxOffset() -> CGFloat {
+        let minOff = -list.adjustedContentInset.top
+        return max(minOff, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
     }
 
     private func done() {

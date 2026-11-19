@@ -987,7 +987,12 @@ final class SelectableMarkdownTextView: UIView {
         // run) and `entryStage` retains the stage, so a weak capture cannot cut
         // the stage short — it only keeps `guard let self` legal, which a strong
         // capture does not (a non-optional self can never be bound again).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+        // [T-toolgroup-collapse-finish] The entry stage now also traces eight
+        // terminal cases (normal / near-bottom / short / long / next expand /
+        // retarget / interrupt / cancel), each waiting one flight plus a settle.
+        // The deadline is a failure safe-net, not a schedule: the stage prints its
+        // own marker when it finishes, and this only has to outlast it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20.0) { [weak self] in
             guard let self, let stage = self.entryStage else { return }
             self.check(stage.failures.isEmpty, "entry stage finished without failures (\(stage.failures))")
             self.check(stage.checks >= 18, "entry stage ran its cases (checks=\(stage.checks))")
