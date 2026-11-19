@@ -332,6 +332,8 @@ extension CollectionViewMessageListV3.Coordinator {
             // by the ordinary self-sizing pass afterwards.
             var heights: [CGFloat] = []
             heights.reserveCapacity(idxs.count)
+            var measuredCount = 0
+            var estimatedCount = 0
             for idx in idxs {
                 let ip = IndexPath(item: idx, section: 0)
                 if let cell = cv.cellForItem(at: ip) as? SelfSizingCell {
@@ -341,10 +343,32 @@ extension CollectionViewMessageListV3.Coordinator {
                     if fitted > 0.5 {
                         layout.setMeasuredHeight(fitted, at: idx)
                         heights.append(fitted)
+                        measuredCount += 1
                         continue
                     }
                 }
+                if let cached = layout.cachedHeight(at: idx) {
+                    heights.append(cached)
+                    measuredCount += 1
+                    continue
+                }
                 heights.append(layout.naturalHeightForAccordion(at: idx))
+                estimatedCount += 1
+            }
+            log.info("[ToolFold][Accordion] natural measured=\(measuredCount) estimated=\(estimatedCount) of \(idxs.count)")
+            // [T-toolgroup-accordion] A member row WITHOUT a real measurement
+            // cannot be revealed to the right height: its estimate would be
+            // replaced by the true value when the span clears, which moves
+            // every row below it at the very end of the flight ("pops"). Only
+            // a fully measured run may animate; otherwise the run switches
+            // instantly (the pre-accordion behaviour) - correct, just not
+            // animated, and never wrong geometry.
+            guard estimatedCount == 0 else {
+                log.info("[ToolFold][Accordion] fallback=unmeasured group=\(firstBlockId.uuidString.prefix(8)) estimated=\(estimatedCount)")
+                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
+                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
+                                             cv: cv, layout: layout, ds: ds, log: log)
+                return
             }
             let span = idxs[0]...(idxs[0] + idxs.count - 1)
             let plan = ToolGroupAccordionFlight.Plan(memberRange: span, naturalHeights: heights,

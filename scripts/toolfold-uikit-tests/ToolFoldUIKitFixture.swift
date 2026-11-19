@@ -549,8 +549,16 @@ final class SelectableMarkdownTextView: UIView {
         let memberMaxY = list.layoutAttributesForItem(at: IndexPath(item: 3, section: 0))!.frame.maxY
         check(abs(follow - memberMaxY - listLayout.itemSpacing) <= 0.75,
               "following row sits exactly after the revealed span")
-        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) {
-            check(cell.clipsToBounds && cell.contentView.clipsToBounds, "straddling member cell clips its content")
+        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) as? SelfSizingCell {
+            let natural = flight.currentPlan!.naturalHeights[0]
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            check(cell.clipsToBounds, "straddling cell clips")
+            check(cell.bounds.height < natural - 0.5,
+                  "the cell is SHORTER than its content (a clip window, not a re-layout): cell=\(cell.bounds.height) natural=\(natural)")
+            check(cell.contentView.frame.height >= natural - 0.5,
+                  "hosted content is still laid out at its natural height: content=\(cell.contentView.frame.height) natural=\(natural)")
+            check(cell.contentView.frame.minY == 0, "hosted content stays top-aligned inside the window")
         } else {
             check(false, "straddling member cell exists mid-flight")
         }
@@ -605,7 +613,10 @@ final class SelectableMarkdownTextView: UIView {
             guard let f = self.accordionFlight else { return }
             self.check(f.reveal > before, "second tap reverses in place, does not restart (\(String(format: "%.3f", before))→\(String(format: "%.3f", f.reveal)))")
             self.check(f.framesApplied >= 2, "reversal kept the same flight (frames=\(f.framesApplied))")
+            let offsetBefore = self.list.contentOffset.y
             f.finish(.interrupted)
+            self.check(abs(self.list.contentOffset.y - offsetBefore) < 0.5,
+                       "interrupt leaves the viewport where the finger left it (\(offsetBefore)→\(self.list.contentOffset.y))")
             self.check(self.listLayout.toolGroupAccordionSpan == nil, "interrupt path clears the span at once")
             self.startReduceMotionCase()
         }

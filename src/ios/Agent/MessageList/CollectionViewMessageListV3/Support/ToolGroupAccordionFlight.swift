@@ -54,11 +54,6 @@ final class ToolGroupAccordionFlight {
         var anchorY: CGFloat
     }
 
-    /// Frames at most this many member rows per flight. A run with hundreds of
-    /// rows still only needs the visible ones; but the layout needs every row's
-    /// height to place the following content, so the plan carries them all.
-    static let maxFramesPerFlight = 64
-
     private weak var collectionView: UICollectionView?
     private let layout: MessageListLayout
 
@@ -153,7 +148,15 @@ final class ToolGroupAccordionFlight {
         restoreClip()
         layout.clearToolGroupAccordion()
         if let cv = collectionView, cv.window != nil, outcome != .cancelled {
+            // The span is gone: the rows jump back to their real heights in one
+            // layout pass. Suppress the layout's own contentOffsetAdjustment so
+            // that pass cannot move the viewport - an interrupted flight must
+            // leave the offset exactly where the finger left it.
+            let wasSuppressed = layout.suppressContentOffsetAdjustment
+            layout.suppressContentOffsetAdjustment = true
+            layout.invalidateLayout()
             cv.layoutIfNeeded()
+            layout.suppressContentOffsetAdjustment = wasSuppressed
         }
         plan = nil
         let cb = onFinish
@@ -177,7 +180,7 @@ final class ToolGroupAccordionFlight {
     // MARK: - Frames
 
     @objc private func tick(_ link: CADisplayLink) {
-        guard let cv = collectionView, let plan = plan else { finish(.cancelled); return }
+        guard let cv = collectionView, plan != nil else { finish(.cancelled); return }
         // The list must be on a window to be laid out at all (production
         // self-sizing refuses off-window cells) — a flight cannot continue
         // without it.
@@ -193,7 +196,6 @@ final class ToolGroupAccordionFlight {
         let r = fromReveal + (direction.targetReveal - fromReveal) * p
         setReveal(r, cv: cv)
         if p >= 1 { finish(.completed); return }
-        _ = plan
     }
 
     private func setReveal(_ r: CGFloat, cv: UICollectionView) {
