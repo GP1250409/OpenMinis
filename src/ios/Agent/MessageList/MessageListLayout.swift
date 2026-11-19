@@ -85,7 +85,13 @@ final class MessageListLayout: UICollectionViewLayout {
     /// Row heights for the current reveal, in span order. `nil` when no span.
     var toolGroupAccordionVisibleHeights: [CGFloat]? {
         guard let span = toolGroupAccordionSpan else { return nil }
-        return ToolGroupAccordion.visibleHeights(natural: span.naturalHeights, reveal: span.reveal)
+        var frontier = span.naturalHeights.reduce(0) { $0 + max(0, $1) } * min(1, max(0, span.reveal))
+        return span.naturalHeights.map { natural in
+            let full = max(0, natural)
+            let shown = min(full, max(0, frontier))
+            frontier = max(0, frontier - full)
+            return shown
+        }
     }
 
     /// Per-item estimated heights based on content analysis (text length, role, etc.).
@@ -463,8 +469,21 @@ final class MessageListLayout: UICollectionViewLayout {
         // the frozen natural heights, never written back to the cache.
         var accordionShown: [Int: CGFloat] = [:]
         if let span = toolGroupAccordionSpan, !span.naturalHeights.isEmpty {
-            let shown = ToolGroupAccordion.visibleHeights(natural: span.naturalHeights, reveal: span.reveal)
-            for (k, v) in shown.enumerated() { accordionShown[span.lowerBound + k] = v }
+            // Frontier arithmetic is INLINED on purpose: MessageListLayout is
+            // compiled verbatim by five other UIKit harnesses (usage/thinking/
+            // ask/genui/statusbar), and a new cross-file dependency here would
+            // break every one of their source manifests - the historical
+            // "statusbar source manifest missing a dependency" failure mode.
+            // `scripts/toolgroup_accordion_regression.py` pins this formula to the
+            // shipping math (`visibleHeights`) byte for byte.
+            let reveal = min(1, max(0, span.reveal))
+            let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) }
+            var frontier = total * reveal
+            for (k, natural) in span.naturalHeights.enumerated() {
+                let full = max(0, natural)
+                accordionShown[span.lowerBound + k] = min(full, max(0, frontier))
+                frontier = max(0, frontier - full)
+            }
         }
         for i in 0..<itemCount {
             let ip = IndexPath(item: i, section: 0)

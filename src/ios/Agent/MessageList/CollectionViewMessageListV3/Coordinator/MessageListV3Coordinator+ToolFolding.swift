@@ -242,6 +242,20 @@ extension CollectionViewMessageListV3.Coordinator {
             // sight — the tap would look like it did nothing.
             scrollMode = .userBrowsing
 
+            // [T-toolgroup-accordion] Two writers may not own the viewport at
+            // once. A system scroll-to-top flight started before this tap is
+            // finished here (reason: this toggle, restoring=false) so its
+            // per-frame offset writer cannot fight the reveal; the reverse
+            // direction is in `beginStatusBarScrollToTop`, which cancels this
+            // flight. Neither path changes the status-bar feature itself.
+            if statusBarScrollToTop.isActive {
+                // Same call shape as `.askToggle`: end the flight at the offset
+                // the system animation had reached, let its resume pass thaw
+                // self-sizing/streaming, and only then let the reveal write.
+                _ = finishStatusBarScrollToTop(reason: .toolGroupToggle, offset: cv.contentOffset.y)
+                log.info("[ToolFold][Accordion] took the viewport from a status-bar flight")
+            }
+
             // [T-toolgroup-accordion] A second tap while the run is still
             // moving flips it in place: the frozen heights are still valid
             // because the rows never left the snapshot, so this is a direction
@@ -308,7 +322,30 @@ extension CollectionViewMessageListV3.Coordinator {
                                              cv: cv, layout: layout, ds: ds, log: log)
                 return
             }
-            let heights = idxs.map { layout.naturalHeightForAccordion(at: $0) }
+            // [T-toolgroup-accordion] Freeze MEASURED natural heights. A cached
+            // height is not necessarily what the row really needs (a freshly
+            // inserted block only has an estimate), and revealing a row to a
+            // guessed height makes the frontier land in the wrong place. Rows
+            // that are on screen are measured through the production
+            // self-sizing channel; off-screen rows keep the layout's current
+            // height (they cannot be seen during this flight) and are corrected
+            // by the ordinary self-sizing pass afterwards.
+            var heights: [CGFloat] = []
+            heights.reserveCapacity(idxs.count)
+            for idx in idxs {
+                let ip = IndexPath(item: idx, section: 0)
+                if let cell = cv.cellForItem(at: ip) as? SelfSizingCell {
+                    let attrs = layout.layoutAttributesForItem(at: ip)
+                        ?? UICollectionViewLayoutAttributes(forCellWith: ip)
+                    let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                    if fitted > 0.5 {
+                        layout.setMeasuredHeight(fitted, at: idx)
+                        heights.append(fitted)
+                        continue
+                    }
+                }
+                heights.append(layout.naturalHeightForAccordion(at: idx))
+            }
             let span = idxs[0]...(idxs[0] + idxs.count - 1)
             let plan = ToolGroupAccordionFlight.Plan(memberRange: span, naturalHeights: heights,
                                                      headerIndex: headerIdx, anchorY: anchorY)
@@ -319,10 +356,20 @@ extension CollectionViewMessageListV3.Coordinator {
                 if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }
                 // Exact restore: the structure now matches the business state
                 // (a close drops its rows only here, with every member row
-                // already at 0 height, so nothing moves on screen), then the
-                // measured heights and the tapped title are put back.
+                // already at 0 height, so nothing moves on screen).
                 self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")
-                self.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
+                // [T-toolgroup-accordion][takeover] Only a flight that RAN TO
+                // ITS END may put the tapped title back and re-arm the bottom
+                // pin. `.interrupted` means a finger (or the status-bar flight)
+                // owns the viewport: writing the old anchor here would yank the
+                // list back under the drag, and `autoScrolling` would re-pin the
+                // bottom the user just grabbed.
+                switch outcome {
+                case .completed, .instant:
+                    self.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
+                case .interrupted, .cancelled:
+                    break
+                }
                 log.info("[ToolFold][Accordion] end group=\(firstBlockId.uuidString.prefix(8)) outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
             }
             log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
@@ -340,7 +387,11 @@ extension CollectionViewMessageListV3.Coordinator {
                                                   ds: UICollectionViewDiffableDataSource<Section, MessageListItem>,
                                                   log: AppLogger) {
             guard let vm else { return }
-            if expanding { applySnapshot(messages: vm.messages, caller: "toolGroupToggle") }
+            // [T-toolgroup-accordion] Unconditional, exactly like the original
+            // implementation: on a CLOSE this apply is what drops the member
+            // rows, so gating it on `expanding` left the business state
+            // (expandedToolGroups says closed) out of sync with the snapshot.
+            applySnapshot(messages: vm.messages, caller: "toolGroupToggle")
             guard let idx = ds.snapshot().indexOfItem(item) else { return }
             let ip = IndexPath(item: idx, section: 0)
             (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()

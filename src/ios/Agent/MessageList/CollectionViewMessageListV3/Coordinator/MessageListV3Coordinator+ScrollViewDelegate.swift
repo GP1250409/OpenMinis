@@ -349,6 +349,15 @@ extension CollectionViewMessageListV3.Coordinator {
         /// animation itself is untouched; every list-owned writer that could
         /// move the viewport mid-flight is stopped or gated.
         func beginStatusBarScrollToTop() {
+            // [T-toolgroup-accordion] The status-bar flight owns the viewport
+            // from here on: drop the accordion's span and its per-frame offset
+            // writer WITHOUT restoring the old anchor (the system animation is
+            // the anchor). The tool run keeps its business state; the geometry
+            // settles at the measured heights through the snapshot apply.
+            if let flight = toolGroupAccordionFlight {
+                toolGroupAccordionFlight = nil
+                flight.finish(.interrupted)
+            }
             // [T-statusbar-native-scroll] Already parked at the top: returning
             // true keeps UIKit's contract, but there is nothing to own — do not
             // suspend streaming / defer self-sizing for a no-op animation.

@@ -215,13 +215,15 @@ final class ToolGroupAccordionFlight {
         // straddling cell so the text is revealed, never scaled or faded.
         let clipped = ToolGroupAccordion.clippedRow(natural: plan.naturalHeights, reveal: reveal)
         var clipIndex: Int?
-        if let k = clipped {
-            let idx = plan.memberRange.lowerBound + k
-            clipIndex = idx
-            if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) {
-                cell.clipsToBounds = true
-                cell.contentView.clipsToBounds = true
-            }
+        if let k = clipped { clipIndex = plan.memberRange.lowerBound + k }
+        // Every member row keeps its TEXT at the natural height and is clipped
+        // by the cell (see SelfSizingCell.accordionContentHeight): a cell that
+        // simply shrank would re-lay the hosted SwiftUI content into the shorter
+        // container, which squashes the transcript instead of revealing it.
+        for (k, idx) in plan.memberRange.enumerated() {
+            guard let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell else { continue }
+            cell.clipsToBounds = true
+            cell.accordionContentHeight = plan.naturalHeights[k]
         }
 
         // Anchor: rows below the header grow DOWNWARD, so the header's content
@@ -251,7 +253,8 @@ final class ToolGroupAccordionFlight {
     private func restoreClip() {
         guard let cv = collectionView, let plan = plan else { return }
         for idx in plan.memberRange {
-            if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) {
+            if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell {
+                cell.accordionContentHeight = nil
                 cell.clipsToBounds = false
             }
         }

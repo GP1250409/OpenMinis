@@ -68,6 +68,37 @@ class SelfSizingCell: UICollectionViewCell {
         contentView.clipsToBounds = true
     }
 
+    /// [T-toolgroup-accordion] Height the hosted content is LAID OUT at while
+    /// the cell itself is clipped to a shorter reveal window.
+    ///
+    /// Setting only `clipsToBounds` is not enough: `contentView` would shrink
+    /// with the cell bounds and SwiftUI would re-lay the text into the shorter
+    /// container, which squashes/relayouts it instead of revealing it. With this
+    /// set, `layoutSubviews` sizes `contentView` to the natural height (and lets
+    /// the CELL clip), so the call transcript is revealed top-down, never
+    /// recompressed. `nil` restores the normal self-sizing behaviour.
+    var accordionContentHeight: CGFloat? {
+        didSet {
+            guard accordionContentHeight != oldValue else { return }
+            if accordionContentHeight == nil {
+                clipsToBounds = false
+                contentView.clipsToBounds = true
+            }
+            setNeedsLayout()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let natural = accordionContentHeight else { return }
+        clipsToBounds = true
+        contentView.clipsToBounds = false
+        let target = max(bounds.height, natural)
+        if abs(contentView.frame.height - target) > 0.5 || contentView.frame.width != bounds.width {
+            contentView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: target)
+        }
+    }
+
     /// Incremented each time contentConfiguration is applied.  Used by
     /// `preferredLayoutAttributesFitting` to detect that the hosting
     /// configuration changed between the moment UIKit scheduled the

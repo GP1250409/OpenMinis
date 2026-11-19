@@ -19,7 +19,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]   # worktree (repo)
+NEWROOT = ROOT.parent                        # this round's root (scripts, docs, evidence)
 IOS = ROOT / 'src' / 'ios'
 MATH_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion.swift'
 FLIGHT_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift'
@@ -234,6 +235,48 @@ def static_checks():
     c.present(driver, "Support/ToolGroupAccordionFlight.swift'", 'CI compiles the shipping driver')
     c.present(driver, "_png == 15", 'CI still pins the PNG count exactly (12 render + 3 accordion)')
     c.present(driver, "_checks >= 55", 'CI floor raised above the pre-accordion 33 checks')
+
+    # 6. parent review (blockers 1-4): frozen negatives + the ownership rules
+    legacy = fold[fold.index('private func legacyInstantToolGroupToggle'):fold.index('private func restoreToolGroupToggleAnchor')]
+    c.present(legacy, 'applySnapshot(messages: vm.messages, caller: "toolGroupToggle")',
+              'legacy fallback applies the snapshot unconditionally again (a close must drop its rows)')
+    c.absent(legacy, 'if expanding { applySnapshot', 'frozen negative: gating the legacy apply on expanding desyncs a reduce-motion close')
+    c.present(toggle, 'finishStatusBarScrollToTop(reason: .toolGroupToggle, offset: cv.contentOffset.y)',
+              'a tap takes the viewport from an active status-bar flight')
+    c.present(delegate, 'func beginStatusBarScrollToTop() {\n            // [T-toolgroup-accordion]',
+              'the status-bar flight cancels the accordion on its own start')
+    c.present(toggle, 'case .interrupted, .cancelled:\n                    break',
+              'an interrupted/superseded flight never restores the old anchor')
+    c.absent(toggle, 'flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in\n                guard let self, let vm = self.vm else { return }\n                if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }\n                self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")\n                self.restoreToolGroupToggleAnchor',
+             'frozen negative: anchor restore on every outcome (would fight a drag)')
+    c.present(toggle, 'let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height',
+              'natural heights come from the production measurement channel')
+    c.present(toggle, 'layout.setMeasuredHeight(fitted, at: idx)',
+              'measured member heights are written through the production channel')
+    c.present(FLIGHT_SRC.read_text(), 'cell.accordionContentHeight = plan.naturalHeights[k]',
+              'the member cell keeps its content at the natural height (clip, not squeeze)')
+    c.present(flight, 'cell.accordionContentHeight = nil', 'the cell window is cleared after the flight')
+    infra = (IOS / 'Agent/MessageList/MessageListInfrastructure.swift').read_text()
+    c.present(infra, 'var accordionContentHeight: CGFloat?', 'SelfSizingCell owns the clip window')
+    c.present(infra, 'let target = max(bounds.height, natural)', 'the hosted content is never laid out shorter than natural')
+    # dependency-free layout keeps the five other harness manifests valid
+    c.absent(layout, 'ToolGroupAccordion.', 'frozen negative: MessageListLayout must not depend on ToolGroupAccordion.swift (5 other harnesses compile it verbatim)')
+    c.present(''.join(layout.split()), 'letreveal=min(1,max(0,span.reveal))', 'layout inlines the same frontier formula')
+    c.present(driver, "_png == 15", 'driver pins 15 PNGs')
+    # 7. every gate script must know the new markers, not just build.py
+    verify = (NEWROOT / 'verify_candidate.py')
+    collect = (NEWROOT / 'collect_sign.py')
+    vt = (NEWROOT / 'verify_candidate.py').read_text()
+    c.present(vt, 'TOOLGROUP_ACCORDION_PASS', 'verify_candidate.py requires the accordion markers (current run only)')
+    c.present(vt, 'png=15', 'verify_candidate.py pins the new PNG count')
+    c.present(vt, "_tfq and max(_tfq) >= 55", 'verify_candidate.py keeps the 55-check floor')
+    c.absent(vt, 'png=12', 'verify_candidate.py has no stale png=12 gate')
+    ct = (NEWROOT / 'collect_sign.py').read_text()
+    # collect_sign.py never carried a toolfold gate (grep: 0 hits) - it signs what
+    # build.py verify approved, so the correct contract is "no stale numbers here".
+    c.absent(ct, 'png=12', 'collect_sign.py has no stale png=12 gate')
+    c.absent(ct, 'TOOLFOLD_UIKIT_PASS checks=33', 'collect_sign.py has no stale 33-check gate')
+    c.present((NEWROOT / 'build.py').read_text(), "'TOOLGROUP_ACCORDION_PASS' in validation", 'build.py gates the new markers')
 
     return c
 
