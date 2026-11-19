@@ -344,6 +344,9 @@ extension CollectionViewMessageListV3.Coordinator {
             // self-sizing channel; off-screen rows keep the layout's current
             // height (they cannot be seen during this flight) and are corrected
             // by the ordinary self-sizing pass afterwards.
+            let spanItems = ds.snapshot().itemIdentifiers
+            let offScreen = idxs.filter { cv.cellForItem(at: IndexPath(item: $0, section: 0)) == nil }
+            let hosted = measureMemberRowsOffScreen(offScreen, items: spanItems, cv: cv, layout: layout)
             var heights: [CGFloat] = []
             heights.reserveCapacity(idxs.count)
             var measuredCount = 0
@@ -368,8 +371,8 @@ extension CollectionViewMessageListV3.Coordinator {
                     measuredCount += 1
                     continue
                 }
-                if let hosted = measureMemberRowOffScreen(idx: idx, cv: cv, ds: ds, layout: layout) {
-                    heights.append(hosted)
+                if let value = hosted[idx] {
+                    heights.append(value)
                     measuredCount += 1
                     continue
                 }
@@ -398,6 +401,22 @@ extension CollectionViewMessageListV3.Coordinator {
             toolGroupAccordionFlight = flight
             // Published for the other viewport owner (status-bar flight); see
             // MessageListLayout.toolGroupAccordionAbort.
+            // [T-toolgroup-accordion] Identity, not row counts: a row inserted
+            // ABOVE the run, a swap to another session with the same row count,
+            // or a replaced span row all keep the numbers valid while the
+            // indices now point at the wrong rows. Every frame asks this before
+            // it writes a reveal, and the driver retires itself when it fails.
+            flight.spanIsValid = { [weak self] plan in
+                guard let self, let ds = self.dataSource else { return false }
+                let live = ds.snapshot().itemIdentifiers
+                guard live.count > plan.memberRange.upperBound, live.count > plan.headerIndex else { return false }
+                guard live[plan.headerIndex] == item else { return false }
+                for (k, id) in run.memberIds.enumerated()
+                where live[plan.memberRange.lowerBound + k] != .assistantBlock(run.messageId, id) {
+                    return false
+                }
+                return true
+            }
             layout.toolGroupAccordionAbort = { [weak self] in
                 guard let self, let running = self.toolGroupAccordionFlight else { return }
                 self.toolGroupAccordionFlight = nil
@@ -430,37 +449,60 @@ extension CollectionViewMessageListV3.Coordinator {
             log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
         }
 
-        /// [T-toolgroup-accordion] Measure a member row that is NOT on screen.
+        /// [T-toolgroup-accordion] Measure the member rows that are NOT on screen.
         ///
-        /// `SelfSizingCell.preferredLayoutAttributesFitting` refuses to measure
-        /// off-window cells, so the row is built by the data source (the real
-        /// registration + configuration, not a stand-in) and hosted by the
-        /// collection view itself at a y far below the content, which satisfies
-        /// the production guard (`superview is UICollectionView`, `window != nil`,
-        /// `contentConfiguration != nil`). The result is written through
-        /// `setMeasuredHeight`, the same channel the visible path uses. Returns
-        /// nil when even that fails - the caller then falls back to the instant
-        /// switch instead of animating to a guessed height.
-        private func measureMemberRowOffScreen(idx: Int, cv: UICollectionView,
-                                               ds: UICollectionViewDiffableDataSource<Section, MessageListItem>,
-                                               layout: MessageListLayout) -> CGFloat? {
-            guard cv.window != nil, cv.bounds.width > 0 else { return nil }
-            let ip = IndexPath(item: idx, section: 0)
-            guard idx < ds.snapshot().numberOfItems else { return nil }
-            let cell = ds.collectionView(cv, cellForItemAt: ip)
-            let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
-            let probe = CGRect(x: 0, y: cv.contentSize.height + 8000,
-                               width: cv.bounds.width, height: layout.naturalHeightForAccordion(at: idx))
-            attrs.frame = probe
-            cell.frame = probe
-            cv.addSubview(cell)
-            cell.setNeedsLayout()
-            cell.layoutIfNeeded()
-            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
-            cell.removeFromSuperview()
-            guard fitted > 0.5 else { return nil }
-            layout.setMeasuredHeight(fitted, at: idx)
-            return fitted
+        /// NOT through `ds.collectionView(_:cellForItemAt:)`: that calls
+        /// `dequeueConfiguredReusableCell` outside a UIKit request cycle, which
+        /// iOS 18+ can trap ("Expected dequeued view to be returned to
+        /// collection view"). Instead a private measuring collection view (alpha
+        /// 0, user interaction off, its own MessageListLayout, added to the same
+        /// window) is driven by UIKit normally; each row is configured with the
+        /// SAME production `configureCell(_:item:indexPath:)`, never a copy of
+        /// it. The user's viewport is not touched.
+        private final class AccordionMeasureHost: NSObject, UICollectionViewDataSource {
+            var items: [MessageListItem] = []
+            var make: ((UICollectionView, IndexPath, MessageListItem) -> UICollectionViewCell)?
+            func collectionView(_ view: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }
+            func collectionView(_ view: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+                make?(view, indexPath, items[indexPath.item]) ?? UICollectionViewCell()
+            }
+        }
+
+        private func measureMemberRowsOffScreen(_ idxs: [Int], items: [MessageListItem],
+                                                cv: UICollectionView,
+                                                layout: MessageListLayout) -> [Int: CGFloat] {
+            guard let window = cv.window, cv.bounds.width > 0, !idxs.isEmpty else { return [:] }
+            let mcv = UICollectionView(frame: .zero, collectionViewLayout: MessageListLayout())
+            mcv.isUserInteractionEnabled = false
+            mcv.isScrollEnabled = false
+            mcv.alpha = 0
+            let host = AccordionMeasureHost()
+            host.items = idxs.map { items[$0] }
+            host.make = { [weak self] v, ip, item in
+                let cell = SelfSizingCell()
+                self?.configureCell(cell, item: item, indexPath: ip)
+                return cell
+            }
+            mcv.dataSource = host
+            let estimated = idxs.reduce(CGFloat(0)) { $0 + layout.naturalHeightForAccordion(at: $1) }
+            mcv.frame = CGRect(x: 0, y: 0, width: cv.bounds.width, height: max(400, estimated + 40))
+            window.addSubview(mcv)
+            mcv.layoutIfNeeded()
+            var out: [Int: CGFloat] = [:]
+            for (k, idx) in idxs.enumerated() {
+                let ip = IndexPath(item: k, section: 0)
+                guard let cell = mcv.cellForItem(at: ip) as? SelfSizingCell else { continue }
+                let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
+                attrs.size = CGSize(width: mcv.bounds.width, height: cell.bounds.height)
+                let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                if fitted > 0.5 {
+                    layout.setMeasuredHeight(fitted, at: idx)
+                    out[idx] = fitted
+                }
+            }
+            mcv.removeFromSuperview()
+            mcv.dataSource = nil
+            return out
         }
 
         /// [T-toolgroup-accordion] The pre-accordion switch, kept verbatim for

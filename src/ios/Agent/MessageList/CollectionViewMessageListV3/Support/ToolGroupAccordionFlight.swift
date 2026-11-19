@@ -71,6 +71,11 @@ final class ToolGroupAccordionFlight {
     /// system switch.
     var reduceMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
+    /// [T-toolgroup-accordion] Does the plan still describe the rows in the
+    /// list? Supplied by the coordinator and answered from real
+    /// `MessageListItem` identity, never from row counts.
+    var spanIsValid: ((Plan) -> Bool)?
+
     /// Diagnostics counter (frames actually laid out) — the harness asserts it
     /// is > 1 so "instant" can never pass as "animated".
     private(set) var framesApplied = 0
@@ -195,6 +200,13 @@ final class ToolGroupAccordionFlight {
         // updates re-apply the same rows, so the frozen span is still valid and
         // the animation must keep playing; rows appearing/disappearing under it
         // (a plan change, a new message, a session swap) retire it at once.
+        // Identity check first (rows inserted above, a session swap with the
+        // same count, a replaced span row), then the cheap bounds check.
+        if let valid = spanIsValid, !valid(plan) {
+            AppLogger(category: "ToolFold").info("[ToolFold][Accordion] retire=identity header=\(plan.headerIndex) span=\(plan.memberRange.lowerBound)...\(plan.memberRange.upperBound)")
+            finish(.interrupted)
+            return
+        }
         let rowCount = cv.numberOfItems(inSection: 0)
         if plan.headerIndex >= rowCount || plan.memberRange.upperBound >= rowCount {
             AppLogger(category: "ToolFold").info("[ToolFold][Accordion] retire=structure rows=\(rowCount) header=\(plan.headerIndex) span=\(plan.memberRange.lowerBound)...\(plan.memberRange.upperBound)")

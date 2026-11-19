@@ -264,6 +264,19 @@ def static_checks():
               'the member cell keeps its content at the natural height (clip, not squeeze)')
     c.present(flight, 'cell.accordionContentHeight = nil', 'the cell window is cleared after the flight')
     infra = (IOS / 'Agent/MessageList/MessageListInfrastructure.swift').read_text()
+    # parent review round 3: identity-validated span + no out-of-cycle dequeue
+    c.present(flight, 'var spanIsValid: ((Plan) -> Bool)?', 'the driver asks a production validator before each frame')
+    c.present(flight, "retire=identity", 'a failed identity check retires the flight')
+    c.present(toggle, 'live[plan.headerIndex] == item', 'the header is compared by MessageListItem identity')
+    c.present(toggle, '.assistantBlock(run.messageId, id)', 'every member is compared by MessageListItem identity')
+    c.absent(toggle, 'ds.collectionView(cv, cellForItemAt: ip)',
+             'frozen negative: never dequeue a cell outside a UIKit request cycle')
+    c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip)',
+              'the measuring host configures cells with the production configureCell')
+    c.present(toggle, 'window.addSubview(mcv)', 'measurement happens in a window-hosted collection view')
+    c.present(infra, 'override func prepareForReuse()', 'a reused cell resets its clip window')
+    c.present(infra, 'accordionContentHeight = nil\n        resetAccordionWindowIfNeeded()\n        configGeneration',
+              'a new configuration resets the clip window')
     c.present(infra, 'var accordionContentHeight: CGFloat?', 'SelfSizingCell owns the clip window')
     c.present(infra, 'let target = max(bounds.height, natural)', 'the hosted content is never laid out shorter than natural')
     # dependency-free layout keeps the five other harness manifests valid
