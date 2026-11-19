@@ -30,6 +30,13 @@ SNAP_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/Mess
 DELEGATE_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+ScrollViewDelegate.swift'
 SIDEBAR_SRC = IOS / 'Views/ContentView/Sidebar/AccordionCollectionLayout.swift'
 SIDEBAR_LIST = IOS / 'Views/ContentView/Sidebar/NativeAccordionList.swift'
+# [T-toolgroup-accordion] the shared production transaction + measurement probe
+# (the code `toggleToolGroup` calls and the harness drives) and the cell config
+# that owns the list-state gate.
+TXN_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionToggle.swift'
+MEASURE_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionMeasurement.swift'
+CFG_SRC = IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+CellConfiguration.swift'
+ENTRY = ROOT / 'scripts/toolfold-uikit-tests/ToolGroupToggleEntryStage.swift'
 FIXTURE = ROOT / 'scripts/toolfold-uikit-tests/ToolFoldUIKitFixture.swift'
 DRIVER = ROOT / 'scripts/toolfold_uikit_regression.py'
 
@@ -170,6 +177,10 @@ def static_checks():
     sidebar_list = SIDEBAR_LIST.read_text()
     fixture = FIXTURE.read_text()
     driver = DRIVER.read_text()
+    txn = TXN_SRC.read_text()
+    measure = MEASURE_SRC.read_text()
+    cfg = CFG_SRC.read_text()
+    entry = ENTRY.read_text()
 
     # 1. the shared numbers are the sidebar's (one animation, two places)
     c.present(math, 'static let duration: Double = 0.32', 'accordion duration constant')
@@ -211,7 +222,10 @@ def static_checks():
     c.present(toggle, 'flight.retarget(expanding ? .expand : .collapse)', 'second tap retargets')
     c.present(toggle, 'UIAccessibility.isReduceMotionEnabled', 'reduce motion is read from the system switch')
     c.present(toggle, 'legacyInstantToolGroupToggle(', 'reduce-motion / non-contiguous fallback kept')
-    c.present(toggle, 'applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")', 'structural settle at the end of the flight')
+    c.present(txn, 'env.applyStructure("toolGroupAccordionEnd")', 'structural settle at the end of the flight')
+    c.present(toggle, 'caller: caller)', 'the coordinator wires the settle to its own applySnapshot')
+    c.present(toggle, 'self.applySnapshot(messages: vm.messages, caller: caller)',
+              'the transaction settles through the production applySnapshot, never a copy')
     c.absent(toggle, 'caller: "toolGroupToggle")\n\n            guard let idx = ds.snapshot().indexOfItem(item) else { return }',
              'frozen negative: the old instant cut in the animated path')
     c.absent(toggle, 'var snap = ds.snapshot()\n            snap.reconfigureItems([item])',
@@ -252,14 +266,18 @@ def static_checks():
     c.present(delegate[delegate.index('func beginStatusBarScrollToTop()'):][:900],
               'abortToolGroupAccordion()',
               'the status-bar flight cancels the accordion on its own start')
-    c.present(toggle, 'case .interrupted, .cancelled:\n                    break',
+    c.present(txn, 'case .interrupted, .cancelled:\n                break',
               'an interrupted/superseded flight never restores the old anchor')
     c.absent(toggle, 'flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in\n                guard let self, let vm = self.vm else { return }\n                if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }\n                self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")\n                self.restoreToolGroupToggleAnchor',
              'frozen negative: anchor restore on every outcome (would fight a drag)')
-    c.present(toggle, 'let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height',
-              'natural heights come from the production measurement channel')
-    c.present(toggle, 'layout.setMeasuredHeight(fitted, at: idx)',
+    c.present(txn, 'if let receipt = cell.heightReceipt {',
+              'natural heights come from the cell measurement receipt')
+    c.absent(txn, 'fitted > 0.5', 'frozen negative: height > 0.5 is never a "measured" verdict')
+    c.present(txn, 'layout.setMeasuredHeight(receipt.height, at: idx)',
               'measured member heights are written through the production channel')
+    c.present(measure, 'if let receipt = cell.measuredHeight(forWidth: width) {',
+              'the off-screen probe accepts only a width-matched receipt')
+    c.absent(measure, 'fitted > 0.5', 'frozen negative: the probe never guesses from a height')
     c.present(FLIGHT_SRC.read_text(), 'cell.accordionContentHeight = plan.naturalHeights[k]',
               'the member cell keeps its content at the natural height (clip, not squeeze)')
     c.present(flight, 'cell.accordionContentHeight = nil', 'the cell window is cleared after the flight')
@@ -279,9 +297,54 @@ def static_checks():
     c.absent(toggle, 'flight.spanIsValid', 'frozen negative: no per-frame-only validation left')
     c.absent(toggle, 'ds.collectionView(cv, cellForItemAt: ip)',
              'frozen negative: never dequeue a cell outside a UIKit request cycle')
-    c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip)',
-              'the measuring host configures cells with the production configureCell')
-    c.present(toggle, 'window.addSubview(mcv)', 'measurement happens in a window-hosted collection view')
+    c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)',
+              'the measuring host configures cells with the production configureCell in measurement mode')
+    c.present(measure, 'window.addSubview(container)', 'measurement happens in a window-hosted collection view')
+    c.present(measure, 'container.reloadData()', 'each row is measured in its own UIKit request cycle')
+    c.absent(measure, 'estimated + 40', 'frozen negative: no container sized from the estimates')
+    c.absent(measure, '20_000', 'frozen negative: no magic height cap')
+    c.absent(measure, '20000', 'frozen negative: no magic height cap')
+    c.present(measure, 'result.unmeasured.append(row.index)',
+              'a row without a receipt is reported unmeasured, never estimated')
+    c.present(measure, 'guard !rows.isEmpty else { return result }', 'empty runs never touch a container')
+    # the measurement must not write the LIST: the probe takes no main layout
+    c.absent(measure[measure.index('static func naturalHeights'):], 'layout.setContentKey',
+             'frozen negative: the probe never writes the list content keys')
+    c.absent(measure[measure.index('static func naturalHeights'):], 'setEstimatedHeight',
+             'frozen negative: the probe never writes list estimates')
+    # item 1: the list-state gate
+    c.present(cfg, 'writesListState: Bool = true', 'configureCell has one measurement-mode flag')
+    c.present(cfg, 'layout.registerCellContentKey(key, index: indexPath.item,',
+              'index-keyed writes go through the single gate')
+    c.absent(cfg, 'layout.setContentKey(', 'frozen negative: no unguarded index-keyed write')
+    c.present(layout, 'func registerCellContentKey(_ key: String, index: Int, metricsTag: String?, writesListState: Bool) {',
+              'the layout owns the gate')
+    c.present(layout, 'guard writesListState else { return }', 'the gate refuses writes in measurement mode')
+    # item 2: no estimate can be frozen as a measurement
+    c.present(infra, 'private(set) var heightReceipt: HeightReceipt?',
+              'SelfSizingCell publishes a measurement receipt')
+    c.present(infra, 'func measuredHeight(forWidth width: CGFloat) -> HeightReceipt?',
+              'the receipt is width-matched')
+    c.present(infra, 'heightReceipt = HeightReceipt(height: fittingSize.height,',
+              'only a real systemLayoutSizeFitting writes a measured receipt')
+    c.present(infra, 'guard superview is UICollectionView, window != nil, contentConfiguration != nil else {\n            return layoutAttributes\n        }',
+              'the off-collection guard still returns the proposal (and writes no receipt)')
+    # item 3: the shared production transaction the harness runs
+    c.present(txn, 'static func run(_ request: Request, in env: Environment) -> Outcome',
+              'the reveal transaction is production code the harness can link')
+    c.present(toggle, 'ToolGroupAccordionToggle.run(request, in: env)',
+              'the coordinator calls the SAME transaction the fixture drives')
+    c.present(txn, 'static func isContiguousSpan(_ idxs: [Int], headerIndex: Int) -> Bool',
+              'the contiguous window rule is shared')
+    c.present(txn, 'if env.isReduceMotion() {', 'reduce motion is declined by the transaction')
+    c.present(txn, 'if env.isStreaming() {', 'streaming is declined by the transaction')
+    c.present(entry, 'ToolGroupAccordionToggle.run(request(expanding: true), in: environment())',
+              'the entry stage drives the production transaction')
+    c.absent(entry, 'ToolGroupAccordionFlight(collectionView:', 'frozen negative: the entry stage never builds its own flight')
+    c.present(driver, 'ToolGroupToggleEntryStage.swift', 'the harness compiles the entry stage')
+    c.present(driver, 'ToolGroupAccordionToggle.swift', 'the harness compiles the production transaction')
+    c.present(driver, 'TOOLGROUP_ENTRY_PASS', 'a skipped entry stage cannot pass as covered')
+    c.present(fixture, 'startToggleEntryStage()', 'the fixture runs the entry stage before finishing')
     c.present(infra, 'override func prepareForReuse()', 'a reused cell resets its clip window')
     c.present(infra, 'accordionContentHeight = nil\n        resetAccordionWindowIfNeeded()\n        configGeneration',
               'a new configuration resets the clip window')

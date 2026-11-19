@@ -40,7 +40,15 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         private static let cellLogger = AppLogger(category: "CellPerf")
-        func configureCell(_ cell: SelfSizingCell, item: MessageListItem, indexPath: IndexPath) {
+        /// [T-toolgroup-accordion] `writesListState: false` is the accordion's
+        /// off-screen MEASUREMENT mode: the cell is configured through exactly
+        /// this production path (content, rendering, keys), but nothing is
+        /// written into the MAIN list — no index-keyed content key / metrics
+        /// tag (the probe's index path is its container's 0…n-1), no estimate,
+        /// no memo seed and no memo write, and no seed on the cell itself. The
+        /// probe then measures the cell instead of inheriting a cached number.
+        func configureCell(_ cell: SelfSizingCell, item: MessageListItem, indexPath: IndexPath,
+                           writesListState: Bool = true) {
             guard let vm else { return }
             let configStart = CACurrentMediaTime()
             #if DEBUG
@@ -206,18 +214,30 @@ extension CollectionViewMessageListV3.Coordinator {
                 // re-entry). Setting it here, where index↔item is authoritative
                 // for the cell about to be measured, makes the memo actually
                 // capture the self-size that follows.
-                layout.setContentKey(key, at: indexPath.item)
-
+                // [T-toolgroup-accordion] `writesListState == false` is the
+                // accordion's off-screen MEASUREMENT mode. The probe cell is
+                // driven by this very function (content parity is the point),
+                // but its index path belongs to the throwaway container, not to
+                // the list: writing `contentKeyByIndex[0…n-1]` /
+                // `metricsTagByIndex[0…n-1]` there used to overwrite the first
+                // rows' real keys, so the memo (and the settle diagnostics)
+                // attributed the probe's heights to unrelated rows.
                 #if DEBUG
+                var contentKeyMetricsTag: String?
                 // [T-ios-scroll-metrics-ring] Stamp the stable cell tag on the
                 // cell and the layout's index map (only while recording — the
                 // hash costs a string scan per configure).
-                if ScrollMetricsRecorder.shared.isEnabled {
+                if writesListState, ScrollMetricsRecorder.shared.isEnabled {
                     let tag = Self.stableCellTag(for: item, messages: messages, messageIndex: messageIndex)
                     cell.metricsTag = tag
-                    layout.setMetricsTag(tag, at: indexPath.item)
+                    contentKeyMetricsTag = tag
                 }
+                #else
+                let contentKeyMetricsTag: String? = nil
                 #endif
+                layout.registerCellContentKey(key, index: indexPath.item,
+                                              metricsTag: contentKeyMetricsTag,
+                                              writesListState: writesListState)
 
                 // [T-ios-scroll-decel-height-drift] STREAMING EXCLUSION. A cell
                 // belonging to the actively-streaming (last assistant) message
@@ -256,7 +276,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 }.map { $0.role == .systemInfo && $0.isCompactLoading } ?? false
                 let isStreamingCell = isLiveCompactRow
                     || (itemMsgId.map { liveAssistantIds(in: messages, isProcessing: vm.isProcessing).contains($0) } ?? false)
-                if isStreamingCell {
+                if isStreamingCell, writesListState {
                     cell.contentKey = nil
                     layout.invalidateMemo(forKey: key)
                 }
@@ -284,13 +304,20 @@ extension CollectionViewMessageListV3.Coordinator {
                 // pre-render height and the seed short-circuit then skipped the
                 // real measure forever.
                 let memoKey = SelfSizingCell.renderQualifiedKey(key, for: cell)
-                let memo = isStreamingCell ? nil : layout.measuredHeight(forKey: memoKey, width: cvW)
-                if !isStreamingCell {
+                // [T-toolgroup-accordion] In MEASUREMENT mode there is no seed,
+                // no content key and no memo write: a probe cell must reach the
+                // real `systemLayoutSizeFitting` (a seed would hand the accordion
+                // a cache hit and call it a measurement), and the main list must
+                // not learn a height from a throwaway container.
+                let memo = (isStreamingCell || !writesListState)
+                    ? nil
+                    : layout.measuredHeight(forKey: memoKey, width: cvW)
+                if !isStreamingCell, writesListState {
                     cell.contentKey = key
                 }
                 if let memo {
                     cell.seedMeasuredHeight(memo, width: cvW)
-                } else if !isStreamingCell,
+                } else if !isStreamingCell, writesListState,
                           let seed = firstDisplaySeed(for: item, messages: messages, collectionWidth: cvW, maxWidth: width) {
                     // [T-scroll-first-build-once] A row measured before its
                     // first display is built twice by SwiftUI; a seeded row
@@ -325,7 +352,8 @@ extension CollectionViewMessageListV3.Coordinator {
 
             // Height estimation for items not yet measured — skip if we already
             // have a measured height OR a precalculated height from applySnapshot.
-            if let layout = viewController?.messageListLayout,
+            if writesListState,
+               let layout = viewController?.messageListLayout,
                layout.cachedHeight(at: indexPath.item) == nil,
                !layout.hasPrecalcHeight(at: indexPath.item) {
                 let est = Self.estimateItemHeight(item, messages: messages,

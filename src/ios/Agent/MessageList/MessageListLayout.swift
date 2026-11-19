@@ -1244,6 +1244,36 @@ final class MessageListLayout: UICollectionViewLayout {
         contentKeyByIndex[index] = key
     }
 
+    /// [T-toolgroup-accordion] THE one place that writes a cell's INDEX-keyed
+    /// list state (`contentKeyByIndex`, and the DEBUG metrics tag).
+    ///
+    /// `writesListState: false` is the accordion's off-screen MEASUREMENT mode.
+    /// A throwaway measuring container configures the same production cells but
+    /// its index paths are its own 0…n-1, not this list's — the old code wrote
+    /// them here, overwriting the first rows' real content keys, so the memo
+    /// (`invalidateHeight`, the settle diagnostics) attributed the probe's
+    /// heights to unrelated rows. The coordinator's `configureCell` passes its
+    /// caller's flag straight through, and the regression fixture drives this
+    /// function with both values to pin the behaviour.
+    func registerCellContentKey(_ key: String, index: Int, metricsTag: String?, writesListState: Bool) {
+        guard writesListState else { return }
+        setContentKey(key, at: index)
+        #if DEBUG
+        if let metricsTag {
+            setMetricsTag(metricsTag, at: index)
+        }
+        #else
+        _ = metricsTag
+        #endif
+    }
+
+    /// Read-only diagnostics: the content key currently registered for `index`.
+    /// Exists so the accordion's measurement evidence can assert that a probe
+    /// did NOT write into this list.
+    func contentKey(at index: Int) -> String? {
+        contentKeyByIndex[index]
+    }
+
     /// [T-ios-footer-hug] Per-footer spacing policy, decided by the Coordinator
     /// from the footer's CONTENT (it knows message/vm state; the layout does
     /// not): true → the footer hugs the block above (no itemSpacing) — the

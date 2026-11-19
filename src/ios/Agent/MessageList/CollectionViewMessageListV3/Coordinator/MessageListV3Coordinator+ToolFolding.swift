@@ -278,167 +278,50 @@ extension CollectionViewMessageListV3.Coordinator {
                 other.cancel()
             }
 
-            let memberIndices: ([MessageListItem]) -> [Int] = { items in
-                var out: [Int] = []
-                for id in run.memberIds {
-                    guard let k = items.firstIndex(of: .assistantBlock(run.messageId, id)) else { return [] }
-                    out.append(k)
-                }
-                return out
-            }
-            // Reduce motion: the terminal geometry, one frame, no intermediate
-            // state at all (the legacy instant switch below, unchanged).
-            let reduceMotion = UIAccessibility.isReduceMotionEnabled
-            // [T-toolgroup-accordion] While a turn streams, the list is re-applied
-            // continuously; an animation started here would be cut short by the
-            // next update, so the run switches instantly instead of "animating"
-            // for one frame. Semantic: unchanged, only the presentation.
-            if vm.streamingUIUpdatesSuspended {
-                log.info("[ToolFold][Accordion] fallback=streaming group=\(firstBlockId.uuidString.prefix(8))")
+            // [T-toolgroup-accordion] The reveal transaction is production code
+            // that lives OUTSIDE this coordinator (Support/ToolGroupAccordionToggle.swift)
+            // so the UIKit regression harness runs the same `run(_:in:)` this tap
+            // runs, instead of a look-alike next to it. The business half above
+            // (expanded / manually-folded sets, `scrollMode`, the status-bar
+            // handoff) stays here, unchanged.
+            let env = ToolGroupAccordionToggle.Environment(
+                collectionView: cv,
+                layout: layout,
+                items: { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] },
+                applyStructure: { [weak self] caller in
+                    guard let self, let vm = self.vm else { return }
+                    self.applySnapshot(messages: vm.messages, caller: caller)
+                },
+                configureForMeasurement: { [weak self] cell, item, ip in
+                    // Measurement mode: the probe's index path belongs to its
+                    // container, never to this list (see `registerCellContentKey`).
+                    self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)
+                },
+                restoreAnchor: { [weak self] item, anchorY in
+                    self?.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
+                },
+                storeFlight: { [weak self] flight in self?.toolGroupAccordionFlight = flight },
+                currentFlight: { [weak self] in self?.toolGroupAccordionFlight },
+                isReduceMotion: { UIAccessibility.isReduceMotionEnabled },
+                isStreaming: { [weak self] in self?.vm?.streamingUIUpdatesSuspended ?? false },
+                log: { message in log.info(message) })
+            let request = ToolGroupAccordionToggle.Request(
+                item: item,
+                memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) },
+                expanding: expanding,
+                oldIndex: oldIdx,
+                anchorY: anchorY,
+                groupTag: firstBlockId.uuidString.prefix(8).description)
+            let outcome = ToolGroupAccordionToggle.run(request, in: env)
+            switch outcome {
+            case .started:
+                break
+            case .fallback(let reason), .invalid(let reason):
                 legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
                                              expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
                                              cv: cv, layout: layout, ds: ds, log: log)
-                return
+                log.info("[ToolFold][Accordion] instant group=\(firstBlockId.uuidString.prefix(8)) reason=\(reason)")
             }
-            if reduceMotion {
-                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
-                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
-                                             cv: cv, layout: layout, ds: ds, log: log)
-                return
-            }
-
-            if expanding {
-                // The member rows have to exist before they can be revealed.
-                // This is the same structural apply the list always did; the
-                // rows are then frozen and pulled back to reveal 0 inside this
-                // same turn, before anything is drawn.
-                applySnapshot(messages: vm.messages, caller: "toolGroupToggle")
-                UIView.performWithoutAnimation { cv.layoutIfNeeded() }
-            }
-            let items = ds.snapshot().itemIdentifiers
-            guard let headerIdx = items.firstIndex(of: item) else {
-                log.warning("[ToolFold][Accordion] header MISS group=\(firstBlockId.uuidString.prefix(8))")
-                return
-            }
-            let idxs = memberIndices(items)
-            let contiguous = !idxs.isEmpty
-                && idxs.count == run.memberIds.count
-                && idxs == Array(idxs[0]...(idxs[0] + idxs.count - 1))
-                && idxs[0] > headerIdx
-            guard contiguous else {
-                // A run whose member rows are not one contiguous span right
-                // below its header (an interleaved row the plan drew between
-                // them) cannot be revealed as a window: keep the old instant
-                // switch rather than animate the wrong rows.
-                log.info("[ToolFold][Accordion] fallback=non-contiguous group=\(firstBlockId.uuidString.prefix(8)) members=\(idxs.count)/\(run.memberIds.count)")
-                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
-                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
-                                             cv: cv, layout: layout, ds: ds, log: log)
-                return
-            }
-            // [T-toolgroup-accordion] Freeze MEASURED natural heights. A cached
-            // height is not necessarily what the row really needs (a freshly
-            // inserted block only has an estimate), and revealing a row to a
-            // guessed height makes the frontier land in the wrong place. Rows
-            // that are on screen are measured through the production
-            // self-sizing channel; off-screen rows keep the layout's current
-            // height (they cannot be seen during this flight) and are corrected
-            // by the ordinary self-sizing pass afterwards.
-            let spanItems = ds.snapshot().itemIdentifiers
-            let offScreen = idxs.filter { cv.cellForItem(at: IndexPath(item: $0, section: 0)) == nil }
-            let hosted = measureMemberRowsOffScreen(offScreen, items: spanItems, cv: cv, layout: layout)
-            var heights: [CGFloat] = []
-            heights.reserveCapacity(idxs.count)
-            var measuredCount = 0
-            var estimatedCount = 0
-            for idx in idxs {
-                let ip = IndexPath(item: idx, section: 0)
-                if let cell = cv.cellForItem(at: ip) as? SelfSizingCell {
-                    let attrs = layout.layoutAttributesForItem(at: ip)
-                        ?? UICollectionViewLayoutAttributes(forCellWith: ip)
-                    let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
-                    if fitted > 0.5 {
-                        layout.setMeasuredHeight(fitted, at: idx)
-                        heights.append(fitted)
-                        measuredCount += 1
-                        continue
-                    }
-                }
-                if let cached = layout.cachedHeight(at: idx) {
-                    // A cached height is only trusted when a cell really reported
-                    // it; precalc/estimated entries never land in heightCache.
-                    heights.append(cached)
-                    measuredCount += 1
-                    continue
-                }
-                if let value = hosted[idx] {
-                    heights.append(value)
-                    measuredCount += 1
-                    continue
-                }
-                heights.append(layout.naturalHeightForAccordion(at: idx))
-                estimatedCount += 1
-            }
-            log.info("[ToolFold][Accordion] natural measured=\(measuredCount) estimated=\(estimatedCount) of \(idxs.count)")
-            // [T-toolgroup-accordion] A member row WITHOUT a real measurement
-            // cannot be revealed to the right height: its estimate would be
-            // replaced by the true value when the span clears, which moves
-            // every row below it at the very end of the flight ("pops"). Only
-            // a fully measured run may animate; otherwise the run switches
-            // instantly (the pre-accordion behaviour) - correct, just not
-            // animated, and never wrong geometry.
-            guard estimatedCount == 0 else {
-                log.info("[ToolFold][Accordion] fallback=unmeasured group=\(firstBlockId.uuidString.prefix(8)) estimated=\(estimatedCount)")
-                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
-                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
-                                             cv: cv, layout: layout, ds: ds, log: log)
-                return
-            }
-            let span = idxs[0]...(idxs[0] + idxs.count - 1)
-            let plan = ToolGroupAccordionFlight.Plan(memberRange: span, naturalHeights: heights,
-                                                     headerIndex: headerIdx, anchorY: anchorY,
-                                                     headerItem: item,
-                                                     memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) })
-            let flight = ToolGroupAccordionFlight(collectionView: cv, layout: layout)
-            toolGroupAccordionFlight = flight
-            // Published for the other viewport owner (status-bar flight); see
-            // MessageListLayout.toolGroupAccordionAbort.
-            // [T-toolgroup-accordion] Identity, not row counts: a row inserted
-            // ABOVE the run, a swap to another session with the same row count,
-            // or a replaced span row all keep the numbers valid while the
-            // indices now point at the wrong rows. Every frame asks this before
-            // it writes a reveal, and the driver retires itself when it fails.
-            flight.liveItems = { [weak self] in self?.dataSource?.snapshot().itemIdentifiers }
-            layout.toolGroupAccordionAbort = { [weak self] in
-                guard let self, let running = self.toolGroupAccordionFlight else { return }
-                self.toolGroupAccordionFlight = nil
-                running.finish(.interrupted)
-            }
-            flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in
-                guard let self, let vm = self.vm else { return }
-                if self.toolGroupAccordionFlight === flight {
-                    self.toolGroupAccordionFlight = nil
-                    self.viewController?.messageListLayout?.toolGroupAccordionAbort = nil
-                }
-                // Exact restore: the structure now matches the business state
-                // (a close drops its rows only here, with every member row
-                // already at 0 height, so nothing moves on screen).
-                self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")
-                // [T-toolgroup-accordion][takeover] Only a flight that RAN TO
-                // ITS END may put the tapped title back and re-arm the bottom
-                // pin. `.interrupted` means a finger (or the status-bar flight)
-                // owns the viewport: writing the old anchor here would yank the
-                // list back under the drag, and `autoScrolling` would re-pin the
-                // bottom the user just grabbed.
-                switch outcome {
-                case .completed, .instant:
-                    self.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
-                case .interrupted, .cancelled:
-                    break
-                }
-                log.info("[ToolFold][Accordion] end group=\(firstBlockId.uuidString.prefix(8)) outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
-            }
-            log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
         }
 
         /// [T-toolgroup-accordion] Called immediately BEFORE a diffable apply is
@@ -457,62 +340,6 @@ extension CollectionViewMessageListV3.Coordinator {
             viewController?.messageListLayout?.toolGroupAccordionAbort = nil
             flight.cancel()
             AppLogger(category: "ToolFold").info("[ToolFold][Accordion] cancel=preapply-broken-span rows=\(items.count)")
-        }
-
-        /// [T-toolgroup-accordion] Measure the member rows that are NOT on screen.
-        ///
-        /// NOT through `ds.collectionView(_:cellForItemAt:)`: that calls
-        /// `dequeueConfiguredReusableCell` outside a UIKit request cycle, which
-        /// iOS 18+ can trap ("Expected dequeued view to be returned to
-        /// collection view"). Instead a private measuring collection view (alpha
-        /// 0, user interaction off, its own MessageListLayout, added to the same
-        /// window) is driven by UIKit normally; each row is configured with the
-        /// SAME production `configureCell(_:item:indexPath:)`, never a copy of
-        /// it. The user's viewport is not touched.
-        private final class AccordionMeasureHost: NSObject, UICollectionViewDataSource {
-            var items: [MessageListItem] = []
-            var make: ((UICollectionView, IndexPath, MessageListItem) -> UICollectionViewCell)?
-            func collectionView(_ view: UICollectionView, numberOfItemsInSection section: Int) -> Int { items.count }
-            func collectionView(_ view: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-                make?(view, indexPath, items[indexPath.item]) ?? UICollectionViewCell()
-            }
-        }
-
-        private func measureMemberRowsOffScreen(_ idxs: [Int], items: [MessageListItem],
-                                                cv: UICollectionView,
-                                                layout: MessageListLayout) -> [Int: CGFloat] {
-            guard let window = cv.window, cv.bounds.width > 0, !idxs.isEmpty else { return [:] }
-            let mcv = UICollectionView(frame: .zero, collectionViewLayout: MessageListLayout())
-            mcv.isUserInteractionEnabled = false
-            mcv.isScrollEnabled = false
-            mcv.alpha = 0
-            let host = AccordionMeasureHost()
-            host.items = idxs.map { items[$0] }
-            host.make = { [weak self] v, ip, item in
-                let cell = SelfSizingCell()
-                self?.configureCell(cell, item: item, indexPath: ip)
-                return cell
-            }
-            mcv.dataSource = host
-            let estimated = idxs.reduce(CGFloat(0)) { $0 + layout.naturalHeightForAccordion(at: $1) }
-            mcv.frame = CGRect(x: 0, y: 0, width: cv.bounds.width, height: max(400, estimated + 40))
-            window.addSubview(mcv)
-            mcv.layoutIfNeeded()
-            var out: [Int: CGFloat] = [:]
-            for (k, idx) in idxs.enumerated() {
-                let ip = IndexPath(item: k, section: 0)
-                guard let cell = mcv.cellForItem(at: ip) as? SelfSizingCell else { continue }
-                let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
-                attrs.size = CGSize(width: mcv.bounds.width, height: cell.bounds.height)
-                let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
-                if fitted > 0.5 {
-                    layout.setMeasuredHeight(fitted, at: idx)
-                    out[idx] = fitted
-                }
-            }
-            mcv.removeFromSuperview()
-            mcv.dataSource = nil
-            return out
         }
 
         /// [T-toolgroup-accordion] The pre-accordion switch, kept verbatim for

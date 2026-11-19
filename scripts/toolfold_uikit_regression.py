@@ -128,6 +128,11 @@ sources = [
     # chat list uses; the fixture drives THIS class, not a copy.
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift',
+    # [T-toolgroup-accordion] the reveal transaction + the measurement probe the
+    # coordinator calls. The entry stage drives THIS code (the same `run(_:in:)`
+    # `toggleToolGroup` calls), not a copy of it.
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionToggle.swift',
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionMeasurement.swift',
     OUT / 'ProductionMessageListItem.swift',
     OUT / 'ProductionSelfSizingCell.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/MessageListV3Cells.swift',
@@ -135,6 +140,7 @@ sources = [
     IOS / 'Views/Chat/AIChatView/Support/ChatColors.swift',
     OUT / 'ProductionLivePlaceholderPolicy.swift',
     OUT / 'ProductionToolGroupRow.swift',
+    ROOT / 'scripts/toolfold-uikit-tests/ToolGroupToggleEntryStage.swift',
 ]
 cmd = [
     'xcrun', '--sdk', 'iphonesimulator', 'swiftc',
@@ -193,8 +199,15 @@ if diag_file.exists():
     print(diag_text, flush=True)
     diag_lines = [l for l in diag_text.splitlines() if l.startswith('TOOLFOLD_UIKIT_DIAG ')]
     assert len(diag_lines) == 12, f'expected 12 TOOLFOLD_UIKIT_DIAG lines, got {len(diag_lines)}'
+import re as _re
 marker = (OUT / 'result.log').read_text()
 print(marker, flush=True)
+# [T-toolgroup-accordion] Entry-level stage: the production toggle transaction
+# ran against a real window/layout/cell list. It prints its own marker so a
+# silently skipped stage cannot pass as covered.
+_entry = _re.search(r'TOOLGROUP_ENTRY_PASS checks=(\d+)', output)
+assert _entry, 'TOOLGROUP_ENTRY_STAGE_MISSING'
+assert int(_entry.group(1)) >= 18, f'expected >= 18 entry-level checks, got {_entry.group(1)}'
 # [T-toolgroup-accordion] 33 checks / 12 PNGs before the accordion stage; the
 # stage adds real intermediate-frame evidence (mid-flight, end, reduce motion).
 import re as _re

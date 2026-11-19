@@ -127,6 +127,42 @@ class SelfSizingCell: UICollectionViewCell {
     /// SwiftUI's view graph and triggering a geometry observer race.
     private var lastComputedHeight: CGFloat?
 
+    /// [T-toolgroup-accordion] Measurement RECEIPT: what the last
+    /// `preferredLayoutAttributesFitting` really produced, and where the number
+    /// came from.
+    ///
+    /// The accordion freezes a run's natural heights before it animates and
+    /// must never mistake a proposal for a measurement. The method's early
+    /// returns are invisible from outside — the off-collection guard, the
+    /// hosting-exception fallback and the `configGeneration` race all hand the
+    /// caller's `layoutAttributes` straight back, so `fitted > 0.5` is true for
+    /// an estimate too. This receipt is written only where a real height exists
+    /// and cleared wherever the height cache is cleared, so
+    /// `heightReceipt == nil` after a call means exactly "nothing was measured,
+    /// the number you got back is your own proposal".
+    struct HeightReceipt {
+        enum Source: String {
+            /// `systemLayoutSizeFitting` ran on this cell and returned this.
+            case measured
+            /// A real height measured for the SAME content key at this width.
+            case seeded
+            /// This cell already measured this width and returned its cache.
+            case cached
+        }
+        let height: CGFloat
+        let width: CGFloat
+        let source: Source
+    }
+    private(set) var heightReceipt: HeightReceipt?
+
+    /// Width-matched receipt for `width`, or nil when the last fitting pass
+    /// measured nothing. Read by the accordion's off-screen measurement (and by
+    /// its regression fixture) instead of guessing from `height > 0.5`.
+    func measuredHeight(forWidth width: CGFloat) -> HeightReceipt? {
+        guard let receipt = heightReceipt, abs(receipt.width - width) < 1 else { return nil }
+        return receipt
+    }
+
     /// The width at which `lastComputedHeight` was measured. A width change
     /// still re-measures; an unchanged width reuses the cached height without
     /// calling `super.preferredLayoutAttributesFitting` or
@@ -202,6 +238,8 @@ class SelfSizingCell: UICollectionViewCell {
         accordionContentHeight = nil
         resetAccordionWindowIfNeeded()
         configGeneration &+= 1
+        // [T-toolgroup-accordion] A receipt describes the OLD content.
+        heightReceipt = nil
         lastComputedHeight = nil
         lastComputedWidth = nil
         lastMeasureMediaTime = nil
@@ -263,6 +301,7 @@ class SelfSizingCell: UICollectionViewCell {
             let copy = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
             copy.size.width = cachedW
             copy.size.height = cached
+            heightReceipt = HeightReceipt(height: cached, width: cachedW, source: .cached)
             // [ScrollStall] Count short-window cache hits; flush summary 1Hz.
             Self.dedupHits &+= 1
             let now = CACurrentMediaTime()
@@ -355,6 +394,7 @@ class SelfSizingCell: UICollectionViewCell {
                 let copy = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
                 copy.size.width = cachedW
                 copy.size.height = cached
+                heightReceipt = HeightReceipt(height: cached, width: cachedW, source: .cached)
                 return copy
             }
         }
@@ -383,6 +423,7 @@ class SelfSizingCell: UICollectionViewCell {
             seededWidth = nil
             lastComputedHeight = sh
             lastComputedWidth = layoutAttributes.size.width
+            heightReceipt = HeightReceipt(height: sh, width: layoutAttributes.size.width, source: .seeded)
             lastMeasureMediaTime = CACurrentMediaTime()
             #if DEBUG
             // [T-table-layout-true-width] The seed replaces a real measure, so a
@@ -431,6 +472,7 @@ class SelfSizingCell: UICollectionViewCell {
             if let cached = lastComputedHeight {
                 let copy = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
                 copy.size.height = cached
+                heightReceipt = HeightReceipt(height: cached, width: layoutAttributes.size.width, source: .cached)
                 return copy
             }
             return layoutAttributes
@@ -443,6 +485,7 @@ class SelfSizingCell: UICollectionViewCell {
         if let cached = lastComputedHeight,
            abs(layoutAttributes.size.width - attrs.size.width) < 1 {
             attrs.size.height = cached
+            heightReceipt = HeightReceipt(height: cached, width: layoutAttributes.size.width, source: .cached)
             // [ScrollStall] Count broad cache hits; flush summary 1Hz.
             Self.broadHits &+= 1
             let now = CACurrentMediaTime()
@@ -638,6 +681,12 @@ class SelfSizingCell: UICollectionViewCell {
         if fittingSize.height >= 4 {
             lastComputedHeight = fittingSize.height
             lastComputedWidth = layoutAttributes.size.width
+            // [T-toolgroup-accordion] The only place a REAL measurement is
+            // recorded: `systemLayoutSizeFitting` ran above (both ObjC guards
+            // passed) and the content generation is unchanged.
+            heightReceipt = HeightReceipt(height: fittingSize.height,
+                                          width: layoutAttributes.size.width,
+                                          source: .measured)
             lastMeasureMediaTime = CACurrentMediaTime()
             // [T-ios-scroll-decel-height-drift] Memoize the real height under the
             // content key so a later re-entry can seed it and skip this measure.
@@ -719,6 +768,7 @@ class SelfSizingCell: UICollectionViewCell {
         lastComputedHeight = nil
         lastComputedWidth = nil
         lastMeasureMediaTime = nil
+        heightReceipt = nil
     }
 
     /// [MOD genui-height-txn] An explicit interactive value commit must not
@@ -736,6 +786,7 @@ class SelfSizingCell: UICollectionViewCell {
         lastComputedHeight = nil
         lastComputedWidth = nil
         lastMeasureMediaTime = nil
+        heightReceipt = nil
         // [T-ios-contextmenu-liquidmorph-reuse] Cancel any context-menu
         // presentation still in flight for THIS cell before UIKit hands it to a
         // different message.

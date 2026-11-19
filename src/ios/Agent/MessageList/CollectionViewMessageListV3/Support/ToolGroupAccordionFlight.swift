@@ -50,13 +50,18 @@ final class ToolGroupAccordionFlight {
         var naturalHeights: [CGFloat]
         /// Row of the tapped group header (the row whose screen Y is pinned).
         var headerIndex: Int
+        /// The header's screen Y at the moment of the tap.
+        ///
+        /// Declared BEFORE `headerItem` on purpose: the memberwise initializer
+        /// takes its arguments in declaration order, and every call site (the
+        /// coordinator's transaction and the UIKit fixture) passes the anchor
+        /// right after the header index.
+        var anchorY: CGFloat
         /// What that row and the member rows REALLY are. Row counts cannot tell
         /// an inserted-above row, a same-count session swap or a replaced span
         /// row from the original layout.
         var headerItem: MessageListItem
         var memberItems: [MessageListItem]
-        /// The header's screen Y at the moment of the tap.
-        var anchorY: CGFloat
     }
 
     private weak var collectionView: UICollectionView?

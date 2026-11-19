@@ -650,6 +650,7 @@ final class SelectableMarkdownTextView: UIView {
     }
 
     var accordionFlight: ToolGroupAccordionFlight?
+    var entryStage: ToolGroupToggleEntryStage?
     var accordionHeaderY: CGFloat = 0
     var accordionFollowYBefore: CGFloat = 0
 
@@ -761,6 +762,26 @@ final class SelectableMarkdownTextView: UIView {
             self.check(outcome == .instant, "reduce motion close: instant outcome")
             self.check(flight.reveal == 0 && self.listLayout.toolGroupAccordionSpan == nil,
                        "reduce motion close: closed and no span left")
+            self.startToggleEntryStage()
+        }
+    }
+
+    // MARK: - [T-toolgroup-accordion] Entry level: the production toggle transaction
+
+    /// Drives `ToolGroupAccordionToggle.run(_:in:)` — the call the coordinator's
+    /// `toggleToolGroup` makes — against its own real list, so the business
+    /// entry (expand/close structure, measurement, span, flight, end anchor) is
+    /// covered by the shipping code rather than by this fixture.
+    func startToggleEntryStage() {
+        let stage = ToolGroupToggleEntryStage(window: window!, report: { [weak self] ok, label in
+            self?.check(ok, label)
+        })
+        entryStage = stage
+        stage.start()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            guard let self, let stage = self.entryStage else { return }
+            self.check(stage.failures.isEmpty, "entry stage finished without failures (\(stage.failures))")
+            self.check(stage.checks >= 18, "entry stage ran its cases (checks=\(stage.checks))")
             self.finish()
         }
     }
