@@ -413,6 +413,22 @@ def static_checks():
     snap_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
     c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying:') >= 4,
          'every snapshot apply validates the span BEFORE it commits')
+    # [T-toolgroup-accordion] The Coordinator is compiled ONLY by the full app
+    # build (the UIKit harness links Support/*), so a type error here survives
+    # every fast stage and only shows up ~40 min later. Run 44513828272 paid for
+    # exactly that: `ds.snap` (no such member), `snapshot.itemIdentifiers`
+    # (method used as a property) and an unqualified `Section` that resolved to
+    # SwiftUI.Section. These four checks are the cheap guard.
+    c.absent(snap_src, 'ds.snap.', 'frozen negative: the diffable data source exposes snapshot(), not .snap')
+    c.absent(snap_src, '.snapshot.itemIdentifiers',
+             'frozen negative: snapshot is a method — itemIdentifiers needs snapshot()')
+    c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: ds.snapshot().itemIdentifiers)') == 3
+         and snap_src.count('cancelAccordionIfSpanBroken(beforeApplying: dataSource.snapshot().itemIdentifiers)') == 1,
+         'all four pre-apply span checks read a real snapshot (ds.snapshot() x3 + dataSource.snapshot() x1)')
+    c.present(fold, 'UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>',
+              'the coordinator helper names the app Section type, never the SwiftUI one')
+    c.absent(fold, 'DiffableDataSource<Section,',
+             'frozen negative: an unqualified Section resolves to SwiftUI.Section in a free function')
     c.present(toggle, 'guard !flight.planStillMatches(items) else { return }',
               'pre-apply validation cancels only on a broken span (same items keep animating)')
     c.absent(toggle, 'flight.spanIsValid', 'frozen negative: no per-frame-only validation left')

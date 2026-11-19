@@ -377,7 +377,7 @@ extension CollectionViewMessageListV3.Coordinator {
                                                   expanding: Bool, oldIdx: Int, anchorY: CGFloat,
                                                   cv: UICollectionView,
                                                   layout: MessageListLayout,
-                                                  ds: UICollectionViewDiffableDataSource<Section, MessageListItem>,
+                                                  ds: UICollectionViewDiffableDataSource<CollectionViewMessageListV3.Section, MessageListItem>,
                                                   log: AppLogger) {
             guard let vm else { return }
             // [T-toolgroup-accordion] Unconditional, exactly like the original
