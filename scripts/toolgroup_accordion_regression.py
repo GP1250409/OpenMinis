@@ -521,30 +521,103 @@ def static_checks():
                            'ToolGroupAccordionToggle.Environment')[0] == env_members,
          'the parser reads a well-ordered call back exactly')
 
-    # 7. every gate script must know the new markers, not just build.py
-    verify = (NEWROOT / 'verify_candidate.py')
-    collect = (NEWROOT / 'collect_sign.py')
-    vt = (NEWROOT / 'verify_candidate.py').read_text()
-    c.present(vt, 'TOOLGROUP_ACCORDION_PASS', 'verify_candidate.py requires the accordion markers (current run only)')
-    c.present(vt, 'png=15', 'verify_candidate.py pins the new PNG count')
-    c.present(vt, "_tfq and max(_tfq) >= 55", 'verify_candidate.py keeps the 55-check floor')
-    c.absent(vt, 'png=12', 'verify_candidate.py has no stale png=12 gate')
-    ct = (NEWROOT / 'collect_sign.py').read_text()
-    # collect_sign.py never carried a toolfold gate (grep: 0 hits) - it signs what
-    # build.py verify approved, so the correct contract is "no stale numbers here".
-    c.absent(ct, 'png=12', 'collect_sign.py has no stale png=12 gate')
-    c.absent(ct, 'TOOLFOLD_UIKIT_PASS checks=33', 'collect_sign.py has no stale 33-check gate')
-    c.present((NEWROOT / 'build.py').read_text(), "'TOOLGROUP_ACCORDION_PASS' in validation", 'build.py gates the new markers')
+
 
     return c
 
 
+def delivery_checks(delivery_root):
+    """[T-toolgroup-accordion] The LOCAL DELIVERY ROOT contract.
+
+    `verify_candidate.py`, `collect_sign.py` and `build.py` sign and gate the run
+    from OUTSIDE the git repository (they are the delivery scaffolding, not
+    product source), so a clean CI checkout cannot see them. Reading them here
+    unconditionally is what killed run 44483236883 at this line: the script
+    walked up to the parent of the checkout and crashed with FileNotFoundError.
+
+    So this half is OPT-IN: `--delivery-root <dir>`. When it is requested the
+    files MUST exist (a missing root is a hard failure, never a silent skip);
+    when it is not requested the CI run stays repo-only and says so explicitly.
+    """
+    c = Contract()
+    root = Path(delivery_root)
+    required = ['verify_candidate.py', 'collect_sign.py', 'build.py']
+    missing = [name for name in required if not (root / name).is_file()]
+    c.ok(not missing, 'the delivery root holds every gate script (missing=%s root=%s)' % (missing, root))
+    if missing:
+        return c
+    vt = (root / 'verify_candidate.py').read_text()
+    c.present(vt, 'TOOLGROUP_ACCORDION_PASS', 'verify_candidate.py requires the accordion markers (current run only)')
+    c.present(vt, 'png=15', 'verify_candidate.py pins the new PNG count')
+    c.present(vt, "_tfq and max(_tfq) >= 55", 'verify_candidate.py keeps the 55-check floor')
+    c.absent(vt, 'png=12', 'verify_candidate.py has no stale png=12 gate')
+    ct = (root / 'collect_sign.py').read_text()
+    # collect_sign.py never carried a toolfold gate (grep: 0 hits) - it signs what
+    # build.py verify approved, so the correct contract is "no stale numbers here".
+    c.absent(ct, 'png=12', 'collect_sign.py has no stale png=12 gate')
+    c.absent(ct, 'TOOLFOLD_UIKIT_PASS checks=33', 'collect_sign.py has no stale 33-check gate')
+    c.present((root / 'build.py').read_text(), "'TOOLGROUP_ACCORDION_PASS' in validation", 'build.py gates the new markers')
+    return c
+
+
+def layout_self_test():
+    """A clean-checkout layout must pass with NO delivery root, and an explicitly
+    requested but EMPTY root must fail. Uses `git archive` so the copy is exactly
+    what CI checks out (no parent directory to walk into)."""
+    import subprocess, tempfile, shutil
+    tmp = Path(tempfile.mkdtemp(prefix='toolgroup-layout-'))
+    try:
+        # An ISOLATED copy of the tree as CI sees it: no .git, no parent
+        # directory to walk into, no delivery scaffolding next to it.
+        archive = tmp / 'checkout.tar'
+        subprocess.run(['tar', '-cf', str(archive), '--exclude=.git', '--exclude=build', '-C', str(ROOT), '.'],
+                       check=True)
+        clean = tmp / 'checkout'
+        clean.mkdir()
+        subprocess.run(['tar', '-xf', str(archive), '-C', str(clean)], check=True)
+        script = clean / 'scripts' / 'toolgroup_accordion_regression.py'
+        ok = subprocess.run([sys.executable, str(script)], cwd=str(clean),
+                            capture_output=True, text=True)
+        ci_ok = (ok.returncode == 0 and 'TOOLGROUP_ACCORDION_PASS' in ok.stdout
+                 and 'TOOLGROUP_DELIVERY_SKIPPED' in ok.stdout)
+        empty = tmp / 'empty-root'
+        empty.mkdir()
+        bad = subprocess.run([sys.executable, str(script), '--delivery-root', str(empty)],
+                             cwd=str(clean), capture_output=True, text=True)
+        local_ok = bad.returncode != 0 and 'TOOLGROUP_DELIVERY_FAIL' in bad.stdout
+        print('  %s clean checkout (no parent root) passes repo-only and says so' % ('OK ' if ci_ok else 'FAIL'))
+        print('  %s an explicitly requested EMPTY delivery root fails' % ('OK ' if local_ok else 'FAIL'))
+        print('LAYOUT_SELF_TEST_%s' % ('PASS' if (ci_ok and local_ok) else 'FAIL'))
+        return 0 if (ci_ok and local_ok) else 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == '__main__':
+    args = sys.argv[1:]
+    if '--layout-self-test' in args:
+        raise SystemExit(layout_self_test())
+    delivery_root = None
+    if '--delivery-root' in args:
+        delivery_root = args[args.index('--delivery-root') + 1]
+    elif any(a.startswith('--delivery-root=') for a in args):
+        delivery_root = [a for a in args if a.startswith('--delivery-root=')][0].split('=', 1)[1]
     m = math_checks()
     contract = static_checks()
     if contract.failures:
         for f in contract.failures:
             print('FAIL', f)
-        print(f'TOOLGROUP_ACCORDION_FAIL math={m} static={contract.cases} failures={len(contract.failures)}')
+        print('TOOLGROUP_ACCORDION_FAIL math=%s static=%s failures=%s' % (m, contract.cases, len(contract.failures)))
         raise SystemExit(1)
-    print(f'TOOLGROUP_ACCORDION_PASS math={m} static={contract.cases}')
+    print('TOOLGROUP_ACCORDION_PASS math=%s static=%s' % (m, contract.cases))
+    if delivery_root is None:
+        # Repo-only run (CI): the delivery scaffolding is not in the checkout.
+        print('TOOLGROUP_DELIVERY_SKIPPED no --delivery-root (repo-only run)')
+        raise SystemExit(0)
+    dc = delivery_checks(delivery_root)
+    if dc.failures:
+        for f in dc.failures:
+            print('FAIL', f)
+        print('TOOLGROUP_DELIVERY_FAIL cases=%s failures=%s' % (dc.cases, len(dc.failures)))
+        raise SystemExit(1)
+    print('TOOLGROUP_DELIVERY_PASS cases=%s root=%s' % (dc.cases, delivery_root))
