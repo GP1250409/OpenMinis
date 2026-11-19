@@ -217,9 +217,13 @@ def static_checks():
     c.absent(toggle, 'var snap = ds.snapshot()\n            snap.reconfigureItems([item])',
              'frozen negative: reconfigure-instead-of-reveal in the animated path')
     c.absent(fold, 'ToolGroupAccordion.duration) ?? 0.32', 'no second hard-coded duration')
-    c.present(snap, 'if let flight = toolGroupAccordionFlight {\n                toolGroupAccordionFlight = nil\n                flight.cancel()',
-              'a snapshot swap cancels the flight (no stale span)')
-    c.present(delegate, 'flight.finish(.interrupted)', 'drag owns the viewport')
+    c.absent(snap, 'flight.cancel()',
+             'frozen negative: a snapshot must not kill the animation unconditionally')
+    c.present(flight, 'retire=structure', 'the driver retires only on a real structural conflict')
+    c.present(delegate, 'viewController?.messageListLayout?.abortToolGroupAccordion()',
+              'drag owns the viewport through the slice-safe channel')
+    c.present(layout, 'func abortToolGroupAccordion()', 'the takeover channel exists on the layout')
+    c.absent(delegate, 'toolGroupAccordionFlight', 'frozen negative: no coordinator-only symbol in the status-bar slice')
 
     # 5. the UIKit fixture drives THIS class, on a window, with intermediate frames
     c.present(fixture, 'ToolGroupAccordionFlight(collectionView: list, layout: listLayout)', 'fixture uses the shipping driver')
@@ -245,7 +249,8 @@ def static_checks():
               'a tap takes the viewport from an active status-bar flight (no new EndReason case)')
     c.absent((IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift').read_text(),
              'case toolGroupToggle', 'frozen negative: the status-bar reason enum is not extended')
-    c.present(delegate, 'func beginStatusBarScrollToTop() {\n            // [T-toolgroup-accordion]',
+    c.present(delegate[delegate.index('func beginStatusBarScrollToTop()'):][:900],
+              'abortToolGroupAccordion()',
               'the status-bar flight cancels the accordion on its own start')
     c.present(toggle, 'case .interrupted, .cancelled:\n                    break',
               'an interrupted/superseded flight never restores the old anchor')
