@@ -289,6 +289,17 @@ extension CollectionViewMessageListV3.Coordinator {
             // Reduce motion: the terminal geometry, one frame, no intermediate
             // state at all (the legacy instant switch below, unchanged).
             let reduceMotion = UIAccessibility.isReduceMotionEnabled
+            // [T-toolgroup-accordion] While a turn streams, the list is re-applied
+            // continuously; an animation started here would be cut short by the
+            // next update, so the run switches instantly instead of "animating"
+            // for one frame. Semantic: unchanged, only the presentation.
+            if vm.streamingUIUpdatesSuspended {
+                log.info("[ToolFold][Accordion] fallback=streaming group=\(firstBlockId.uuidString.prefix(8))")
+                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
+                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
+                                             cv: cv, layout: layout, ds: ds, log: log)
+                return
+            }
             if reduceMotion {
                 legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
                                              expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
@@ -351,7 +362,14 @@ extension CollectionViewMessageListV3.Coordinator {
                     }
                 }
                 if let cached = layout.cachedHeight(at: idx) {
+                    // A cached height is only trusted when a cell really reported
+                    // it; precalc/estimated entries never land in heightCache.
                     heights.append(cached)
+                    measuredCount += 1
+                    continue
+                }
+                if let hosted = measureMemberRowOffScreen(idx: idx, cv: cv, ds: ds, layout: layout) {
+                    heights.append(hosted)
                     measuredCount += 1
                     continue
                 }
@@ -378,9 +396,19 @@ extension CollectionViewMessageListV3.Coordinator {
                                                      headerIndex: headerIdx, anchorY: anchorY)
             let flight = ToolGroupAccordionFlight(collectionView: cv, layout: layout)
             toolGroupAccordionFlight = flight
+            // Published for the other viewport owner (status-bar flight); see
+            // MessageListLayout.toolGroupAccordionAbort.
+            layout.toolGroupAccordionAbort = { [weak self] in
+                guard let self, let running = self.toolGroupAccordionFlight else { return }
+                self.toolGroupAccordionFlight = nil
+                running.finish(.interrupted)
+            }
             flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in
                 guard let self, let vm = self.vm else { return }
-                if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }
+                if self.toolGroupAccordionFlight === flight {
+                    self.toolGroupAccordionFlight = nil
+                    self.viewController?.messageListLayout?.toolGroupAccordionAbort = nil
+                }
                 // Exact restore: the structure now matches the business state
                 // (a close drops its rows only here, with every member row
                 // already at 0 height, so nothing moves on screen).
@@ -400,6 +428,39 @@ extension CollectionViewMessageListV3.Coordinator {
                 log.info("[ToolFold][Accordion] end group=\(firstBlockId.uuidString.prefix(8)) outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
             }
             log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
+        }
+
+        /// [T-toolgroup-accordion] Measure a member row that is NOT on screen.
+        ///
+        /// `SelfSizingCell.preferredLayoutAttributesFitting` refuses to measure
+        /// off-window cells, so the row is built by the data source (the real
+        /// registration + configuration, not a stand-in) and hosted by the
+        /// collection view itself at a y far below the content, which satisfies
+        /// the production guard (`superview is UICollectionView`, `window != nil`,
+        /// `contentConfiguration != nil`). The result is written through
+        /// `setMeasuredHeight`, the same channel the visible path uses. Returns
+        /// nil when even that fails - the caller then falls back to the instant
+        /// switch instead of animating to a guessed height.
+        private func measureMemberRowOffScreen(idx: Int, cv: UICollectionView,
+                                               ds: UICollectionViewDiffableDataSource<Section, MessageListItem>,
+                                               layout: MessageListLayout) -> CGFloat? {
+            guard cv.window != nil, cv.bounds.width > 0 else { return nil }
+            let ip = IndexPath(item: idx, section: 0)
+            guard idx < ds.snapshot().numberOfItems else { return nil }
+            let cell = ds.collectionView(cv, cellForItemAt: ip)
+            let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
+            let probe = CGRect(x: 0, y: cv.contentSize.height + 8000,
+                               width: cv.bounds.width, height: layout.naturalHeightForAccordion(at: idx))
+            attrs.frame = probe
+            cell.frame = probe
+            cv.addSubview(cell)
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+            cell.removeFromSuperview()
+            guard fitted > 0.5 else { return nil }
+            layout.setMeasuredHeight(fitted, at: idx)
+            return fitted
         }
 
         /// [T-toolgroup-accordion] The pre-accordion switch, kept verbatim for

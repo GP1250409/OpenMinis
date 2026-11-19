@@ -173,16 +173,13 @@ extension CollectionViewMessageListV3.Coordinator {
         func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?",
                            preserveVisibleAnchor: Bool = false) {
             guard let vm, !vm.isLoadingSession else { return }
-            // [T-toolgroup-accordion] A new snapshot supersedes any flight in
-            // the air: rows may be inserted or removed under it, so the frozen
-            // span would point at the wrong rows. Drop the override WITHOUT a
-            // callback (we are inside an apply — re-entering it would be a
-            // diffable re-entrancy) and let this apply settle the exact
-            // geometry from the caches.
-            if let flight = toolGroupAccordionFlight {
-                toolGroupAccordionFlight = nil
-                flight.cancel()
-            }
+            // [T-toolgroup-accordion] A new snapshot does NOT automatically end
+            // a running flight: ordinary content updates (streaming text, a
+            // tool's status) keep the same rows, and cutting the animation on
+            // every one of them meant it never played. The driver verifies each
+            // frame that its span still describes this snapshot and retires
+            // itself only on a REAL structural conflict (rows inserted/removed
+            // under it).
             // [T-bridge-message-ui-leak] Single UI-collection sink for EVERY
             // path that pushes messages to the list (loadSession, live inject,
             // compact rebuild, snapshot reload, rebind…). Filter the internal

@@ -60,10 +60,7 @@ extension CollectionViewMessageListV3.Coordinator {
             // [T-toolgroup-accordion] Same ownership rule for the accordion: the
             // finger takes the viewport, so the flight lands AT ONCE (its last
             // frame is already the legal geometry) instead of fighting the pan.
-            if let flight = toolGroupAccordionFlight {
-                toolGroupAccordionFlight = nil
-                flight.finish(.interrupted)
-            }
+            viewController?.messageListLayout?.abortToolGroupAccordion()
             // [T-user-ask-anchor-flight] The finger takes the viewport: the
             // answered-question card's parked anchor and its probe chain must
             // not keep suppressing compensation or write an offset under the
@@ -350,14 +347,10 @@ extension CollectionViewMessageListV3.Coordinator {
         /// move the viewport mid-flight is stopped or gated.
         func beginStatusBarScrollToTop() {
             // [T-toolgroup-accordion] The status-bar flight owns the viewport
-            // from here on: drop the accordion's span and its per-frame offset
-            // writer WITHOUT restoring the old anchor (the system animation is
-            // the anchor). The tool run keeps its business state; the geometry
-            // settles at the measured heights through the snapshot apply.
-            if let flight = toolGroupAccordionFlight {
-                toolGroupAccordionFlight = nil
-                flight.finish(.interrupted)
-            }
+            // from here on: abort the accordion through the layout's takeover
+            // channel (a closure, so this file stays slice-compilable for the
+            // status-bar harness). The tool run keeps its business state.
+            viewController?.messageListLayout?.abortToolGroupAccordion()
             // [T-statusbar-native-scroll] Already parked at the top: returning
             // true keeps UIKit's contract, but there is nothing to own — do not
             // suspend streaming / defer self-sizing for a no-op animation.

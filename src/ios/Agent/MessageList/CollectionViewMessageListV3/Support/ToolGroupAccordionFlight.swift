@@ -191,6 +191,16 @@ final class ToolGroupAccordionFlight {
             finish(.interrupted)
             return
         }
+        // [T-toolgroup-accordion] Structural conflict only. Ordinary content
+        // updates re-apply the same rows, so the frozen span is still valid and
+        // the animation must keep playing; rows appearing/disappearing under it
+        // (a plan change, a new message, a session swap) retire it at once.
+        let rowCount = cv.numberOfItems(inSection: 0)
+        if plan.headerIndex >= rowCount || plan.memberRange.upperBound >= rowCount {
+            AppLogger(category: "ToolFold").info("[ToolFold][Accordion] retire=structure rows=\(rowCount) header=\(plan.headerIndex) span=\(plan.memberRange.lowerBound)...\(plan.memberRange.upperBound)")
+            finish(.interrupted)
+            return
+        }
         let elapsed = CACurrentMediaTime() - startedAt
         let p = ToolGroupAccordion.progress(elapsed: elapsed, duration: duration)
         let r = fromReveal + (direction.targetReveal - fromReveal) * p

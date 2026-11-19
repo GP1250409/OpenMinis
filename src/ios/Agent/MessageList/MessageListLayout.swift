@@ -65,6 +65,22 @@ final class MessageListLayout: UICollectionViewLayout {
         setToolGroupAccordion(nil)
     }
 
+    /// [T-toolgroup-accordion] Cross-feature takeover channel.
+    ///
+    /// The status-bar scroll-to-top flight lives in a file that other harnesses
+    /// compile as a SLICE (scripts/statusbar_scroll_regression.py), so that file
+    /// may only reference symbols it already knew: a direct call to the
+    /// accordion driver there produced
+    /// `cannot find 'toolGroupAccordionFlight' in scope` in run 44468710606.
+    /// The owner publishes a plain closure here instead - the layout file is
+    /// compiled whole by every harness, so the type dependency stays out of
+    /// the slice.
+    var toolGroupAccordionAbort: (() -> Void)?
+
+    func abortToolGroupAccordion() {
+        toolGroupAccordionAbort?()
+    }
+
     /// True while `index` is one of the rows the accordion owns.
     func isToolGroupAccordionIndex(_ index: Int) -> Bool {
         guard let span = toolGroupAccordionSpan else { return false }
