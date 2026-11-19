@@ -101,6 +101,10 @@ def main():
                # the toggle path ends a live flight, so the fixture must drive
                # the real lifecycle (Foundation-only, no UIKit).
                IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
+               # MessageListLayout's vertical rhythm uses the production
+               # MessageRowGap rule (Support/QueuedCandidateSpacing.swift); the
+               # shipping file must be compiled, never a stub.
+               IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
                OUT / 'ProductionMessageListItem.swift', OUT / 'ProductionSelfSizingCell.swift',
                block, THINK / 'ProductionStubs.swift', THINK / 'TxCoordinatorStub.swift',
                TESTS / 'AskCardUIKitHarness.swift', TESTS / 'AskCardAnchorUIKitTests.swift',

@@ -33,6 +33,9 @@ INFRA = ROOT / 'src/ios/Agent/MessageList/MessageListInfrastructure.swift'
 OUT = pathlib.Path(tempfile.mkdtemp(prefix='statusbar-scroll-'))
 LOGIC_FLOOR = 46
 UIKIT_FLOOR = 25
+# Raw stdout of the logic suite: the aggregate marker is checked against THIS
+# text, not against an f-string assumption.
+_LOGIC_STDOUT = ''
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -295,6 +298,14 @@ def source_manifest_contract() -> int:
     genui step failed exactly this with "cannot find 'StatusBarScrollToTopPolicy'
     in scope")."""
     support = 'Support/StatusBarScrollToTop.swift'
+    spacing = 'Support/QueuedCandidateSpacing.swift'
+    # Every direct production dependency MessageListLayout.swift needs that is
+    # NOT declared in that file: MessageRowGap (Support/QueuedCandidateSpacing)
+    # and StatusBarScrollToTopPolicy (Support/StatusBarScrollToTop). A missing
+    # entry is a Darwin typecheck failure, proven twice:
+    #   44423138250 -> "cannot find 'StatusBarScrollToTopPolicy' in scope"
+    #   44428916963 -> "cannot find 'MessageRowGap' in scope"
+    required = (spacing, support)
     manifest = {
         'genui_height_regression.py': ROOT / 'scripts/genui_height_regression.py',
         'thinking_transaction_regression.py': ROOT / 'scripts/thinking_transaction_regression.py',
@@ -310,25 +321,33 @@ def source_manifest_contract() -> int:
         if not cond:
             fail('source manifest contract: ' + name)
 
-    # Positive: every full-layout compile source list names the shipping file.
+    # Positive: every full-layout compile source list names BOTH support files.
     for name, path in manifest.items():
-        case(support in path.read_text(), f'{name} lists {support}')
+        text = path.read_text()
+        for dep in required:
+            case(dep in text, f'{name} lists {dep}')
 
-    # Negative (the exact list that failed run 44423138250): the pre-fix genui
-    # compile list — MessageListLayout verbatim WITHOUT the policy file — must be
-    # rejected, because it fails Darwin typecheck with "cannot find
-    # 'StatusBarScrollToTopPolicy' in scope".
+    # Negative (the exact list that failed run 44428916963): the ask-card UIKit
+    # compile list compiled MessageListLayout verbatim WITHOUT the MessageRowGap
+    # file — it must be rejected.
+    old_ask = ("    sources = [IOS / 'Agent/MessageList/MessageListLayout.swift',\n"
+               "               IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',\n"
+               "               OUT / 'ProductionMessageListItem.swift', OUT / 'ProductionSelfSizingCell.swift',")
+    case(spacing not in old_ask, 'frozen pre-fix ask-card compile list is rejected')
+
+    # Negative (the exact list that failed run 44423138250): pre-fix genui list.
     old_genui = ("sources = [instrumented, spacing, item_src, cell_src, store_src, genui_src,\n"
                  "           tests / 'ProductionStubs.swift', tests / 'GenUICoordinatorStub.swift',\n"
                  "           tests / 'GenUICardFixture.swift', tests / 'GenUIListHarness.swift',\n"
                  "           tests / 'GenUIHeightTests.swift']")
     case(support not in old_genui, 'frozen pre-fix genui compile list is rejected')
 
-    # Sensitivity: dropping the support file from the CURRENT genui list must
-    # flip the contract red (guards against a silent re-introduction).
-    current = (ROOT / 'scripts/genui_height_regression.py').read_text()
-    stripped = current.replace(support, 'Support/RemovedStatusBarScrollToTop.swift')
-    case(support not in stripped, 'contract is sensitive to dropping the genui support file')
+    # Sensitivity: dropping either file from the CURRENT ask-card list must flip
+    # the contract red (guards a silent re-introduction on the next edit).
+    current = (ROOT / 'scripts/ask_card_anchor_uikit.py').read_text()
+    for dep in required:
+        stripped = current.replace(dep, dep.replace('Support/', 'Support/Removed'))
+        case(dep not in stripped, f'contract is sensitive to dropping {dep} from ask-card')
     return cases
 
 
@@ -361,7 +380,8 @@ def build_slice() -> pathlib.Path:
     return int(match.group(1))
 
 
-def compile_logic() -> None:
+def compile_logic() -> int:
+    global _LOGIC_STDOUT
     work = OUT / 'logic'
     work.mkdir()
     (work / 'main.swift').write_text((TESTS / 'LogicMain.swift').read_text())
@@ -375,6 +395,7 @@ def compile_logic() -> None:
     result = run([str(exe)], capture_output=True)
     print(result.stdout)
     print(result.stderr, file=sys.stderr)
+    _LOGIC_STDOUT = result.stdout
     if result.returncode != 0:
         fail('logic run failed')
     match = re.search(r'STATUSBAR_SCROLL_LOGIC_PASS checks=(\d+)', result.stdout)
@@ -383,6 +404,9 @@ def compile_logic() -> None:
     checks = int(match.group(1))
     if checks < LOGIC_FLOOR:
         fail(f'logic checks {checks} < {LOGIC_FLOOR}')
+    # The aggregate marker is the only thing the root gate reads. Return the
+    # REAL count the logic suite printed (never None, never the floor constant).
+    return checks
 
 
 # Artifacts for review when the hosted UIKit run misbehaves: console text,
@@ -481,10 +505,55 @@ def run_uikit() -> int:
     return checks
 
 
+def _valid_logic_count(value) -> bool:
+    """The aggregate marker must carry the REAL positive int count."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+_AGGREGATE_RE = re.compile(r'STATUSBAR_SCROLL_PASS\s+logic=(\d+)\+\s+uikit=(\d+)')
+
+
+def aggregate_contract() -> int:
+    """Deterministic (Linux, no swiftc) contract for the aggregate marker.
+
+    Run 44428916963 printed `logic=None+` because compile_logic() returned
+    nothing: the root gate parses `logic=(\\d+)\\+` and holds on 40 < 46, so a
+    missing return silently degrades a green logic suite to a failed delivery.
+    These cases pin the rendering and the None rejection. NO case calls fail()
+    on the negative path, so no STATUSBAR_SCROLL_FAIL marker is ever emitted
+    into the validation log by the contract itself."""
+    cases = 0
+
+    def case(cond: bool, name: str) -> None:
+        nonlocal cases
+        cases += 1
+        if not cond:
+            fail('aggregate contract: ' + name)
+
+    good = f'STATUSBAR_SCROLL_PASS logic={46}+ uikit={45} slice={52} wiring={19}'
+    case(good == 'STATUSBAR_SCROLL_PASS logic=46+ uikit=45 slice=52 wiring=19',
+         'real logic count is rendered verbatim')
+    case('logic=40+' not in good, 'the floor constant is never substituted')
+    case(_AGGREGATE_RE.search(good) is not None, 'root parser accepts the rendered marker')
+    case(_valid_logic_count(46) is True, 'a real int count is accepted')
+    case(_valid_logic_count(None) is False, 'None (missing return) is rejected')
+    case(_valid_logic_count(0) is False and _valid_logic_count(True) is False,
+         'zero / bool are rejected')
+    return cases
+
+
 def main() -> None:
     if not PROD.is_file():
         fail('production lifecycle file missing')
     logic_checks = compile_logic()
+    # Never let None/0 reach the aggregate marker: prove the returned count is
+    # the REAL one the logic suite printed (not just an f-string assumption).
+    if not _valid_logic_count(logic_checks):
+        fail(f'aggregate logic count is not a positive int: {logic_checks!r}')
+    reparsed = re.search(r'STATUSBAR_SCROLL_LOGIC_PASS\s+checks=(\d+)', _LOGIC_STDOUT)
+    if not reparsed or int(reparsed.group(1)) != logic_checks:
+        fail(f'aggregate logic count {logic_checks} != printed marker {reparsed and reparsed.group(1)}')
+    print(f'STATUSBAR_AGGREGATE_CONTRACT_PASS cases={aggregate_contract()}')
     slice_checks = build_slice()
     fixture_cases = fixture_import_contract((OUT / 'slice' / 'Slice.swift').read_text())
     print(f'STATUSBAR_SCROLL_FIXTURE_IMPORT_PASS cases={fixture_cases}')
