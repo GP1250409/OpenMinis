@@ -97,14 +97,6 @@ class SelfSizingCell: UICollectionViewCell {
         }
     }
 
-    /// A recycled cell must not inherit the previous row's clip window, whether
-    /// the reuse path or a new configuration comes first.
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        accordionContentHeight = nil
-        resetAccordionWindowIfNeeded()
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let natural = accordionContentHeight else { return }
@@ -782,6 +774,12 @@ class SelfSizingCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        // [T-toolgroup-accordion] A recycled cell must not inherit the previous
+        // row's clip window, whether the reuse path or a new configuration
+        // comes first (one override only — a second one is a compile error,
+        // "prepareForReuse() has already been overridden").
+        accordionContentHeight = nil
+        resetAccordionWindowIfNeeded()
         rendersNonEmptyText = false
         lastComputedHeight = nil
         lastComputedWidth = nil

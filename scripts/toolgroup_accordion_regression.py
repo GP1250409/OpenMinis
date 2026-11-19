@@ -346,6 +346,17 @@ def static_checks():
     c.present(driver, 'TOOLGROUP_ENTRY_PASS', 'a skipped entry stage cannot pass as covered')
     c.present(fixture, 'startToggleEntryStage()', 'the fixture runs the entry stage before finishing')
     c.present(infra, 'override func prepareForReuse()', 'a reused cell resets its clip window')
+    # [T-toolgroup-accordion] Exactly ONE override of each reused hook: a second
+    # `override func prepareForReuse()` in the class is a hard compile error
+    # ("prepareForReuse() has already been overridden") and the five harnesses
+    # that compile this class verbatim all fail on it. That is how the run
+    # 44473421126 MOD step went red.
+    cell_src = infra[infra.index('class SelfSizingCell: UICollectionViewCell {'):infra.index('// MARK: - NoAnimationCollectionView')]
+    for hook in ('prepareForReuse', 'layoutSubviews', 'preferredLayoutAttributesFitting'):
+        c.ok(cell_src.count('override func ' + hook + '(') == 1,
+             hook + ' :: exactly one override in SelfSizingCell')
+    c.present(cell_src, 'accordionContentHeight = nil\n        resetAccordionWindowIfNeeded()\n        rendersNonEmptyText = false',
+              'the single reuse override does the clip-window reset AND the original reset')
     c.present(infra, 'accordionContentHeight = nil\n        resetAccordionWindowIfNeeded()\n        configGeneration',
               'a new configuration resets the clip window')
     c.present(infra, 'var accordionContentHeight: CGFloat?', 'SelfSizingCell owns the clip window')
