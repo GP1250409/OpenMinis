@@ -348,6 +348,44 @@ def source_manifest_contract() -> int:
     for dep in required:
         stripped = current.replace(dep, dep.replace('Support/', 'Support/Removed'))
         case(dep not in stripped, f'contract is sensitive to dropping {dep} from ask-card')
+
+    # ---- [T-ask-fixture-build] The production Objective-C exception guard ----
+    # run 44431220135: `ask_card_anchor_uikit.py` compiled the REAL
+    # SelfSizingCell slice but never lifted `noff_try_objc` out of
+    # src/ios/NativeOffloads/NativeOffloadUtils.m -> "cannot find
+    # 'noff_try_objc' in scope" at ProductionSelfSizingCell.swift:316/387 and
+    # the whole app was skipped. The other four drivers already lifted it; the
+    # gap was that nothing checked the SET. A driver counts only when it lifts
+    # the SHIPPING function (never a Swift stub: a Swift closure cannot catch an
+    # NSException), declares it through -import-objc-header and links the .o.
+    bridge_markers = ('BOOL noff_try_objc(', 'NativeOffloadUtils.m',
+                      'ExceptionBridge.m', '-import-objc-header', 'ExceptionBridge.o')
+    swift_guard_def = re.compile(
+        r'(?m)^\s*(?:public |internal |private |fileprivate )?func\s+noff_try_objc\s*\(')
+
+    def has_production_bridge(text):
+        return all(m in text for m in bridge_markers) and not swift_guard_def.search(text)
+
+    for name, path in manifest.items():
+        case(has_production_bridge(path.read_text()),
+             f'{name} lifts the shipping noff_try_objc guard')
+
+    # Frozen negative: the same list shape that run 44431220135 compiled — real
+    # layout + the SelfSizingCell slice, no bridge anywhere.
+    old_ask_bridge = (
+        "    sources = [IOS / 'Agent/MessageList/MessageListLayout.swift',\n"
+        "               OUT / 'ProductionMessageListItem.swift', OUT / 'ProductionSelfSizingCell.swift',\n"
+        "               THINK / 'ProductionStubs.swift', TESTS / 'AskCardUIKitHarness.swift']\n"
+        "    cmd = ['xcrun', 'swiftc', '-o', str(bin_path)] + [str(s) for s in sources]\n")
+    case(not has_production_bridge(old_ask_bridge),
+         'frozen pre-fix ask-card bridge (run 44431220135) is rejected')
+    case(not has_production_bridge('func noff_try_objc(_ body: () -> Void) -> Bool '
+                                   '{ body(); return true }'),
+         'a Swift noff_try_objc stub never satisfies the bridge contract')
+    case(not has_production_bridge(current.replace('-import-objc-header', '-Xremove-flag')),
+         'bridge contract is sensitive to dropping -import-objc-header')
+    case(not has_production_bridge(current.replace('ExceptionBridge.o', 'None.o')),
+         'bridge contract is sensitive to dropping the linked .o')
     return cases
 
 

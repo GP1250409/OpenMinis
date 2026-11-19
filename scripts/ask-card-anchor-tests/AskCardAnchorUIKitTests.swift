@@ -72,11 +72,19 @@ func runAskCardUIKitCases() {
         fx.cv.setContentOffset(CGPoint(x: 0, y: max(0, fx.maxOffset - 260)), animated: false)
         fx.cv.layoutIfNeeded()
         let card = fx.cardIds[0]
-        let start = fx.frame(of: card)!.minY - fx.cv.contentOffset.y
+        // A force-unwrapped `layoutAttributesForItem` would crash the whole app
+        // (and take S4-S7 with it) if the parked offset ever pushed the row out
+        // of the layout's attribute range; make that a real check instead.
+        let startFrame = fx.frame(of: card)
+        check("S3 the card row has layout attributes before the round trips", startFrame != nil)
+        let start = (startFrame?.minY ?? 0) - fx.cv.contentOffset.y
         fx.spy.reset()
         for _ in 0..<6 { fx.toggleCard(card); fx.pump(1.0) }
-        let end = fx.frame(of: card)!.minY - fx.cv.contentOffset.y
-        check("S3 card top did not drift over 6 toggles", abs(end - start) <= 1.0, "\(f(start))->\(f(end))")
+        let endFrame = fx.frame(of: card)
+        check("S3 the card row still has layout attributes after the round trips", endFrame != nil)
+        let end = (endFrame?.minY ?? 0) - fx.cv.contentOffset.y
+        check("S3 card top did not drift over 6 toggles",
+              startFrame != nil && endFrame != nil && abs(end - start) <= 1.0, "\(f(start))->\(f(end))")
         check("S3 no out-of-range offset during the round trips", fx.spy.outOfRange == 0, "\(fx.spy.outOfRange)")
         check("S3 back to the collapsed state it started from", fx.expanded[card] == false)
         snapshot("s3-roundtrip", fx.vc)
