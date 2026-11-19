@@ -737,7 +737,7 @@ func accordionChainMissing(_ s: AccordionChainSources) -> [String] {
 let chain = AccordionChainSources(tap: toggleTap, instant: instantPath, refresh: headerRefresh,
                                   restore: restoreFn, txn: accordionTxn)
 let chainMissing = accordionChainMissing(chain)
-check("toggle follows the full invalidation across the real call chain (tap → transaction → header refresh → apply → anchor), missing=\(chainMissing)",
+check("toggle follows the full invalidation across the real call chain (tap → transaction → header refresh → apply → anchor); unresolved steps [\(chainMissing)]",
       chainMissing.isEmpty)
 // Frozen negatives: losing ONE step must fail the contract. Deleting from a copy
 // of the real sources (never from the repo) proves each step is really required
