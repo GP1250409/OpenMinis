@@ -265,10 +265,18 @@ def static_checks():
     c.present(flight, 'cell.accordionContentHeight = nil', 'the cell window is cleared after the flight')
     infra = (IOS / 'Agent/MessageList/MessageListInfrastructure.swift').read_text()
     # parent review round 3: identity-validated span + no out-of-cycle dequeue
-    c.present(flight, 'var spanIsValid: ((Plan) -> Bool)?', 'the driver asks a production validator before each frame')
+    c.present(flight, 'func planStillMatches(_ items: [MessageListItem]) -> Bool', 'the driver compares real item identity, not counts')
+    c.present(flight, 'items[plan.headerIndex] == plan.headerItem', 'header identity')
+    c.present(flight, 'where items[plan.memberRange.lowerBound + k] != want', 'member identity')
     c.present(flight, "retire=identity", 'a failed identity check retires the flight')
-    c.present(toggle, 'live[plan.headerIndex] == item', 'the header is compared by MessageListItem identity')
-    c.present(toggle, '.assistantBlock(run.messageId, id)', 'every member is compared by MessageListItem identity')
+    c.present(toggle, 'memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) }',
+              'the plan carries the real member identities')
+    snap_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
+    c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying:') >= 4,
+         'every snapshot apply validates the span BEFORE it commits')
+    c.present(toggle, 'guard !flight.planStillMatches(items) else { return }',
+              'pre-apply validation cancels only on a broken span (same items keep animating)')
+    c.absent(toggle, 'flight.spanIsValid', 'frozen negative: no per-frame-only validation left')
     c.absent(toggle, 'ds.collectionView(cv, cellForItemAt: ip)',
              'frozen negative: never dequeue a cell outside a UIKit request cycle')
     c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip)',

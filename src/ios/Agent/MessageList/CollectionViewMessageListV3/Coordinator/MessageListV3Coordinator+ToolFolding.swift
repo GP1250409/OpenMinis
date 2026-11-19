@@ -396,7 +396,9 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             let span = idxs[0]...(idxs[0] + idxs.count - 1)
             let plan = ToolGroupAccordionFlight.Plan(memberRange: span, naturalHeights: heights,
-                                                     headerIndex: headerIdx, anchorY: anchorY)
+                                                     headerIndex: headerIdx, anchorY: anchorY,
+                                                     headerItem: item,
+                                                     memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) })
             let flight = ToolGroupAccordionFlight(collectionView: cv, layout: layout)
             toolGroupAccordionFlight = flight
             // Published for the other viewport owner (status-bar flight); see
@@ -406,17 +408,7 @@ extension CollectionViewMessageListV3.Coordinator {
             // or a replaced span row all keep the numbers valid while the
             // indices now point at the wrong rows. Every frame asks this before
             // it writes a reveal, and the driver retires itself when it fails.
-            flight.spanIsValid = { [weak self] plan in
-                guard let self, let ds = self.dataSource else { return false }
-                let live = ds.snapshot().itemIdentifiers
-                guard live.count > plan.memberRange.upperBound, live.count > plan.headerIndex else { return false }
-                guard live[plan.headerIndex] == item else { return false }
-                for (k, id) in run.memberIds.enumerated()
-                where live[plan.memberRange.lowerBound + k] != .assistantBlock(run.messageId, id) {
-                    return false
-                }
-                return true
-            }
+            flight.liveItems = { [weak self] in self?.dataSource?.snapshot().itemIdentifiers }
             layout.toolGroupAccordionAbort = { [weak self] in
                 guard let self, let running = self.toolGroupAccordionFlight else { return }
                 self.toolGroupAccordionFlight = nil
@@ -447,6 +439,24 @@ extension CollectionViewMessageListV3.Coordinator {
                 log.info("[ToolFold][Accordion] end group=\(firstBlockId.uuidString.prefix(8)) outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
             }
             log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
+        }
+
+        /// [T-toolgroup-accordion] Called immediately BEFORE a diffable apply is
+        /// committed. The per-frame check alone is too late: UIKit can lay the
+        /// old span out against the new items inside the apply itself. If the
+        /// upcoming items no longer hold this flight's rows at its indices (a
+        /// row inserted above, a session swap with the same count, a replaced
+        /// span row), the span is cleared here — the animation stops, the rows
+        /// are laid out normally, and nothing is clipped against the wrong row.
+        /// Ordinary content updates keep the very same items, so they keep the
+        /// animation.
+        func cancelAccordionIfSpanBroken(beforeApplying items: [MessageListItem]) {
+            guard let flight = toolGroupAccordionFlight, flight.isRunning else { return }
+            guard !flight.planStillMatches(items) else { return }
+            toolGroupAccordionFlight = nil
+            viewController?.messageListLayout?.toolGroupAccordionAbort = nil
+            flight.cancel()
+            AppLogger(category: "ToolFold").info("[ToolFold][Accordion] cancel=preapply-broken-span rows=\(items.count)")
         }
 
         /// [T-toolgroup-accordion] Measure the member rows that are NOT on screen.

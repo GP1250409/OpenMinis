@@ -50,6 +50,11 @@ final class ToolGroupAccordionFlight {
         var naturalHeights: [CGFloat]
         /// Row of the tapped group header (the row whose screen Y is pinned).
         var headerIndex: Int
+        /// What that row and the member rows REALLY are. Row counts cannot tell
+        /// an inserted-above row, a same-count session swap or a replaced span
+        /// row from the original layout.
+        var headerItem: MessageListItem
+        var memberItems: [MessageListItem]
         /// The header's screen Y at the moment of the tap.
         var anchorY: CGFloat
     }
@@ -71,10 +76,19 @@ final class ToolGroupAccordionFlight {
     /// system switch.
     var reduceMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
-    /// [T-toolgroup-accordion] Does the plan still describe the rows in the
-    /// list? Supplied by the coordinator and answered from real
-    /// `MessageListItem` identity, never from row counts.
-    var spanIsValid: ((Plan) -> Bool)?
+    /// [T-toolgroup-accordion] Live rows, for the per-frame identity check.
+    /// Supplied by the coordinator; never a count.
+    var liveItems: (() -> [MessageListItem]?)?
+
+    /// True when `items` still holds exactly this plan's rows at its indices.
+    func planStillMatches(_ items: [MessageListItem]) -> Bool {
+        guard let plan else { return false }
+        guard items.count > plan.memberRange.upperBound, items.count > plan.headerIndex else { return false }
+        guard items[plan.headerIndex] == plan.headerItem else { return false }
+        for (k, want) in plan.memberItems.enumerated()
+        where items[plan.memberRange.lowerBound + k] != want { return false }
+        return true
+    }
 
     /// Diagnostics counter (frames actually laid out) — the harness asserts it
     /// is > 1 so "instant" can never pass as "animated".
@@ -202,7 +216,7 @@ final class ToolGroupAccordionFlight {
         // (a plan change, a new message, a session swap) retire it at once.
         // Identity check first (rows inserted above, a session swap with the
         // same count, a replaced span row), then the cheap bounds check.
-        if let valid = spanIsValid, !valid(plan) {
+        if let items = liveItems?(), !planStillMatches(items) {
             AppLogger(category: "ToolFold").info("[ToolFold][Accordion] retire=identity header=\(plan.headerIndex) span=\(plan.memberRange.lowerBound)...\(plan.memberRange.upperBound)")
             finish(.interrupted)
             return
