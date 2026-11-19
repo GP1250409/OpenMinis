@@ -18,6 +18,59 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// [T-toolgroup-accordion] The one property the real row bakes into its cell at
+/// configure time: `isExpanded` (`BridgedToolGroupV3.isExpanded` is a `let`, and
+/// `ToolGroupRowView` rotates its chevron and picks its accessibility label from
+/// it). A placeholder text view would look the same in both states, so the stage
+/// reads this value back off the LIVE cell — that is what makes "the tapped row
+/// was reconfigured" a real assertion.
+final class EntryRowConfiguration: NSObject, UIContentConfiguration {
+    let height: CGFloat
+    let isExpanded: Bool?
+
+    init(height: CGFloat, isExpanded: Bool? = nil) {
+        self.height = height
+        self.isExpanded = isExpanded
+    }
+
+    func makeContentView() -> UIView & UIContentView { EntryRowContentView(self) }
+    func updated(for state: UIConfigurationState) -> EntryRowConfiguration { self }
+}
+
+final class EntryRowContentView: UIView, UIContentView {
+    private let label = UILabel()
+    private var heightConstraint: NSLayoutConstraint?
+
+    var configuration: UIContentConfiguration {
+        didSet { apply() }
+    }
+
+    init(_ configuration: EntryRowConfiguration) {
+        self.configuration = configuration
+        super.init(frame: .zero)
+        label.font = .systemFont(ofSize: 12)
+        addSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        let c = heightAnchor.constraint(equalToConstant: configuration.height)
+        c.isActive = true
+        heightConstraint = c
+        apply()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    private func apply() {
+        guard let config = configuration as? EntryRowConfiguration else { return }
+        label.text = config.isExpanded.map { $0 ? "Hide tool calls" : "Show tool calls" } ?? ""
+        heightConstraint?.constant = config.height
+    }
+}
+
 final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
 
     private let window: UIWindow
@@ -37,6 +90,9 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private var flight: ToolGroupAccordionFlight?
     private var applyCallers: [String] = []
     private var anchors: [CGFloat] = []
+    private var headerRefreshes = 0
+    private var headerRefreshExpanded: Bool?
+    private var headerRefreshedWhileFlying = true
 
     private var reduceMotion = false
     private var streaming = false
@@ -75,6 +131,15 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         contentHeights[item] ?? 80
     }
 
+    /// The layout's ESTIMATE for a row. Member rows are deliberately estimated
+    /// at 80 against real contents of 320 / 300 / 280: if the estimate equalled
+    /// the content, "measured 320" would also pass for a receipt that merely
+    /// echoed the proposal back (the NB4 regression), so the value assertion
+    /// would prove nothing about measurement.
+    private func estimateHeight(_ item: MessageListItem) -> CGFloat {
+        memberItems.contains(item) ? 80 : cellHeight(item)
+    }
+
     private func configureRow(_ cell: SelfSizingCell, item: MessageListItem) {
         let height = cellHeight(item)
         cell.backgroundColor = .clear
@@ -82,6 +147,26 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             UIHostingConfiguration { Color.clear.frame(height: height) }
                 .minSize(width: 0, height: 0)
                 .margins(.all, 0))
+    }
+
+    /// What the coordinator's `refreshToolGroupToggleRow` does to the tapped
+    /// row: re-render the LIVE cell with the state the business just flipped to.
+    /// The row content is a real `UIContentConfiguration` carrying `isExpanded`
+    /// (the one value `BridgedToolGroupV3` bakes into its cell), so the stage can
+    /// read the property back off the cell instead of trusting a bookkeeping
+    /// flag.
+    private func refreshHeader(_ item: MessageListItem) {
+        guard let idx = items.firstIndex(of: item),
+              let cell = list.cellForItem(at: IndexPath(item: idx, section: 0)) as? SelfSizingCell else {
+            check(false, "header: the tapped row is on screen when the transaction refreshes it")
+            return
+        }
+        headerRefreshes += 1
+        headerRefreshExpanded = pendingExpanded
+        headerRefreshedWhileFlying = flight?.isRunning ?? false
+        cell.applyContentConfiguration(EntryRowConfiguration(height: cellHeight(item),
+                                                             isExpanded: pendingExpanded))
+        list.layoutIfNeeded()
     }
 
     private func rebuildFolded() {
@@ -101,7 +186,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private func reload() {
         layout.clearToolGroupAccordion()
         for (index, item) in items.enumerated() {
-            layout.setEstimatedHeight(cellHeight(item), at: index)
+            layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
         list.reloadData()
         list.setNeedsLayout()
@@ -117,7 +202,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             items.insert(contentsOf: members, at: at)
         }
         for (index, item) in items.enumerated() {
-            layout.setEstimatedHeight(cellHeight(item), at: index)
+            layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
         list.reloadData()
         list.setNeedsLayout()
@@ -151,6 +236,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             configureForMeasurement: { [unowned self] cell, item, _ in
                 self.configureRow(cell, item: item)
             },
+            refreshHeader: { [unowned self] item in self.refreshHeader(item) },
             restoreAnchor: { [unowned self] _, anchorY in self.anchors.append(anchorY) },
             storeFlight: { [unowned self] flight in self.flight = flight },
             currentFlight: { [unowned self] in self.flight },
@@ -182,6 +268,15 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
               "expand: the business apply put the member rows in the list (\(items.count)/\(expectedExpandedCount))")
         check(applyCallers.first == "toolGroupToggle", "expand: structure applied through the caller's own apply")
         check(flight != nil, "expand: a production flight is live")
+        check(headerRefreshes == 1, "expand: the tapped row was refreshed once by the transaction (\(headerRefreshes))")
+        check(headerRefreshExpanded == true, "expand: the refresh carried the NEW expanded state")
+        check(headerRefreshedWhileFlying, "expand: the refresh happened with the reveal window already installed")
+        let headerCfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
+            .contentConfiguration as? EntryRowConfiguration
+        check(headerCfg?.isExpanded == true,
+              "expand: the live header cell reports isExpanded == true (chevron / a11y source)")
+        check(abs((headerCfg?.height ?? 0) - 28) < 0.5,
+              "expand: the refresh keeps the fixed row height, so no geometry moves under the flight")
         let headerIndex = fillerBlocks.count
         if let plan = flight?.currentPlan {
             let heights = plan.naturalHeights
@@ -233,6 +328,11 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         if case .started = outcome {} else { check(false, "close: the transaction started (outcome=\(outcome))") }
         check(items.count == expectedExpandedCount,
               "close: the member rows stay in the list while they collapse (\(items.count))")
+        check(headerRefreshExpanded == false, "close: the refresh carried the closed state")
+        let closedCfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
+            .contentConfiguration as? EntryRowConfiguration
+        check(closedCfg?.isExpanded == false,
+              "close: the live header cell flips to closed as the run collapses")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.70) {
             self.check(self.items.count == self.expectedFoldedCount,
                        "close: the rows are dropped once collapsed (\(self.items.count)/\(self.expectedFoldedCount))")

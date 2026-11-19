@@ -39,6 +39,16 @@ struct ToolGroupAccordionToggle {
         /// The PRODUCTION cell configuration in its measurement mode
         /// (`writesListState: false`); see `ToolGroupAccordionMeasurement`.
         var configureForMeasurement: (SelfSizingCell, MessageListItem, IndexPath) -> Void
+        /// Re-render the tapped row with its NEW expanded state.
+        ///
+        /// `isExpanded` is baked into the cell's content when it is configured
+        /// (`BridgedToolGroupV3` takes it as a `let`), and a diffable apply
+        /// never reconfigures an item whose identity did not change — the
+        /// identity of a group row is `.toolGroup(messageId, firstBlockId)`,
+        /// which the flip does not touch. Without this call the chevron and the
+        /// "Shows / Hides each tool call" accessibility label keep the OLD
+        /// state for the whole flight (and until some unrelated reconfigure).
+        var refreshHeader: (MessageListItem) -> Void
         /// Put the tapped row back at its screen Y (the coordinator clamps it
         /// into the list's legal offset window).
         var restoreAnchor: (MessageListItem, CGFloat) -> Void
@@ -99,7 +109,6 @@ struct ToolGroupAccordionToggle {
     @discardableResult
     static func run(_ request: Request, in env: Environment) -> Outcome {
         let cv = env.collectionView
-        let layout = env.layout
         let tag = request.groupTag
         let log = { (message: String) in env.log("[ToolFold][Accordion] \(message) group=\(tag)") }
 
@@ -238,22 +247,30 @@ struct ToolGroupAccordionToggle {
                 env.storeFlight(nil)
                 env.layout.toolGroupAccordionAbort = nil
             }
-            // Exact restore: the structure now matches the business state (a
-            // close drops its rows only here, with every member row already at 0
-            // height, so nothing moves on screen).
-            env.applyStructure("toolGroupAccordionEnd")
-            // Only a flight that RAN TO ITS END may put the tapped title back:
-            // `.interrupted` means a finger (or the status-bar flight) owns the
-            // viewport, and writing the old anchor there would yank the list back
-            // under the drag.
+            // The structure may only converge when the flight really reached
+            // its end. `.interrupted` means a finger (or the status-bar flight)
+            // owns the viewport, and `finish` has just cleared the span — the
+            // member rows are back at their natural heights, so deleting them
+            // right here would move everything below them under the drag. The
+            // row list is derived from `expandedToolGroups`, so the next
+            // ordinary snapshot converges the business state; the interrupted
+            // frame stays exactly where the user left it.
             switch outcome {
             case .completed, .instant:
+                env.applyStructure("toolGroupAccordionEnd")
                 env.restoreAnchor(request.item, request.anchorY)
             case .interrupted, .cancelled:
                 break
             }
-            log("end outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
+            log("end outcome=\(outcome.rawValue) structure=\(outcome == .completed || outcome == .instant ? "settled" : "deferred") frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
         }
+        // [T-toolgroup-accordion] The tapped row must show its NEW expanded
+        // state from the first frame: the diffable apply above never
+        // reconfigures an item whose identity did not change, and the row's
+        // identity is the same in both states (see `Environment.refreshHeader`).
+        // Called AFTER the flight installed its span, so the reconfigure's
+        // layout cannot draw the member rows before the reveal window exists.
+        env.refreshHeader(request.item)
         log("toggle expanded=\(request.expanding) members=\(request.memberItems.count) idx=\(request.oldIndex)→\(headerIndex) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", request.anchorY)) mode=accordion")
         return .started(flight)
     }

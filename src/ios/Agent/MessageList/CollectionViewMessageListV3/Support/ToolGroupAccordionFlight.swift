@@ -197,6 +197,12 @@ final class ToolGroupAccordionFlight {
         link = nil
         restoreClip()
         layout.clearToolGroupAccordion()
+        // [T-toolgroup-accordion] The takeover closure captures this flight (and
+        // through it the collection view and the layout), so leaving it armed on
+        // a cancel is a retain cycle the list never gets back: the owner drops
+        // its reference and then, if the toggle falls back to the instant
+        // switch, nothing else ever clears it.
+        layout.toolGroupAccordionAbort = nil
         plan = nil
         onFinish = nil
     }

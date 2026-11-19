@@ -664,13 +664,101 @@ func ordered(_ text: String, _ parts: [String]) -> Bool {
     return true
 }
 let toggle = body(of: "func toggleToolGroup(firstBlockId: UUID) {")
-check("toggle follows the full invalidation: clearCachedHeight -> invalidateHeight -> reconfigure -> apply -> invalidateLayout",
-      ordered(toggle, ["applySnapshot(messages: vm.messages, caller: \"toolGroupToggle\")",
-                       ".clearCachedHeight()", "layout.invalidateHeight(at: idx)",
-                       "snap.reconfigureItems([item])", "ds.apply(snap, animatingDifferences: false)",
-                       "layout.invalidateLayout()"]))
-check("toggle keeps the row where it was on screen",
-      ordered(toggle, ["let anchorY =", "scrollMode = .userBrowsing", "newMinY - anchorY"]))
+// [T-toolgroup-accordion] The reveal transaction lives OUTSIDE this function now
+// (Support/ToolGroupAccordionToggle.swift) so the UIKit harness runs the same
+// code the app runs. This contract therefore follows the REAL production call
+// chain — tap → transaction → header refresh / structure apply / anchor restore
+// → the shared restore maths — instead of the old function body, and every step
+// below is proven able to fail (the frozen negatives delete one step at a time
+// from a copy of these same sources).
+let folding = read("Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+ToolFolding.swift")
+func slice(_ text: String, _ from: String, _ to: String) -> String {
+    guard let a = text.range(of: from),
+          let b = text.range(of: to, range: a.upperBound..<text.endIndex) else { return "" }
+    return String(text[a.lowerBound..<b.lowerBound])
+}
+let toggleTap = slice(folding, "func toggleToolGroup(firstBlockId: UUID) {",
+                      "private func legacyInstantToolGroupToggle")
+let instantPath = slice(folding, "private func legacyInstantToolGroupToggle",
+                        "func refreshToolGroupToggleRow")
+let restoreFn = slice(folding, "private func restoreToolGroupToggleAnchor",
+                      "func refreshToolGroupToggleRow")
+let headerRefresh = slice(folding, "func refreshToolGroupToggleRow",
+                          "func isToolGroupAccordionProductionLive")
+let accordionTxn = read("Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionToggle.swift")
+
+struct AccordionChainSources {
+    var tap = ""
+    var instant = ""
+    var refresh = ""
+    var restore = ""
+    var txn = ""
+}
+/// The steps the toggle's invalidation and anchor restore consist of, checked
+/// ACROSS the production call chain. An empty result is the pass.
+func accordionChainMissing(_ s: AccordionChainSources) -> [String] {
+    var missing: [String] = []
+    func need(_ name: String, _ ok: Bool) { if !ok { missing.append(name) } }
+    // 1. the tap keeps its business half and hands the reveal to production
+    need("tap-anchorY", s.tap.contains("let anchorY ="))
+    need("tap-userBrowsing", s.tap.contains("scrollMode = .userBrowsing"))
+    need("tap-transaction", s.tap.contains("ToolGroupAccordionToggle.run(request, in: env)"))
+    need("tap-retarget-refresh", s.tap.contains("refreshToolGroupToggleRow(item)"))
+    // 2. the transaction drives the invalidation, the structure and the anchor
+    need("transaction-refreshHeader", s.txn.contains("env.refreshHeader(request.item)"))
+    need("transaction-applyStructure",
+         s.txn.contains("env.applyStructure(\"toolGroupAccordionEnd\")")
+         && s.tap.contains("self.applySnapshot(messages: vm.messages, caller: caller)"))
+    need("transaction-restoreAnchor", s.txn.contains("env.restoreAnchor(request.item, request.anchorY)"))
+    // 3. the header refresh IS the full invalidation, in the old order
+    need("refresh-chain", ordered(s.refresh, ["clearCachedHeight()",
+                                              "layout.invalidateHeight(at: idx)",
+                                              "snap.reconfigureItems([item])",
+                                              "ds.apply(snap, animatingDifferences: false)",
+                                              "layout.invalidateLayout()"]))
+    // 4. the instant path (reduce motion / non-contiguous span) keeps the very
+    //    same chain — the animated path may not diverge into a second behaviour
+    need("instant-chain", ordered(s.instant, [".clearCachedHeight()",
+                                              "layout.invalidateHeight(at: idx)",
+                                              "snap.reconfigureItems([item])",
+                                              "ds.apply(snap, animatingDifferences: false)",
+                                              "layout.invalidateLayout()"]))
+    // 5. the tapped row is really put back where it was, inside the legal window
+    need("anchor-clamp", ordered(s.restore, ["let target = min(max(newMinY - anchorY, minOff), maxOff)",
+                                             "cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)"]))
+    return missing
+}
+let chain = AccordionChainSources(tap: toggleTap, instant: instantPath, refresh: headerRefresh,
+                                  restore: restoreFn, txn: accordionTxn)
+let chainMissing = accordionChainMissing(chain)
+check("toggle follows the full invalidation across the real call chain (tap → transaction → header refresh → apply → anchor), missing=\(chainMissing)",
+      chainMissing.isEmpty)
+// Frozen negatives: losing ONE step must fail the contract. Deleting from a copy
+// of the real sources (never from the repo) proves each step is really required
+// and that the check cannot degrade into "the text appears somewhere".
+let stepLosses: [(String, WritableKeyPath<AccordionChainSources, String>, String)] = [
+    ("tap-anchorY", \.tap, "let anchorY ="),
+    ("tap-userBrowsing", \.tap, "scrollMode = .userBrowsing"),
+    ("tap-transaction", \.tap, "ToolGroupAccordionToggle.run(request, in: env)"),
+    ("tap-retarget-refresh", \.tap, "refreshToolGroupToggleRow(item)"),
+    ("transaction-refreshHeader", \.txn, "env.refreshHeader(request.item)"),
+    ("transaction-applyStructure", \.txn, "env.applyStructure(\"toolGroupAccordionEnd\")"),
+    ("transaction-restoreAnchor", \.txn, "env.restoreAnchor(request.item, request.anchorY)"),
+    ("refresh-clearCachedHeight", \.refresh, "clearCachedHeight()"),
+    ("refresh-invalidateHeight", \.refresh, "layout.invalidateHeight(at: idx)"),
+    ("refresh-reconfigure", \.refresh, "snap.reconfigureItems([item])"),
+    ("refresh-apply", \.refresh, "ds.apply(snap, animatingDifferences: false)"),
+    ("refresh-invalidateLayout", \.refresh, "layout.invalidateLayout()"),
+    ("instant-apply", \.instant, "ds.apply(snap, animatingDifferences: false)"),
+    ("anchor-math", \.restore, "newMinY - anchorY"),
+]
+for (label, path, needle) in stepLosses {
+    var mutated = chain
+    let before = mutated[keyPath: path]
+    mutated[keyPath: path] = before.replacingOccurrences(of: needle, with: "")
+    check("frozen negative: losing '\(label)' fails the accordion chain",
+          before.contains(needle) && !accordionChainMissing(mutated).isEmpty)
+}
 let plan = body(of: "func planToolFolds(messages: [ChatMessage])")
 check("a first fold is held back through ToolFoldPlanner.holdsBack, rows looked up lazily [T-fold-browse-hold]",
       plan.contains("if ToolFoldPlanner.holdsBack(browsing: browsing,")

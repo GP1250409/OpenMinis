@@ -268,6 +268,9 @@ extension CollectionViewMessageListV3.Coordinator {
                let live = flight.currentPlan, live.headerIndex == oldIdx,
                ds.snapshot().itemIdentifiers.firstIndex(of: item) == oldIdx {
                 flight.retarget(expanding ? .expand : .collapse)
+                // A retarget flips the business state too, and no diffable
+                // apply re-renders the row for it: render it here.
+                refreshToolGroupToggleRow(item)
                 log.info("[ToolFold][Accordion] retarget group=\(firstBlockId.uuidString.prefix(8)) direction=\(expanding ? "expand" : "collapse") reveal=\(String(format: "%.3f", flight.reveal))")
                 return
             }
@@ -297,13 +300,28 @@ extension CollectionViewMessageListV3.Coordinator {
                     // container, never to this list (see `registerCellContentKey`).
                     self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)
                 },
+                refreshHeader: { [weak self] item in
+                    // The tapped row's `isExpanded` is baked into its cell when
+                    // it is configured; no diffable apply re-renders an item
+                    // whose identity did not change, so the transaction asks
+                    // for this explicit re-render.
+                    self?.refreshToolGroupToggleRow(item)
+                },
                 restoreAnchor: { [weak self] item, anchorY in
                     self?.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
                 },
                 storeFlight: { [weak self] flight in self?.toolGroupAccordionFlight = flight },
                 currentFlight: { [weak self] in self?.toolGroupAccordionFlight },
                 isReduceMotion: { UIAccessibility.isReduceMotionEnabled },
-                isStreaming: { [weak self] in self?.vm?.streamingUIUpdatesSuspended ?? false },
+                // [T-toolgroup-accordion] "The list is still PRODUCING this
+                // run", never "streaming updates are suspended": the old
+                // predicate means the opposite — the UI updates are PAUSED
+                // while a session switches or the user scrolls, and it is false
+                // exactly while tokens arrive. A token inside the 0.32s reveal
+                // re-applies the list (cutting the animation) and grows the
+                // member rows (so the frozen heights end out of date); that is
+                // the case this fallback exists for.
+                isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive() ?? false },
                 log: { message in log.info(message) })
             let request = ToolGroupAccordionToggle.Request(
                 item: item,
@@ -394,6 +412,50 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
             }
             if isNearBottom() { scrollMode = .autoScrolling }
+        }
+
+        /// [T-toolgroup-accordion] Re-render the tapped group row after its
+        /// business state flipped.
+        ///
+        /// `isExpanded` is a `let` inside `BridgedToolGroupV3`, read when the
+        /// cell is configured; a diffable apply never reconfigures an item
+        /// whose identity did not change (`.toolGroup(messageId,
+        /// firstBlockId)` is the same in both states), and
+        /// `changedToolGroupItems` only carries runs whose `ToolFoldRun` value
+        /// changed — the expanded flag is not part of it. Without this the
+        /// chevron (and the "Shows / Hides each tool call" accessibility label)
+        /// keeps the OLD state for the whole animation, until some unrelated
+        /// reconfigure. Same invalidation shape as the instant path — the
+        /// cell's own height, the layout index, then the row — and the row's
+        /// height is the fixed `ToolGroupRowView.rowHeight`, so nothing moves
+        /// for the flight to fight.
+        func refreshToolGroupToggleRow(_ item: MessageListItem) {
+            guard let cv = viewController?.collectionView,
+                  let layout = viewController?.messageListLayout,
+                  let ds = dataSource,
+                  let idx = ds.snapshot().indexOfItem(item) else { return }
+            let ip = IndexPath(item: idx, section: 0)
+            (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
+            layout.invalidateHeight(at: idx)
+            var snap = ds.snapshot()
+            snap.reconfigureItems([item])
+            UIView.performWithoutAnimation {
+                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = true
+                ds.apply(snap, animatingDifferences: false)
+                (cv as? NoAnimationCollectionView)?.isApplyingSnapshot = false
+            }
+            layout.invalidateLayout()
+        }
+
+        /// [T-toolgroup-accordion] True while this list is still PRODUCING the
+        /// run: a token or a tool result can land inside the 0.32s reveal,
+        /// re-applying the list and growing the member rows whose heights the
+        /// flight froze. `streamingUIUpdatesSuspended` is the opposite thing —
+        /// the UI updates are PAUSED (scroll suspend, session switch) and it is
+        /// false exactly while the model streams.
+        func isToolGroupAccordionProductionLive() -> Bool {
+            guard let vm else { return false }
+            return vm.isProcessing || vm.toolFoldRunningMessageId != nil
         }
 
         /// [T-user-ask-toggle-drift] A cell the user tapped open or shut

@@ -165,6 +165,17 @@ class Contract:
         self.ok(needle in text, label + ' :: must be present')
 
 
+def ordered_ok(text, parts):
+    """True when every part appears, in this order."""
+    at = 0
+    for part in parts:
+        found = text.find(part, at)
+        if found < 0:
+            return False
+        at = found + len(part)
+    return True
+
+
 def static_checks():
     c = Contract()
     math = MATH_SRC.read_text()
@@ -365,6 +376,43 @@ def static_checks():
     c.absent(layout, 'ToolGroupAccordion.', 'frozen negative: MessageListLayout must not depend on ToolGroupAccordion.swift (5 other harnesses compile it verbatim)')
     c.present(''.join(layout.split()), 'letreveal=min(1,max(0,span.reveal))', 'layout inlines the same frontier formula')
     c.present(driver, "_png == 15", 'driver pins 15 PNGs')
+    # 7. [T-toolgroup-accordion] B1: the animated path must RE-RENDER the tapped
+    #    row. `isExpanded` is baked into the cell at configure time and no
+    #    diffable apply reconfigures an item whose identity did not change, so
+    #    the old full-invalidation contract cannot be satisfied by the legacy
+    #    path alone — the animated path has to do it through the transaction.
+    c.present(toggle, 'refreshToolGroupToggleRow(item)', 'a retarget re-renders the tapped row too')
+    refresh = fold[fold.index('func refreshToolGroupToggleRow'):fold.index('func isToolGroupAccordionProductionLive')]
+    c.present(refresh, 'snap.reconfigureItems([item])', 'the refresh really reconfigures the row (isExpanded is a configure-time value)')
+    c.present(refresh, 'clearCachedHeight()', 'the refresh drops the cell height first')
+    c.present(refresh, 'layout.invalidateHeight(at: idx)', 'the refresh invalidates the layout height')
+    c.present(refresh, 'layout.invalidateLayout()', 'the refresh invalidates the layout')
+    c.ok(ordered_ok(refresh, ['clearCachedHeight()', 'layout.invalidateHeight(at: idx)',
+                              'snap.reconfigureItems([item])',
+                              'ds.apply(snap, animatingDifferences: false)',
+                              'layout.invalidateLayout()']),
+         'the refresh is the old full invalidation, in the old order')
+    c.present(toggle, 'refreshHeader: { [weak self] item in', 'the coordinator wires the refresh')
+    c.present(txn, 'env.refreshHeader(request.item)', 'the transaction asks for the refresh')
+    c.ok(txn.index('flight.start(plan') < txn.index('env.refreshHeader(request.item)'),
+         'the refresh runs AFTER the span is installed (a reconfigure cannot draw the members first)')
+    # 8. N1: the streaming fallback means "still producing", never "UI updates suspended"
+    c.present(fold, 'isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive() ?? false }',
+              'the toggle falls back on the REAL production-live predicate')
+    c.present(fold, 'return vm.isProcessing || vm.toolFoldRunningMessageId != nil',
+              'production-live = the run is still producing')
+    c.absent(fold, 'isStreaming: { [weak self] in self?.vm?.streamingUIUpdatesSuspended ?? false }',
+             'frozen negative: suspended UI updates is the OPPOSITE of streaming')
+    # 9. N2: only a flight that reached its end may converge the structure
+    c.present(txn, 'case .completed, .instant:\n                env.applyStructure("toolGroupAccordionEnd")',
+              'the structure converges only for a completed / instant flight')
+    c.absent(txn, 'env.applyStructure("toolGroupAccordionEnd")\n            // Only a flight',
+             'frozen negative: the structure may not converge before the outcome is known')
+    # 10. N4: a cancelled flight drops its takeover closure (layout → flight → layout)
+    cancel_body = flight[flight.index('func cancel() {'):flight.index('private func restoreClip()')]
+    c.present(cancel_body, 'layout.toolGroupAccordionAbort = nil',
+              'cancel() clears the takeover closure it armed')
+
     # 7. every gate script must know the new markers, not just build.py
     verify = (NEWROOT / 'verify_candidate.py')
     collect = (NEWROOT / 'collect_sign.py')
