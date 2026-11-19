@@ -133,6 +133,22 @@ final class Coordinator {
     }
 }
 
+/// [T-ios-streaming-resume-reentry] Deterministic stand-in for the main-queue hop
+/// the resume notification takes in production (`DispatchQueue.main.async`): the
+/// hook + deferred replay + republish must leave the caller's stack (the status-bar
+/// teardown crash), so the model queues them and the tests drain explicitly.
+enum ResumeQueue {
+    static var pending: [() -> Void] = []
+    static func async(_ work: @escaping () -> Void) { pending.append(work) }
+    static func drain() {
+        while !pending.isEmpty {
+            let batch = pending
+            pending.removeAll()
+            for work in batch { work() }
+        }
+    }
+}
+
 /// The view-model half.
 final class VM {
     static var activeSessionId: String? = nil
@@ -173,26 +189,52 @@ final class VM {
         }
     }
 
+    private var resumeNotificationScheduled = false
+    private var resumeNotificationPending = false
+
+    /// scheduleStreamingResumeNotification(caller:) — the single deferred
+    /// notification ([T-ios-streaming-resume-reentry]).
+    private func scheduleResumeNotification() {
+        resumeNotificationPending = true
+        guard !resumeNotificationScheduled else { return }
+        guard !streamingUIUpdatesSuspended, !transitionSuspended else { return }
+        resumeNotificationScheduled = true
+        ResumeQueue.async { [weak self] in
+            guard let self else { return }
+            self.resumeNotificationScheduled = false
+            guard !self.streamingUIUpdatesSuspended, !self.transitionSuspended else { return }
+            guard self.resumeNotificationPending else { return }
+            self.resumeNotificationPending = false
+            self.onStreamingUIUpdatesResumed?()
+            if self.needsSnapshotReloadOnResume {
+                self.needsSnapshotReloadOnResume = false
+                self.sendRetrySnapshotReload()
+            }
+        }
+    }
+
     /// clearStreamingUIUpdatesSuspended() — L1538, the single chokepoint.
     private func clearStreamingUIUpdatesSuspended() {
         guard streamingUIUpdatesSuspended else { return }
         streamingUIUpdatesSuspended = false
-        onStreamingUIUpdatesResumed?()
-        if needsSnapshotReloadOnResume {
-            needsSnapshotReloadOnResume = false
-            sendRetrySnapshotReload()
-        }
+        scheduleResumeNotification()
     }
     /// setStreamingUIUpdatesSuspended(_:) — L7420 (background / sheet)
     func setStreamingUIUpdatesSuspended(_ suspended: Bool) {
         guard streamingUIUpdatesSuspended != suspended else { return }
-        if suspended { streamingUIUpdatesSuspended = true } else { clearStreamingUIUpdatesSuspended() }
+        if suspended { streamingUIUpdatesSuspended = true } else {
+            clearStreamingUIUpdatesSuspended()
+            scheduleResumeNotification()
+        }
     }
     /// setSuspendedForTransition(_:) — L7435 (session-switch animation window)
     func setSuspendedForTransition(_ suspended: Bool) {
         guard transitionSuspended != suspended else { return }
         transitionSuspended = suspended
-        if suspended { streamingUIUpdatesSuspended = true } else { clearStreamingUIUpdatesSuspended() }
+        if suspended { streamingUIUpdatesSuspended = true } else {
+            clearStreamingUIUpdatesSuspended()
+            scheduleResumeNotification()
+        }
     }
     /// didBecomeActive observer — L330-360, post-017bc8494 (gated on the active session).
     func didBecomeActive() {
@@ -268,6 +310,7 @@ do {
     // Foreground: the loop is STILL processing (b5088f72c).
     vm.appActive = true
     vm.setStreamingUIUpdatesSuspended(false)
+    ResumeQueue.drain()   // [T-ios-streaming-resume-reentry] the notification leaves the stack
     checkEq("foreground flush applies the deferred snapshot", c.snapshotItems, 4)
     checkEq("…through the suspend-resume caller", c.flushCallers, ["suspend-resume"])
     check("nothing left pending", !c.hasPendingSnapshot)
@@ -280,6 +323,7 @@ do {
     pre.setStreamingUIUpdatesSuspended(true)
     pre.appendBlock("a"); pre.appendBlock("b")
     pre.setStreamingUIUpdatesSuspended(false)
+    ResumeQueue.drain()   // [T-ios-streaming-resume-reentry] the notification leaves the stack
     check("PRE-b5088f72c: the resume flush was skipped while the loop ran", pc.hasPendingSnapshot && pc.snapshotItems == 0)
 
     // Subsequent blocks after the resume render live again.
@@ -299,6 +343,7 @@ do {
     vm.isProcessing = false                              // loop end while suspended → deferred flag
     check("loop end while suspended sets needsSnapshotReloadOnResume", vm.needsSnapshotReloadOnResume)
     vm.setStreamingUIUpdatesSuspended(false)             // sheet dismissed
+    ResumeQueue.drain()   // [T-ios-streaming-resume-reentry] the notification leaves the stack
     checkEq("resume flushes the pending snapshot", c.snapshotItems, 2)
     check("…and the deferred loop-end replay also fired", vm.retrySnapshotReloadSignalCount == 1 && !vm.needsSnapshotReloadOnResume)
 
@@ -307,6 +352,7 @@ do {
     newRun(vm2)
     vm2.setStreamingUIUpdatesSuspended(true); vm2.appendBlock("x"); vm2.setStreamingUIUpdatesSuspended(true)
     vm2.setStreamingUIUpdatesSuspended(false)
+    ResumeQueue.drain()   // [T-ios-streaming-resume-reentry] the notification leaves the stack
     c2.streamEnded()
     check("stream-end with nothing pending is a no-op", !c2.hasPendingSnapshot && c2.snapshotItems == 1)
 }
@@ -388,6 +434,7 @@ do {
     t.isProcessing = false
     check("loop end inside the transition window sets the flag", t.needsSnapshotReloadOnResume)
     t.setSuspendedForTransition(false)
+    ResumeQueue.drain()   // [T-ios-streaming-resume-reentry] the notification leaves the stack
     checkEq("leaving the window flushes + replays", tc.snapshotItems, 2)
     check("flag consumed", !t.needsSnapshotReloadOnResume)
 
@@ -428,8 +475,35 @@ if vmSrc.isEmpty || cv3.isEmpty || comp.isEmpty {
           vmSrc.contains("NotificationCenter.default.post(name: .sessionAgentLoopDidEnd, object: sid)"))
     check("clearStreamingUIUpdatesSuspended is the ONLY place the flag is cleared",
           count("\n        streamingUIUpdatesSuspended = false", in: vmSrc) == 1)
-    check("…it fires the resume hook and replays the deferred reload",
-          vmSrc.contains("streamingUIUpdatesSuspended = false\n        onStreamingUIUpdatesResumed?()\n        if needsSnapshotReloadOnResume {"))
+    check("…it queues the resume notification instead of firing it inline",
+          vmSrc.contains("streamingUIUpdatesSuspended = false\n        // [T-ios-streaming-resume-reentry]")
+          && vmSrc.contains("scheduleStreamingResumeNotification(caller: \"clear\")"))
+    if let helperStart = vmSrc.range(of: "private func scheduleStreamingResumeNotification(")?.lowerBound,
+       let helperEnd = vmSrc.range(of: "/// Single chokepoint for clearing", range: helperStart..<vmSrc.endIndex)?.lowerBound {
+        let helper = String(vmSrc[helperStart..<helperEnd])
+        check("the notification hops off the caller's stack (weak, main queue)",
+              helper.contains("DispatchQueue.main.async { [weak self] in"))
+        check("…re-verifies the suspend/transition gate at FIRE time",
+              helper.contains("guard !self.streamingUIUpdatesSuspended, !self.transitionSuspended else {"))
+        check("…fires the resume hook, then the deferred replay, then the republish",
+              (helper.range(of: "onStreamingUIUpdatesResumed?()")?.lowerBound).map { hook in
+                  (helper.range(of: "retrySnapshotReloadSignal.send()")?.lowerBound).map { replay in
+                      (helper.range(of: "objectWillChange.send()")?.lowerBound).map { publish in
+                          hook < replay && replay < publish
+                      } ?? false
+                  } ?? false
+              } ?? false)
+        check("…and consumes the replay flag only after that gate",
+              (helper.range(of: "guard !self.streamingUIUpdatesSuspended, !self.transitionSuspended else {")?.lowerBound).map { gate in
+                  (helper.range(of: "needsSnapshotReloadOnResume = false")?.lowerBound).map { consume in gate < consume } ?? false
+              } ?? false)
+    } else { check("deferred resume notification located", false) }
+    check("setStreamingUIUpdatesSuspended no longer publishes inline",
+          !vmSrc.split(separator: "\n").drop { !$0.contains("func setStreamingUIUpdatesSuspended(") }
+                .prefix(22).joined().contains("objectWillChange.send()"))
+    check("setSuspendedForTransition no longer publishes inline",
+          !vmSrc.split(separator: "\n").drop { !$0.contains("func setSuspendedForTransition(") }
+                .prefix(22).joined().contains("objectWillChange.send()"))
     check("setStreamingUIUpdatesSuspended resumes through the chokepoint",
           vmSrc.contains("flushDeferredStreamingTextUpdateIfNeeded()\n            clearStreamingUIUpdatesSuspended()"))
     check("setSuspendedForTransition resumes through the chokepoint too",

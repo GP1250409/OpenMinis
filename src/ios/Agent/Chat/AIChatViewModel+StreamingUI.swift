@@ -23,22 +23,93 @@ import os.log
 private let logger = AppLogger(category: "AIChatVM")
 
 extension AIChatViewModel {
+    /// [T-ios-streaming-resume-reentry] Queue the ONE resume notification this
+    /// resume burst is owed: the Coordinator's resume hook, the deferred
+    /// snapshot replay (`retrySnapshotReloadSignal`) and the republish that
+    /// makes in-place tool-status mutations visible.
+    ///
+    /// Why it is a queued notification and not inline code (crash
+    /// Minis-2026-11-19 20:28:54 / 20:41:11, both SIGABRT with the same frames):
+    /// `dismantleUIViewController → Coordinator.finishStatusBarScrollToTop →
+    /// resumeAfterStatusBarScrollToTop → setStreamingUIUpdatesSuspended(false)
+    /// → objectWillChange.send → CachedViewModel's forwarder → SwiftUI body
+    /// re-entry → swift_beginAccess exclusivity trap`. The resume is reached
+    /// FROM a SwiftUI update/teardown pass; a synchronous publish (and the
+    /// synchronous `onStreamingUIUpdatesResumed` closure, which rebuilds the
+    /// collection-view snapshot) therefore re-enters that pass on a view graph
+    /// SwiftUI is already dismantling. The status-bar flight itself is innocent:
+    /// it is only the frame that supplies the teardown stack.
+    ///
+    /// Contract:
+    ///   * State stays synchronous — the flag is already cleared, the deferred
+    ///     streaming TEXT is already flushed into `messages` by the caller, so a
+    ///     snapshot rebuilt by this notification reads the freshest content.
+    ///   * Only the notification moves, one main-queue hop later, OUTSIDE the
+    ///     update/teardown pass that called the resume.
+    ///   * Coalesced: N resumes in one runloop turn → 1 notification.
+    ///   * Re-verified at FIRE time, not at schedule time: `self` still alive
+    ///     (weak — a dismantled session's vm may be gone), still ungated
+    ///     (`streamingUIUpdatesSuspended` / `transitionSuspended` may have been
+    ///     re-armed by a scroll settle, a session switch or a sheet), and the
+    ///     owed bit still set. A re-suspend keeps `pending` and simply defers to
+    ///     the resume that follows it, so no notification is dropped and no
+    ///     second one is invented.
+    ///   * `needsSnapshotReloadOnResume` is consumed HERE, after the gate, so a
+    ///     resume that is immediately superseded by a suspend cannot eat the
+    ///     loop-end replay (the pre-fix code consumed it synchronously).
+    @MainActor
+    private func scheduleStreamingResumeNotification(caller: String) {
+        streamingResumeNotificationPending = true
+        guard !streamingResumeNotificationScheduled else { return }
+        // Nothing to deliver while the vm is (again) gated: the resume path
+        // that lifts the gate calls back into here and the owed bit is intact.
+        guard !streamingUIUpdatesSuspended, !transitionSuspended else { return }
+        streamingResumeNotificationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.streamingResumeNotificationScheduled = false
+            // Re-verify at fire time: the whole point of the hop is to leave
+            // the caller's stack, so anything may have changed in between.
+            guard !self.streamingUIUpdatesSuspended, !self.transitionSuspended else {
+                logger.info("[SuspendResume] notify SUPERSEDED-at-fire caller=\(caller) sid=\(self.sessionId?.prefix(8).description ?? "nil") streamSuspended=\(self.streamingUIUpdatesSuspended) transitionSuspended=\(self.transitionSuspended) owed=\(self.streamingResumeNotificationPending)")
+                return
+            }
+            guard self.streamingResumeNotificationPending else { return }
+            self.streamingResumeNotificationPending = false
+            logger.info("[SuspendResume] notify caller=\(caller) sid=\(self.sessionId?.prefix(8).description ?? "nil") needsReplay=\(self.needsSnapshotReloadOnResume) deferredText=\(self.deferredStreamingTextUpdates.count)")
+            // 1. Coordinator catch-up: rebuild a snapshot deferred while the
+            //    suspend window was open. Direct closure call — this is exactly
+            //    the synchronous re-entry that crashed during dismantle, which
+            //    is why the first step of the fix is to leave the stack.
+            self.onStreamingUIUpdatesResumed?()
+            // 2. Loop-end replay that had to be deferred (see
+            //    needsSnapshotReloadOnResume). Consumed only once it can run.
+            if self.needsSnapshotReloadOnResume {
+                self.needsSnapshotReloadOnResume = false
+                let totalBlocks = self.messages.reduce(0) { $0 + $1.blocks.count }
+                let lastBlocks = self.messages.last?.blocks.count ?? 0
+                logger.info("[BlocksLost] REPLAY retrySnapshot — suspend cleared. sid=\(self.sessionId?.prefix(8) ?? "nil") totalBlocks=\(totalBlocks) lastMsgBlocks=\(lastBlocks) msgCount=\(self.messages.count)")
+                self.retrySnapshotReloadSignal.send()
+            }
+            // 3. Republish unconditionally (never value-gated): tool status /
+            //    `tool_use` mutations during the suspend window mutate structs
+            //    in place, so no @Published assignment fires and this is the
+            //    only notification FloatingToolBar / ToolStatusBar ever get.
+            self.objectWillChange.send()
+        }
+    }
+
     /// Single chokepoint for clearing `streamingUIUpdatesSuspended`. Sets the
-    /// flag false (idempotent) and, if it actually transitioned, fires the
-    /// resume hook so deferred consumers (the Coordinator snapshot) can catch
-    /// up. Callers that need the VM-side deferred-text flush still call it
-    /// themselves; this only owns the flag + hook.
+    /// flag false (idempotent) and, if it actually transitioned, queues the
+    /// resume notification so deferred consumers (the Coordinator snapshot)
+    /// can catch up. Callers that need the VM-side deferred-text flush still
+    /// call it themselves; this only owns the flag + notification.
     private func clearStreamingUIUpdatesSuspended() {
         guard streamingUIUpdatesSuspended else { return }
         streamingUIUpdatesSuspended = false
-        onStreamingUIUpdatesResumed?()
-        if needsSnapshotReloadOnResume {
-            needsSnapshotReloadOnResume = false
-            let totalBlocks = messages.reduce(0) { $0 + $1.blocks.count }
-            let lastBlocks = messages.last?.blocks.count ?? 0
-            logger.info("[BlocksLost] REPLAY retrySnapshot — suspend cleared. sid=\(sessionId?.prefix(8) ?? "nil") totalBlocks=\(totalBlocks) lastMsgBlocks=\(lastBlocks) msgCount=\(messages.count)")
-            retrySnapshotReloadSignal.send()
-        }
+        // [T-ios-streaming-resume-reentry] Was inline (hook + replay + publish
+        // in this call). That is the crash: see scheduleStreamingResumeNotification.
+        scheduleStreamingResumeNotification(caller: "clear")
     }
 
     /// Called from AIChatView.onAppear REUSING path. When the agent loop ended
@@ -157,7 +228,16 @@ extension AIChatViewModel {
             // @Published only fires on assignment — in-place mutations to
             // `messages` during the suspend window are invisible to
             // subscribers. Mirrors setSuspendedForTransition(false).
-            objectWillChange.send()
+            //
+            // [T-ios-streaming-resume-reentry] Queued, not synchronous: the
+            // resume is reached from SwiftUI's own update/teardown pass
+            // (dismantleUIViewController → finishStatusBarScrollToTop), where an
+            // inline publish re-enters the pass being torn down and traps on
+            // SwiftUI's exclusivity check. The chokepoint above may already have
+            // queued it (coalesced to one); it may also have returned early when
+            // another path cleared the flag first, which is why this call is not
+            // redundant — it is the one that owes the republish then.
+            scheduleStreamingResumeNotification(caller: "setStreamingUIUpdatesSuspended")
         }
     }
 
@@ -188,7 +268,12 @@ extension AIChatViewModel {
             // up the current `messages` snapshot — Published only fires on
             // assignment, so any mutations that occurred during suspend are
             // now reflected in `messages` but no subscriber has been notified.
-            objectWillChange.send()
+            //
+            // [T-ios-streaming-resume-reentry] Queued (one hop, coalesced with
+            // the chokepoint's notification) instead of an inline publish: the
+            // session-switch resume runs inside SwiftUI replacing the hosting
+            // view, the same pass that crashed on the status-bar path above.
+            scheduleStreamingResumeNotification(caller: "setSuspendedForTransition")
         }
     }
 

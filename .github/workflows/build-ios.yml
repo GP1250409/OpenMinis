@@ -75,6 +75,17 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/statusbar_scroll_regression.py 2>&1 | tee statusbar-scroll-regression.log
+      # [T-ios-streaming-resume-reentry] The 2026-11-19 status-bar teardown crash:
+      # dismantleUIViewController → finishStatusBarScrollToTop → resume →
+      # setStreamingUIUpdatesSuspended(false) → objectWillChange.send → SwiftUI
+      # body re-entry. This compiles the SHIPPING resume bodies (extracted, with
+      # stubs) and drives them, so it runs on Linux too; on the macOS runner the
+      # same assertions go through real Combine + GCD and print the second marker.
+      - name: Streaming resume-notification re-entry regression
+        run: |
+          set -o pipefail
+          python3 scripts/streaming_resume_regression.py 2>&1 | tee streaming-resume-regression.log
+          grep -E 'STREAMING_RESUME_PASS|STREAMING_RESUME_COMBINE_PASS|STREAMING_RESUME_WIRING_PASS|STREAMING_RESUME_SELFTEST_PASS' streaming-resume-regression.log
       - name: ShowUI interaction theme (typography, palette, action contrast)
         if: steps.scope.outputs.run_theme_suite == 'true'
         run: |

@@ -1380,6 +1380,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// suspend lifts — at that point the snapshot rebuild is safe and is replayed.
     var needsSnapshotReloadOnResume = false
 
+    /// [T-ios-streaming-resume-reentry] Resume-notification state machine (see
+    /// `scheduleStreamingResumeNotification` in AIChatViewModel+StreamingUI).
+    /// `scheduled`: one main-queue hop is already queued for the current resume
+    /// burst — extra resumes in the same runloop turn only set `pending` again
+    /// instead of queueing a second notification. `pending`: a notification is
+    /// still OWED (the resume state machine changed) but the vm was gated
+    /// (`streamingUIUpdatesSuspended` / `transitionSuspended`) when the hop ran,
+    /// so the next ungated resume re-arms it. Deliberately never a "did anything
+    /// change?" dirty bit: tool status / `tool_use` mutations are in-place and
+    /// produce no @Published assignment, so a value-comparison would drop the
+    /// republish that makes them visible.
+    var streamingResumeNotificationScheduled = false
+    var streamingResumeNotificationPending = false
+
     /// [T-ios-ui-blocks-lost-suspend-resume] Fired on the main thread whenever
     /// `streamingUIUpdatesSuspended` transitions from true → false, from ANY
     /// path (scroll-settle resume, transition resume, explicit clear). The
