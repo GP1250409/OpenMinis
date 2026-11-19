@@ -96,7 +96,11 @@ final class SelectableMarkdownTextView: UIView {
 /// `animatesNextLayoutPass` on it. The class itself lives in
 /// MessageListInfrastructure.swift (not compiled here), so the fixture defines
 /// the one member the transaction touches.
-final class NoAnimationCollectionView: UICollectionView {
+// NOT final: the answered-question card fixture subclasses it to force the
+// production `isTracking`/`isDragging` reads (a simulator cannot start a real
+// touch). Test-double only; the shipping class in MessageListInfrastructure.swift
+// stays `final`.
+class NoAnimationCollectionView: UICollectionView {
     var animatesNextLayoutPass = false
 }
 

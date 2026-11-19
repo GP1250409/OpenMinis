@@ -322,6 +322,81 @@ def manifest_contract(block, bridge):
     return cases
 
 
+def harness_api_contract():
+    """Static API contract for the fixture's UIKit calls (NOT a typecheck).
+
+    run 44436689380 (65ec6f6) got past the bridge and the source manifest, then
+    the real Darwin typecheck rejected three calls in AskCardUIKitHarness.swift:
+      102: inheritance from a final class 'NoAnimationCollectionView'
+      125: cannot assign to property: 'collectionView' is a get-only property
+      127: value of type 'MessageListLayout' has no member 'estimatedItemSize'
+    All three are API-shape mistakes that a Linux run cannot see. This contract
+    pins the exact three lines as frozen negatives and re-derives the rules from
+    the SHIPPING declarations, so the next edit cannot reintroduce them.
+    """
+    cases = 0
+
+    def case(cond, name):
+        nonlocal cases
+        cases += 1
+        if cond:
+            note('  ok   ' + name)
+        else:
+            note('  FAIL ' + name)
+            raise SystemExit('ASK_CARD_ANCHOR_UIKIT_FAIL harness API contract: ' + name)
+
+    swift = {p.name: p.read_text() for p in
+             (TESTS / 'AskCardUIKitHarness.swift', TESTS / 'AskCardAnchorUIKitTests.swift',
+              TESTS / 'AskCardUIKitMain.swift')}
+    all_text = '\n'.join(swift.values())
+    stub = (THINK / 'ProductionStubs.swift').read_text()
+    production = (IOS / 'Agent/MessageList/MessageListInfrastructure.swift').read_text()
+    layout_src = (IOS / 'Agent/MessageList/MessageListLayout.swift').read_text()
+
+    # (1) The shipping class stays final; only the TEST DOUBLE may be subclassed.
+    case('final class NoAnimationCollectionView' in production,
+         'the shipping NoAnimationCollectionView is still final (never relaxed for a test)')
+    stub_final = re.search(r'final class NoAnimationCollectionView', stub) is not None
+    subclasses = re.search(r'class\s+\w+\s*:\s*NoAnimationCollectionView\b', all_text) is not None
+    case(subclasses and not stub_final,
+         'the fixture subclasses the non-final test double')
+    frozen_final = 'final class NoAnimationCollectionView: UICollectionView {'
+    case(subclasses and re.search(r'final class NoAnimationCollectionView', frozen_final) is not None,
+         'frozen run-44436689380 inheritance of a final class is rejected')
+
+    # (2) `MessageListLayout.collectionView` is inherited get-only: the binding
+    #     must come from `cv.collectionViewLayout = layout` (what the green
+    #     thinking/genui harnesses do by creating the cv with the layout).
+    case('layout.collectionView =' not in all_text and 'layout.collectionView=' not in all_text,
+         'no direct write to the get-only layout.collectionView')
+    frozen_readonly = '        layout.collectionView = cv\n'
+    case('layout.collectionView =' in frozen_readonly,
+         'frozen run-44436689380 get-only assignment is rejected')
+    case('cv.collectionViewLayout = layout' in all_text,
+         'the layout is bound through the collection view')
+
+    # (3) Every `layout.<member> =` must be a real stored property of the
+    #     SHIPPING MessageListLayout (a UICollectionViewLayout has no
+    #     estimatedItemSize; the layout's estimate is estimatedItemHeight).
+    declared = set(re.findall(r'(?m)^\s*(?:private )?var\s+([A-Za-z_]\w*)', layout_src))
+    assigned = sorted(set(re.findall(r'\blayout\.([A-Za-z_]\w*)\s*=(?!=)', all_text)))
+    unknown = [n for n in assigned if n not in declared]
+    case(unknown == [], f'every layout.<member> write exists in MessageListLayout (got {assigned})')
+    case(re.search(r'\.estimatedItemSize\b', all_text) is None,
+         'no flow-layout .estimatedItemSize call on MessageListLayout')
+    frozen_size = '        layout.estimatedItemSize = CGSize(width: 390, height: 80)\n'
+    case('estimatedItemSize' in frozen_size, 'frozen run-44436689380 estimatedItemSize is rejected')
+    case('layout.estimatedItemHeight = 80' in all_text,
+         'the layout estimate uses the shipping estimatedItemHeight')
+
+    # Sensitivity: without the collection-view binding, `layout.collectionView`
+    # stays nil, prepare() never runs and every geometry assertion is vacuous.
+    stripped = all_text.replace('cv.collectionViewLayout = layout', '// removed')
+    case('cv.collectionViewLayout = layout' not in stripped,
+         'contract is sensitive to dropping the collection-view binding')
+    return cases
+
+
 def swiftc_command(sources, bridge, sdk, arch, out_bin):
     """The real command. Built from the audited manifest, so the list that was
     audited and the list that compiles cannot drift apart."""
@@ -371,6 +446,7 @@ def main():
         raise SystemExit('ASK_CARD_ANCHOR_UIKIT_FAIL compile closure: ' + '; '.join(problems[:4]))
     note(f'ASK_CARD_UIKIT_CLOSURE_PASS sources={len(manifest)} deps=4 bridge=noff_try_objc')
     note(f'ASK_CARD_UIKIT_MANIFEST_CONTRACT_PASS cases={manifest_contract(block, bridge)}')
+    note(f'ASK_CARD_UIKIT_HARNESS_API_CONTRACT_PASS cases={harness_api_contract()}')
 
     devices = json.loads(run(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
     choices = [d for ds in devices.values() for d in ds if 'iPhone' in d['name'] and d.get('isAvailable')]

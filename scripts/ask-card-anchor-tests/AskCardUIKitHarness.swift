@@ -122,9 +122,14 @@ final class AskCardFixture {
     var msgId = UUID()
 
     init(items: Int = 8, tail: Bool = false) {
-        layout.collectionView = cv
+        // `UICollectionViewLayout.collectionView` is get-only: the binding is
+        // made by assigning the layout to the collection view (ThinkingHarness /
+        // GenUIListHarness create the cv WITH the layout). MessageListLayout is
+        // a plain UICollectionViewLayout, not a flow layout, so its estimate is
+        // `estimatedItemHeight` (MessageListLayout.swift:17) - there is no
+        // `estimatedItemSize`.
         cv.collectionViewLayout = layout
-        layout.estimatedItemSize = CGSize(width: 390, height: 80)
+        layout.estimatedItemHeight = 80
         vc = CollectionViewMessageListV3.TxListViewController(collectionView: cv, messageListLayout: layout)
         coordinator = CollectionViewMessageListV3.Coordinator()
         coordinator.viewController = vc
