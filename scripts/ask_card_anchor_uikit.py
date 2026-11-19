@@ -397,6 +397,80 @@ def harness_api_contract():
     return cases
 
 
+def fixture_assertion_contract():
+    """Static contract for the three assertion/precondition defects of run
+    44439673271 (33 checks / 5 failures). NOT a typecheck, and NOT a substitute
+    for the run: it freezes the exact broken lines so a future edit cannot put
+    them back, and it re-derives the rules from what the fixture must do.
+    """
+    cases = 0
+
+    def case(cond, name):
+        nonlocal cases
+        cases += 1
+        if cond:
+            note('  ok   ' + name)
+        else:
+            note('  FAIL ' + name)
+            raise SystemExit('ASK_CARD_ANCHOR_UIKIT_FAIL fixture assertion contract: ' + name)
+
+    harness = (TESTS / 'AskCardUIKitHarness.swift').read_text()
+    tests = (TESTS / 'AskCardAnchorUIKitTests.swift').read_text()
+    src = harness + '\n' + tests
+
+    # (1) run 44439673271 S1/S5: "off=0.0 max=-392.7". When the content is
+    #     SHORTER than the viewport maxOffset < minOffset and the only legal
+    #     offset is minOffset, so the upper bound is max(minOffset, maxOffset).
+    bad_bound = re.compile(r'contentOffset\.y\s*<=\s*[\w.]*maxOffset\s*\+')
+    case(bad_bound.search(src) is None,
+         'no "offset <= maxOffset" comparison (short content: maxOffset < minOffset)')
+    case(re.search(r'var legalUpperOffset: CGFloat \{ max\(minOffset, maxOffset\) \}', harness)
+         is not None, 'legalUpperOffset is max(minOffset, maxOffset) (same clamp as ClampSpy)')
+    case(tests.count('legalUpperOffset') >= 3,
+         'every legal-range assertion (S1/S5/S7) uses the clamped upper bound')
+    frozen_bound = ('let legal = fx.cv.contentOffset.y <= fx.maxOffset + 1.0 '
+                    '&& fx.cv.contentOffset.y >= -fx.cv.adjustedContentInset.top - 1.0')
+    case(bad_bound.search(frozen_bound) is not None,
+         'frozen run-44439673271 upper bound is rejected')
+
+    # (2) run 44439673271 S3: the card boots EXPANDED, so six toggles return to
+    #     `true`; the assertion hard-coded `false`.
+    case(re.search(r'expanded\[card\]\s*==\s*false', tests) is None,
+         'no hard-coded collapsed expectation in the round trip')
+    case('let startExpanded = fx.expanded[card]' in tests
+         and 'fx.expanded[card] == startExpanded' in tests,
+         'the round trip compares against the recorded initial state')
+    frozen_round = 'check("S3 back to the collapsed state it started from", fx.expanded[card] == false)'
+    case(re.search(r'expanded\[card\]\s*==\s*false', frozen_round) is not None,
+         'frozen run-44439673271 round-trip assertion is rejected')
+
+    # (3) run 44439673271 S1/S4: the expanded card measured 61.3 (the collapsed
+    #     height) because UIHostingConfiguration renders its first frame after
+    #     the first layout pass. Every case must start from a settled geometry.
+    before_attach = harness.split('spy.attach(cv)')[0]
+    case('        settle()\n' in before_attach,
+         'the fixture settles before the first case measures anything')
+    case(all(tok in harness for tok in ('clearCachedHeight()', 'invalidateHeight(at: i)',
+                                       'reconfigureItems(items)', 'layout.invalidateLayout()')),
+         'settle re-asks the shipping layout (cache + measured heights), not a stub')
+    case('setMeasuredHeight' not in src,
+         'the fixture never writes a measured height by hand')
+    case('> 100' in tests,
+         'S1 asserts the card starts in its settled EXPANDED size')
+    frozen_init = ('        ds.apply(snap, animatingDifferences: false)\n'
+                   '        cv.layoutIfNeeded()\n'
+                   '        spy.attach(cv)\n')
+    case('settle()' not in frozen_init,
+         'frozen run-44439673271 unsettled init is rejected')
+
+    # Sensitivity: the clamp and the settle are both load-bearing.
+    case('        settle()\n' not in harness.replace('        settle()\n', '', 1),
+         'contract is sensitive to dropping the initial settle')
+    case('max(minOffset, maxOffset)' not in harness.replace('max(minOffset, maxOffset)', 'maxOffset'),
+         'contract is sensitive to dropping the legal-range clamp')
+    return cases
+
+
 def swiftc_command(sources, bridge, sdk, arch, out_bin):
     """The real command. Built from the audited manifest, so the list that was
     audited and the list that compiles cannot drift apart."""
@@ -447,6 +521,7 @@ def main():
     note(f'ASK_CARD_UIKIT_CLOSURE_PASS sources={len(manifest)} deps=4 bridge=noff_try_objc')
     note(f'ASK_CARD_UIKIT_MANIFEST_CONTRACT_PASS cases={manifest_contract(block, bridge)}')
     note(f'ASK_CARD_UIKIT_HARNESS_API_CONTRACT_PASS cases={harness_api_contract()}')
+    note(f'ASK_CARD_FIXTURE_ASSERTION_CONTRACT_PASS cases={fixture_assertion_contract()}')
 
     devices = json.loads(run(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
     choices = [d for ds in devices.values() for d in ds if 'iPhone' in d['name'] and d.get('isAvailable')]

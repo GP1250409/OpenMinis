@@ -30,12 +30,21 @@ func runAskCardUIKitCases() {
         fx.toggleCard(card)
         fx.pump(1.4)
         let after = fx.frame(of: card)
-        let legal = fx.cv.contentOffset.y <= fx.maxOffset + 1.0 && fx.cv.contentOffset.y >= -fx.cv.adjustedContentInset.top - 1.0
+        // The card must START in its settled EXPANDED geometry (2 questions,
+        // ~133pt); an unsettled hosting first frame is the collapsed ~61pt and
+        // would make "did it shrink" vacuous (run 44439673271: 61.3->61.3).
+        check("S1 the card starts expanded and settled (taller than the collapsed row)",
+              (before?.height ?? 0) > 100, "before=\(f(before?.height ?? -1))")
+        // A list shorter than the viewport has maxOffset < minOffset; the only
+        // legal offset is then minOffset, so the upper bound is the clamped one.
+        let legal = fx.cv.contentOffset.y <= fx.legalUpperOffset + 1.0
+            && fx.cv.contentOffset.y >= fx.minOffset - 1.0
         let shrunk = (after?.height ?? 0) < (before?.height ?? 0) - 20
         check("S1 collapse shrank the card", shrunk, "\(f(before?.height ?? -1))->\(f(after?.height ?? -1))")
         check("S1 no out-of-range offset at any contentSize change (no one-frame clamp)",
               fx.spy.outOfRange == 0, "violations=\(fx.spy.outOfRange) worst=\(f(fx.spy.worst)) events=\(fx.spy.observations)")
-        check("S1 final offset is inside the legal range", legal, "off=\(f(fx.cv.contentOffset.y)) max=\(f(fx.maxOffset))")
+        check("S1 final offset is inside the legal range", legal,
+              "off=\(f(fx.cv.contentOffset.y)) max=\(f(fx.maxOffset)) upper=\(f(fx.legalUpperOffset)) min=\(f(fx.minOffset))")
         check("S1 contentSize observation actually fired", fx.spy.observations > 0, "\(fx.spy.observations)")
         check("S1 the page moved by no more than the card shrank",
               abs(fx.cv.contentOffset.y - offsetBefore) <= (before?.height ?? 0) - (after?.height ?? 0) + 2.0,
@@ -50,6 +59,7 @@ func runAskCardUIKitCases() {
         fx.pump(0.4)
         let card = fx.cardIds[0]
         let before = fx.frame(of: card)
+        check("S2 the card row has layout attributes", before != nil && after != nil)
         let anchorY = (before?.minY ?? 0) - fx.cv.contentOffset.y
         fx.spy.reset()
         fx.toggleCard(card)
@@ -60,7 +70,8 @@ func runAskCardUIKitCases() {
         check("S2 no out-of-range offset at any contentSize change",
               fx.spy.outOfRange == 0, "violations=\(fx.spy.outOfRange) worst=\(f(fx.spy.worst))")
         check("S2 the card's top is held (anchor reachable)",
-              abs(anchorAfter - anchorY) <= 1.0, "anchor \(f(anchorY))->\(f(anchorAfter))")
+              before != nil && after != nil && abs(anchorAfter - anchorY) <= 1.0,
+              "anchor \(f(anchorY))->\(f(anchorAfter))")
         snapshot("s2-collapse-expanded-group", fx.vc)
     }
 
@@ -72,6 +83,10 @@ func runAskCardUIKitCases() {
         fx.cv.setContentOffset(CGPoint(x: 0, y: max(0, fx.maxOffset - 260)), animated: false)
         fx.cv.layoutIfNeeded()
         let card = fx.cardIds[0]
+        // Six toggles must land back on the state the fixture STARTED from
+        // (the card boots expanded) - comparing to a hard-coded `false` was
+        // wrong (run 44439673271).
+        let startExpanded = fx.expanded[card]
         // A force-unwrapped `layoutAttributesForItem` would crash the whole app
         // (and take S4-S7 with it) if the parked offset ever pushed the row out
         // of the layout's attribute range; make that a real check instead.
@@ -86,7 +101,9 @@ func runAskCardUIKitCases() {
         check("S3 card top did not drift over 6 toggles",
               startFrame != nil && endFrame != nil && abs(end - start) <= 1.0, "\(f(start))->\(f(end))")
         check("S3 no out-of-range offset during the round trips", fx.spy.outOfRange == 0, "\(fx.spy.outOfRange)")
-        check("S3 back to the collapsed state it started from", fx.expanded[card] == false)
+        check("S3 back to the state it started from",
+              fx.expanded[card] == startExpanded,
+              "start=\(String(describing: startExpanded)) end=\(String(describing: fx.expanded[card]))")
         snapshot("s3-roundtrip", fx.vc)
     }
 
@@ -99,7 +116,9 @@ func runAskCardUIKitCases() {
         fx.toggleCard(card)        // collapse
         fx.pump(0.05)
         fx.toggleCard(card)        // expand again, mid-animation
-        fx.pump(1.6)
+        // Cover the production release window (0.6s) and the cross-frame
+        // verifier before comparing; the 1.5pt agreement threshold is unchanged.
+        fx.pump(2.0)
         check("S4 last tap's intent is the final state", fx.expanded[card] == true)
         if let fr = fx.frame(of: card) {
             let cell = fx.cv.cellForItem(at: IndexPath(item: fx.ds.snapshot().itemIdentifiers.firstIndex(of: .assistantBlock(fx.msgId, card)) ?? 0, section: 0)) as? SelfSizingCell
@@ -129,7 +148,9 @@ func runAskCardUIKitCases() {
         fx.cv.endDragForFixture()
         check("S5 no offset write while the finger is down", moved <= 1.0, "moved=\(f(moved))")
         check("S5 no crash and the offset stayed legal",
-              fx.cv.contentOffset.y <= fx.maxOffset + 1.0)
+              fx.cv.contentOffset.y <= fx.legalUpperOffset + 1.0
+              && fx.cv.contentOffset.y >= fx.minOffset - 1.0,
+              "off=\(f(fx.cv.contentOffset.y)) upper=\(f(fx.legalUpperOffset)) min=\(f(fx.minOffset))")
         snapshot("s5-drag", fx.vc)
     }
 
@@ -232,6 +253,9 @@ func runAskCardUIKitCases() {
         fx.pump(1.2)
         check("S7 every offset stayed at/above the legal floor minOffset",
               fx.cv.contentOffset.y >= minOff - 1.0, "off=\(f(fx.cv.contentOffset.y)) min=\(f(minOff))")
+        check("S7 the offset stayed inside the clamped legal range",
+              fx.cv.contentOffset.y <= fx.legalUpperOffset + 1.0 && fx.cv.contentOffset.y >= fx.minOffset - 1.0,
+              "off=\(f(fx.cv.contentOffset.y)) upper=\(f(fx.legalUpperOffset))")
         check("S7 no out-of-range offset at any contentSize change",
               fx.spy.outOfRange == 0, "violations=\(fx.spy.outOfRange) worst=\(f(fx.spy.worst))")
         snapshot("s7-short-content", fx.vc)

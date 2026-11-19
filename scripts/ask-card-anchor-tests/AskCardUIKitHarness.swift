@@ -173,6 +173,12 @@ final class AskCardFixture {
         snap.appendSections([0]); snap.appendItems(items_)
         ds.apply(snap, animatingDifferences: false)
         cv.layoutIfNeeded()
+        // [T-ask-fixture-settle] run 44439673271: a freshly built fixture measured
+        // the EXPANDED card at its collapsed height (61.3 instead of 133.0) -
+        // UIHostingConfiguration renders its first frame after the first layout
+        // pass, so the layout cached the pre-expand height. Every case must start
+        // from a settled geometry, exactly like a list that has been on screen.
+        settle()
         spy.attach(cv)
         scrollToBottom()
     }
@@ -180,6 +186,38 @@ final class AskCardFixture {
     var contentSizeHeight: CGFloat { cv.contentSize.height }
 
     var maxOffset: CGFloat { cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom }
+
+    /// The legal upper bound of `contentOffset.y`. A list whose content is
+    /// SHORTER than the viewport has `maxOffset < minOffset`, and the only legal
+    /// offset there is `minOffset` - UIScrollView clamps to it, so asserting
+    /// `offset <= maxOffset` is simply wrong (run 44439673271: off=0.0,
+    /// max=-392.7). Same clamp the ClampSpy uses.
+    var minOffset: CGFloat { -cv.adjustedContentInset.top }
+
+    var legalUpperOffset: CGFloat { max(minOffset, maxOffset) }
+
+    /// Re-ask every visible cell for its height through the SHIPPING layout
+    /// (`clearCachedHeight` + `invalidateHeight` + reconfigure, the same
+    /// invalidation path `remeasureVisibleCells` uses) and let UIKit lay out
+    /// again. No height is ever written by hand.
+    func settle(passes: Int = 2) {
+        pump(0.15)
+        for _ in 0..<passes {
+            let items = ds.snapshot().itemIdentifiers
+            for (i, _) in items.enumerated() {
+                if let cell = cv.cellForItem(at: IndexPath(item: i, section: 0)) as? SelfSizingCell {
+                    cell.clearCachedHeight()
+                }
+                layout.invalidateHeight(at: i)
+            }
+            var snap = ds.snapshot()
+            snap.reconfigureItems(items)
+            ds.apply(snap, animatingDifferences: false)
+            layout.invalidateLayout()
+            cv.layoutIfNeeded()
+            pump(0.15)
+        }
+    }
 
     func scrollToBottom() {
         cv.setContentOffset(CGPoint(x: 0, y: max(0, maxOffset)), animated: false)
