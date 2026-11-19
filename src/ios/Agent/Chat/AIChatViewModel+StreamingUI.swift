@@ -41,11 +41,11 @@ extension AIChatViewModel {
     /// it is only the frame that supplies the teardown stack.
     ///
     /// Contract:
-    ///   * State stays synchronous — the flag is already cleared, the deferred
-    ///     streaming TEXT is already flushed into `messages` by the caller, so a
-    ///     snapshot rebuilt by this notification reads the freshest content.
-    ///   * Only the notification moves, one main-queue hop later, OUTSIDE the
-    ///     update/teardown pass that called the resume.
+    ///   * The suspension flag clears synchronously. The deferred text flush
+    ///     also publishes (AssistantBlock.content is @Published), so it runs as
+    ///     the FIRST step of the queued transaction, before snapshot consumers.
+    ///   * The whole publishing transaction moves one main-queue hop later,
+    ///     OUTSIDE the update/teardown pass that called the resume.
     ///   * Coalesced: N resumes in one runloop turn → 1 notification.
     ///   * Re-verified at FIRE time, not at schedule time: `self` still alive
     ///     (weak — a dismantled session's vm may be gone), still ungated

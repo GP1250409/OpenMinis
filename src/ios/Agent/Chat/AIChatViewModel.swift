@@ -1394,9 +1394,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var streamingResumeNotificationScheduled = false
     var streamingResumeNotificationPending = false
 
-    /// [T-ios-ui-blocks-lost-suspend-resume] Fired on the main thread whenever
-    /// `streamingUIUpdatesSuspended` transitions from true → false, from ANY
-    /// path (scroll-settle resume, transition resume, explicit clear). The
+    /// [T-ios-ui-blocks-lost-suspend-resume] Delivered on the main thread in the
+    /// coalesced, queued resume transaction after the suspension flag clears and
+    /// deferred text flushes, with both gates rechecked at delivery time. ANY
+    /// resume path (scroll settle, transition, explicit clear) schedules it. The
     /// message-list Coordinator registers this so it can rebuild a snapshot it
     /// deferred while suspended (`hasPendingSnapshot`). Without it, a suspend
     /// window that opens during a multi-tool agent loop and closes after the
