@@ -312,6 +312,9 @@ extension CollectionViewMessageListV3.Coordinator {
                     // for this explicit re-render.
                     self?.refreshToolGroupToggleRow(item)
                 },
+                deferConverge: { [weak self] caller in
+                    self?.deferToolGroupAccordionConverge(caller: caller)
+                },
                 restoreAnchor: { [weak self] item, anchorY in
                     self?.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
                 },
@@ -327,9 +330,6 @@ extension CollectionViewMessageListV3.Coordinator {
                 // member rows (so the frozen heights end out of date); that is
                 // the case this fallback exists for.
                 isStreaming: { [weak self] in self?.isToolGroupAccordionProductionLive(messageId: run.messageId) ?? false },
-                deferConverge: { [weak self] caller in
-                    self?.deferToolGroupAccordionConverge(caller: caller)
-                },
                 log: { message in log.info(message) })
             let request = ToolGroupAccordionToggle.Request(
                 item: item,

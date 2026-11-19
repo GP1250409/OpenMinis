@@ -16,6 +16,7 @@ Two halves, both real:
 usage: python3 scripts/toolgroup_accordion_regression.py [--swiftc swiftc]
 """
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -164,6 +165,53 @@ class Contract:
     def present(self, text, needle, label):
         self.ok(needle in text, label + ' :: must be present')
 
+
+
+def _strip_line_comments(text):
+    return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
+
+
+def swift_struct_members(text, name):
+    """Member names of `struct <name>` in declaration order (8-space indent)."""
+    start = text.index("struct %s {" % name)
+    end = text.index("\n    }", start)
+    body = text[start:end]
+    return re.findall(r"^        (?:let|var) (\w+):", body, re.M)
+
+
+def swift_call_labels(text, callee):
+    """Top-level argument labels of every `<callee>(...)` call, in order."""
+    text = _strip_line_comments(text)
+    out, at = [], 0
+    while True:
+        i = text.find(callee + "(", at)
+        if i < 0:
+            return out
+        k = i + len(callee) + 1
+        depth, chunk, chunks = 1, "", []
+        while k < len(text) and depth > 0:
+            ch = text[k]
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+                if depth == 0:
+                    break
+            if depth == 1 and ch == ",":
+                chunks.append(chunk)
+                chunk = ""
+                k += 1
+                continue
+            if depth >= 1:
+                chunk += ch
+            k += 1
+        chunks.append(chunk)
+        labels = []
+        for c in chunks:
+            m = re.match(r"\s*(\w+)\s*:", c)
+            labels.append(m.group(1) if m else "")
+        out.append(labels)
+        at = k + 1
 
 def ordered_ok(text, parts):
     """True when every part appears, in this order."""
@@ -445,6 +493,33 @@ def static_checks():
               'it is the run of THAT message, not the whole session')
     c.absent(fold, 'vm.isProcessing || vm.toolFoldRunningMessageId != nil',
              'frozen negative: a turn running elsewhere must not disable every historical group')
+
+    # 13. K1: every `ToolGroupAccordionToggle.Environment(...)` call must pass its
+    #     arguments in the DECLARATION order — Swift's memberwise init is
+    #     positional, and a call that lists the same labels in another order is a
+    #     hard compile error on Darwin (run 44482321219: refreshHeader …
+    #     deferConverge … restoreAnchor vs refreshHeader … restoreAnchor …
+    #     deferConverge). Parsed from the sources, not "text appears somewhere".
+    env_members = swift_struct_members(txn, 'Environment')
+    prod_calls = swift_call_labels(fold, 'ToolGroupAccordionToggle.Environment')
+    entry_calls = swift_call_labels(entry, 'ToolGroupAccordionToggle.Environment')
+    c.ok(len(env_members) >= 12, 'Environment has all its members (%d)' % len(env_members))
+    c.ok(len(prod_calls) == 1, 'the coordinator builds exactly one Environment (%d)' % len(prod_calls))
+    c.ok(len(entry_calls) == 1, 'the entry stage builds exactly one Environment (%d)' % len(entry_calls))
+    c.ok(prod_calls and prod_calls[0] == env_members,
+         'the coordinator passes every Environment argument in declaration order (call=%s decl=%s)' % (prod_calls, env_members))
+    c.ok(entry_calls and entry_calls[0] == env_members,
+         'the entry stage passes every Environment argument in declaration order (call=%s)' % (entry_calls,))
+    # The parser itself must catch a swapped pair, or the two checks above would
+    # pass on any text at all.
+    swapped = list(env_members)
+    swapped[5], swapped[6] = swapped[6], swapped[5]
+    synthetic = 'ToolGroupAccordionToggle.Environment(' + ', '.join('%s: x' % m for m in swapped) + ')'
+    c.ok(swift_call_labels(synthetic, 'ToolGroupAccordionToggle.Environment')[0] != env_members,
+         'frozen negative: a swapped pair of labels is detected')
+    c.ok(swift_call_labels('ToolGroupAccordionToggle.Environment(' + ', '.join('%s: x' % m for m in env_members) + ')',
+                           'ToolGroupAccordionToggle.Environment')[0] == env_members,
+         'the parser reads a well-ordered call back exactly')
 
     # 7. every gate script must know the new markers, not just build.py
     verify = (NEWROOT / 'verify_candidate.py')

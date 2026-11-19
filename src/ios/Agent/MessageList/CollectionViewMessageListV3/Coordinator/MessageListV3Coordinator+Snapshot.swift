@@ -405,6 +405,10 @@ extension CollectionViewMessageListV3.Coordinator {
             if toolFoldSessionId != vm.sessionId {
                 toolFoldSessionId = vm.sessionId
                 expandedToolGroups.removeAll()
+                // [T-toolgroup-accordion] A deferred close belongs to the list
+                // that recorded it; the reset rebuilds the structure from the
+                // new session anyway, so nothing may flush into it later.
+                toolGroupAccordionPendingConverge = nil
                 // [T-fold-two-switches] Same lifetime as the open rows: the
                 // manual closes belong to the session the user made them in.
                 toolGroupManuallyFolded.removeAll()
