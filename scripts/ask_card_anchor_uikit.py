@@ -488,6 +488,16 @@ def fixture_assertion_contract():
          'every setMeasuredHeight argument is a real cell measurement (no literal)')
     case(re.search(r'setMeasuredHeight\(\s*[0-9]', src) is None,
          'no numeric literal is ever passed to setMeasuredHeight')
+    # run 44455099393: S4 built its own `UICollectionViewLayoutAttributes(
+    # forCellWith:)` and measured 1356.3 for a 155.3 card - a zero-width
+    # proposal no self-sizing pass ever sees. Measurement must go through the
+    # one harness channel that uses `cv.bounds.width`.
+    case('preferredLayoutAttributesFitting' not in tests,
+         'the cases never measure a cell themselves (one channel, in the harness)')
+    case('func measuredHeight(of card: UUID) -> CGFloat?' in harness
+         and 'attrs.size = CGSize(width: cv.bounds.width' in harness
+         and 'fx.measuredHeight(of: card)' in tests,
+         'the card height comes from the same width-real measurement the layout uses')
     frozen_const = 'layout.setMeasuredHeight(133, at: i)'
     case(re.search(r'setMeasuredHeight\(\s*[0-9]', frozen_const) is not None,
          'frozen hand-written height is rejected')

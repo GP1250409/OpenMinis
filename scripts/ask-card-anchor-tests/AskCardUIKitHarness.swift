@@ -373,6 +373,18 @@ final class AskCardFixture {
         return fitted.isFinite ? fitted : nil
     }
 
+    /// Production-identical height of the live `card` row, through the ONE
+    /// measurement channel (`measureRow`). Cases must use this instead of
+    /// building their own attributes: `UICollectionViewLayoutAttributes(
+    /// forCellWith:)` on its own proposes a ZERO width, which no self-sizing
+    /// pass ever sees - run 44455099393 measured 1356.3 that way for a card
+    /// that is 155.3 tall.
+    func measuredHeight(of card: UUID) -> CGFloat? {
+        guard let index = ds.snapshot().itemIdentifiers.firstIndex(of: .assistantBlock(msgId, card))
+        else { return nil }
+        return measureRow(index)
+    }
+
     /// Height the SAME cell reports for its COLLAPSED card, through the same
     /// production channel. Diagnostics only - this number is never installed.
     private func collapsedHeightProbe(_ index: Int) -> CGFloat? {

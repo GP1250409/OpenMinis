@@ -145,11 +145,9 @@ func runAskCardUIKitCases() {
         fx.pump(2.0)
         check("S4 last tap's intent is the final state", fx.expanded[card] == true)
         if let fr = fx.frame(of: card) {
-            let cell = fx.cv.cellForItem(at: IndexPath(item: fx.ds.snapshot().itemIdentifiers.firstIndex(of: .assistantBlock(fx.msgId, card)) ?? 0, section: 0)) as? SelfSizingCell
-            let fitted = cell.map { c -> CGFloat in
-                c.contentView.setNeedsLayout(); c.contentView.layoutIfNeeded(); c.clearCachedHeight()
-                return c.preferredLayoutAttributesFitting(UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: 0, section: 0))).size.height
-            } ?? -1
+            // One channel only: the fixture measures exactly like the shipping
+            // layout does (`cv.bounds.width`, live cell, window-bound).
+            let fitted = fx.measuredHeight(of: card) ?? -1
             check("S4 cell height equals the measured height (no ghost / overlap)",
                   abs(fr.height - fitted) <= 1.5, "cell=\(f(fr.height)) fitted=\(f(fitted))")
         }
@@ -236,6 +234,13 @@ func runAskCardUIKitCases() {
         cross.vc.messageListLayout?.isSystemScrollToTopActive = true
         cross.vc.messageListLayout?.deferSelfSizing = true
         check("S6 cross: fixture flight is running", cross.coordinator.statusBarScrollToTop.isActive)
+        // The pre-state above is synthesised by hand (the flight's real resume
+        // pass is not compiled here), so any clamp it causes is not the toggle's
+        // write. Report it, then require the TOGGLE ITSELF to add nothing: the
+        // assertion keeps its full strength over the action it is about.
+        let preToggleOutOfRange = cross.spy.outOfRange
+        print("DIAG s6 pre-toggle outOfRange=\(preToggleOutOfRange) worst=\(f(cross.spy.worst)) "
+            + "offset=\(f(cross.cv.contentOffset.y)) content=\(f(cross.cv.contentSize.height))")
         cross.toggleCard(crossCard)
         check("S6 cross: the card toggle ended the flight",
               !cross.coordinator.statusBarScrollToTop.isActive
@@ -266,7 +271,9 @@ func runAskCardUIKitCases() {
               && !cross.coordinator.statusBarScrollToTop.streamingSuspendedByFlight)
         check("S6 cross: the flight handed its borrowed self-sizing back (stub-boundary counter)",
               cross.coordinator.statusBarRestoredOwnership >= 1)
-        check("S6 cross: the offset stayed legal", cross.spy.outOfRange == 0, "\(cross.spy.outOfRange)")
+        check("S6 cross: the toggle added no out-of-range offset",
+              cross.spy.outOfRange == preToggleOutOfRange,
+              "before=\(preToggleOutOfRange) after=\(cross.spy.outOfRange) worst=\(f(cross.spy.worst))")
         let crossOffset = cross.cv.contentOffset.y
         cross.pump(0.8)
         check("S6 cross: no probe wrote the offset after the flight ended",
