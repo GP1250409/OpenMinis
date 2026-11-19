@@ -100,6 +100,13 @@ def wiring_checks() -> int:
     need('.autoScrolling' not in resume, 'restoration must not re-acquire auto')
     need('viewController?.messageListLayout?.isSystemScrollToTopActive = false' in finish,
          'end must release the layout')
+    # [T-toolgroup-accordion] the slice may only use symbols its stubs declare
+    need('toolGroupAccordionFlight' not in begin,
+         'the status-bar slice must not reference a coordinator-only symbol')
+    need('abortToolGroupAccordion()' in begin,
+         'the status-bar start aborts the accordion through the layout channel')
+    need('func abortToolGroupAccordion()' in SLICE_STUBS,
+         'the slice stub must declare the takeover channel')
     helper = PROD.read_text()
     need('watchdogMaxMs' not in helper, 'no hard-coded animation deadline')
     need('beganAt = now' in helper and 'stalledWatchdogSamples = 0' in helper,
@@ -175,6 +182,12 @@ final class StubLayout {
     func applyDeferredHeights() { applyCount += 1 }
     func invalidateLayout() { invalidateCount += 1 }
     func abandonTopAnchor() -> Bool { abandonCount += 1; return true }
+    // [T-toolgroup-accordion] The chat tool-group accordion aborts through this
+    // closure instead of referencing a coordinator-only symbol, which keeps this
+    // slice compilable (run 44468710606: `cannot find 'toolGroupAccordionFlight'
+    // in scope` at Slice.swift:124).
+    var toolGroupAccordionAbort: (() -> Void)?
+    func abortToolGroupAccordion() { toolGroupAccordionAbort?() }
 }
 final class StubVC {
     var collectionView: StubCV? = StubCV()

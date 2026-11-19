@@ -577,8 +577,14 @@ final class SelectableMarkdownTextView: UIView {
         let follow = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
         check(abs(follow - (attrs[2].frame.maxY + listLayout.itemSpacing)) <= 0.75,
               "following row restored exactly under the open run")
-        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) {
+        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) as? SelfSizingCell {
             check(!cell.clipsToBounds, "clipping flag restored on the cell")
+            check(cell.accordionContentHeight == nil, "the clip window is cleared after the flight")
+            check(abs(cell.contentView.frame.height - cell.bounds.height) <= 0.5,
+                  "contentView is back to the cell bounds (\(cell.contentView.frame.height) vs \(cell.bounds.height))")
+            cell.prepareForReuse()
+            check(abs(cell.contentView.frame.height - cell.bounds.height) <= 0.5,
+                  "a reused cell does not keep the taller content window")
         }
         check(abs(list.contentSize.height - listLayout.collectionViewContentSize.height) <= 1.0,
               "contentSize agrees with the layout after the flight")

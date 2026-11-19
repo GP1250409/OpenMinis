@@ -80,12 +80,29 @@ class SelfSizingCell: UICollectionViewCell {
     var accordionContentHeight: CGFloat? {
         didSet {
             guard accordionContentHeight != oldValue else { return }
-            if accordionContentHeight == nil {
-                clipsToBounds = false
-                contentView.clipsToBounds = true
-            }
+            resetAccordionWindowIfNeeded()
             setNeedsLayout()
         }
+    }
+
+    /// [T-toolgroup-accordion] Put the clip window back to the cell's own bounds.
+    /// Without this a reused cell would keep a taller `contentView` and every
+    /// later row of that reuse slot would draw with the wrong height.
+    private func resetAccordionWindowIfNeeded() {
+        guard accordionContentHeight == nil else { return }
+        clipsToBounds = false
+        contentView.clipsToBounds = true
+        if contentView.frame != bounds {
+            contentView.frame = bounds
+        }
+    }
+
+    /// A recycled cell must not inherit the previous row's clip window, whether
+    /// the reuse path or a new configuration comes first.
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        accordionContentHeight = nil
+        resetAccordionWindowIfNeeded()
     }
 
     override func layoutSubviews() {
@@ -180,6 +197,10 @@ class SelfSizingCell: UICollectionViewCell {
     /// on newer SDKs and cannot be overridden).
     func applyContentConfiguration(_ config: any UIContentConfiguration) {
         contentConfiguration = config
+        // [T-toolgroup-accordion] New content means a new natural height: the
+        // previous row's clip window must not survive the configuration.
+        accordionContentHeight = nil
+        resetAccordionWindowIfNeeded()
         configGeneration &+= 1
         lastComputedHeight = nil
         lastComputedWidth = nil
