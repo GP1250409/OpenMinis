@@ -170,7 +170,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         list.layoutIfNeeded()
     }
 
-    private func rebuildFolded() {
+    private func rebuildFolded(scrollHeaderVisible: Bool = true) {
         items = fillerBlocks.map { .assistantBlock(messageId, $0) }
             + [groupItem, .assistantBlock(messageId, followBlock)]
         for block in fillerBlocks { contentHeights[.assistantBlock(messageId, block)] = 220 }
@@ -182,10 +182,33 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         contentHeights[.assistantBlock(messageId, memberBlocks[2])] = 280
         pendingExpanded = false
         reload()
+        if scrollHeaderVisible {
+            scrollHeaderIntoView()
+        } else {
+            list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
+            list.setNeedsLayout()
+            list.layoutIfNeeded()
+        }
+    }
+
+    /// Put the tapped group header at the bottom edge of the 500pt viewport so
+    /// (1) the header is live on screen (`cellForItem` is non-nil, just like a
+    /// real user tap) and (2) the member rows inserted below it start off screen
+    /// and still exercise `ToolGroupAccordionMeasurement`.
+    private func scrollHeaderIntoView() {
+        let headerIP = IndexPath(item: fillerBlocks.count, section: 0)
+        guard let headerFrame = layout.layoutAttributesForItem(at: headerIP)?.frame else { return }
+        let minOff = -list.adjustedContentInset.top
+        let maxOff = max(minOff, list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height)
+        let target = min(maxOff, max(minOff, headerFrame.maxY - list.bounds.height))
+        list.contentOffset = CGPoint(x: 0, y: target)
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
     }
 
     private func reload() {
         layout.clearToolGroupAccordion()
+        layout.clearHeightCache()
         for (index, item) in items.enumerated() {
             layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
@@ -390,7 +413,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
               "probe: a tall row is measured to its real height (\(probe.heights[5] ?? -1))")
         check(probe.complete, "probe: the row is not reported unmeasured")
         // Short content: the reveal never scrolls past the legal top.
-        rebuildFolded()
+        rebuildFolded(scrollHeaderVisible: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
             let top = -self.list.adjustedContentInset.top
             self.check(abs(self.list.contentOffset.y - top) < 0.5,

@@ -70,6 +70,7 @@ enum ToolGroupAccordionMeasurement {
     /// The measuring collection view's data source: one row, configured through
     /// the caller's (production) configuration closure.
     private final class Host: NSObject, UICollectionViewDataSource {
+        static let reuseIdentifier = "ToolGroupAccordionMeasurementCell"
         var item: MessageListItem?
         var lastConfigured: MessageListItem?
         var configure: ((SelfSizingCell, MessageListItem, IndexPath) -> Void)?
@@ -77,13 +78,18 @@ enum ToolGroupAccordionMeasurement {
             item == nil ? 0 : 1
         }
         func collectionView(_ view: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-            guard let item else { return UICollectionViewCell() }
-            // A fresh cell per request, exactly like the production registration
-            // would dequeue one — never a cell returned twice.
-            let cell = SelfSizingCell()
-            configure?(cell, item, indexPath)
+            // UIKit requires every cell returned from a data source to come
+            // from register + dequeueReusableCell on THIS throwaway container
+            // (a bare cell throws NSInternalInconsistencyException at runtime).
+            // This runs inside the private container's own layout pass, never
+            // touching the main list's diffable data source.
+            let cell = view.dequeueReusableCell(withReuseIdentifier: Self.reuseIdentifier, for: indexPath)
+            guard let sizingCell = cell as? SelfSizingCell, let item else { return cell }
+            sizingCell.clearCachedHeight()
+            sizingCell.resetAccordionWindowIfNeeded()
+            configure?(sizingCell, item, indexPath)
             lastConfigured = item
-            return cell
+            return sizingCell
         }
     }
 
@@ -107,8 +113,10 @@ enum ToolGroupAccordionMeasurement {
         }
         let host = Host()
         host.configure = configure
+        let containerLayout = MessageListLayout()
         let container = UICollectionView(frame: CGRect(x: 0, y: 0, width: width, height: 64),
-                                         collectionViewLayout: MessageListLayout())
+                                         collectionViewLayout: containerLayout)
+        container.register(SelfSizingCell.self, forCellWithReuseIdentifier: Host.reuseIdentifier)
         container.isUserInteractionEnabled = false
         container.isScrollEnabled = false
         container.alpha = 0
@@ -122,6 +130,7 @@ enum ToolGroupAccordionMeasurement {
         for row in rows {
             host.item = row.item
             host.lastConfigured = nil
+            containerLayout.clearHeightCache()
             container.reloadData()
             // ONE row is in the container, at y = 0, so any usable bounds holds
             // it. The growth loop only covers the degenerate case (a layout that

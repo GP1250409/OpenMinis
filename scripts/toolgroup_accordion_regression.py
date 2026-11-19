@@ -381,6 +381,14 @@ def static_checks():
     c.present(toggle, 'self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)',
               'the measuring host configures cells with the production configureCell in measurement mode')
     c.present(measure, 'window.addSubview(container)', 'measurement happens in a window-hosted collection view')
+    c.present(measure, 'container.register(SelfSizingCell.self, forCellWithReuseIdentifier: Host.reuseIdentifier)',
+              'the throwaway measurement container registers SelfSizingCell for UIKit dequeue')
+    c.present(measure, 'view.dequeueReusableCell(withReuseIdentifier: Self.reuseIdentifier, for: indexPath)',
+              'the throwaway data source dequeues through UIKit instead of returning a bare cell')
+    c.absent(measure, 'SelfSizingCell()',
+             'frozen negative: never return a bare SelfSizingCell() from UICollectionViewDataSource (NSInternalInconsistencyException)')
+    c.absent(measure, 'return UICollectionViewCell()',
+             'frozen negative: never return a bare UICollectionViewCell() from UICollectionViewDataSource')
     c.present(measure, 'container.reloadData()', 'each row is measured in its own UIKit request cycle')
     c.absent(measure, 'estimated + 40', 'frozen negative: no container sized from the estimates')
     c.absent(measure, '20_000', 'frozen negative: no magic height cap')
