@@ -635,6 +635,90 @@ def static_checks():
                  for t in hits),
              'fixture lint catches %s re-introduced into the real file' % rule)
 
+    # 15. [T-toolgroup-accordion] P1 (run 44506193558): the off-screen probe has
+    #     to measure in the SAME coordinate / safe-area context the list's rows
+    #     have. The container used to be parked at the window origin — inside the
+    #     status-bar safe area — while the list's rows live below its
+    #     `adjustedContentInset.top`; a UIHostingConfiguration cell there adds the
+    #     inset to its fitting height, so every member row came back 62pt taller
+    #     than the same row on screen (382 vs 320) and the flight froze a wrong
+    #     frontier and anchor. The cure is geometric (the list's own top inset and
+    #     the window's safe-area edge), never a constant correction.
+    probe = measure[measure.index('static func naturalHeights'):]
+    c.present(probe, 'container.contentInsetAdjustmentBehavior = .never',
+              'the probe container opts out of UIKit\'s inferred inset adjustment')
+    c.present(probe, 'let listTopInset = collectionView.adjustedContentInset.top',
+              'the probe reads the LIST\'s own top inset')
+    c.present(probe, 'let windowTopInset = window.safeAreaInsets.top',
+              'the probe reads the WINDOW\'s top safe-area inset')
+    c.present(probe, 'let topInset = max(listTopInset, max(0, windowTopInset - listOrigin.y))',
+              'the probe row sits below the list top inset AND below the safe-area edge')
+    c.present(probe, 'let listOrigin = collectionView.convert(CGPoint.zero, to: window)',
+              'the container sits at the list origin inside the SAME window')
+    c.present(probe, 'container.contentOffset = CGPoint(x: 0, y: -topInset)',
+              'the single probe row is pinned below the inset, not at y = 0')
+    c.present(probe, 'container.frame = CGRect(x: listOrigin.x, y: listOrigin.y, width: width, height: height)',
+              'the growth loop keeps the measurement origin (a resize must not move the row into the safe area)')
+    c.absent(probe, 'CGRect(x: 0, y: 0, width: width, height: 64)',
+             'frozen negative: a container at the window origin measures inside the status-bar safe area')
+    # Executable rule, not a string grep: the shipped probe must contain no 62pt
+    # constant anywhere in CODE (comments are stripped), because the inset has to
+    # be measured — it changes with rotation, split screen and the keyboard.
+    probe_code = '\n'.join(line.split('//')[0] for line in probe.splitlines())
+    c.ok('62' not in probe_code,
+         'frozen negative: the safe area is never compensated with a constant in the probe')
+
+    # 16. [T-toolgroup-accordion] P2 (run 44506193558): the takeover channel must
+    #     be disarmed on EVERY terminal path — takeover, drag interrupt, cancel,
+    #     normal end — and only by the flight that armed it. The old code cleared
+    #     it solely behind `currentFlight() === flight` in the completion, and the
+    #     takeover path clears the stored flight BEFORE it finishes, so the
+    #     closure stayed armed with a dead flight (and the whole list) captured.
+    c.present(flight, 'private(set) var ownsAbortChannel = false',
+              'the takeover channel ownership travels with the flight')
+    c.present(flight, 'func armAbortChannel() { ownsAbortChannel = true }',
+              'a transaction arms the channel on its own flight')
+    c.present(flight, 'func disarmAbortChannel() {\n        guard ownsAbortChannel else { return }',
+              'only the flight that armed the channel may clear it')
+
+    def channel_disarmed_before_callback(src):
+        i = src.find('func finish(_ outcome: Outcome) {')
+        if i < 0:
+            return False
+        body = src[i:]
+        j = body.find('func cancel() {')
+        if j > 0:
+            body = body[:j]
+        if 'cb?(outcome)' not in body:
+            return False
+        return 'disarmAbortChannel()' in body and body.index('disarmAbortChannel()') < body.index('cb?(outcome)')
+
+    c.ok(channel_disarmed_before_callback(flight),
+         'finish() disarms the takeover channel BEFORE the completion runs')
+    c.ok(not channel_disarmed_before_callback('''    func finish(_ outcome: Outcome) {
+        guard !didFinish else { return }
+        didFinish = true
+        lastOutcome = outcome
+        link?.invalidate()
+        link = nil
+        restoreClip()
+        layout.clearToolGroupAccordion()
+        plan = nil
+        let cb = onFinish
+        onFinish = nil
+        cb?(outcome)
+    }
+
+    func cancel() {
+    }
+'''), 'frozen negative: the old finish() never disarmed the channel (only the completion identity did)')
+    c.present(txn, 'env.currentFlight()?.disarmAbortChannel()',
+              'a new transaction drops the previous flight\'s channel before it installs its own')
+    c.present(txn, 'flight.armAbortChannel()',
+              'the transaction arms the channel on the flight it started')
+    c.present(txn, 'guard env.currentFlight() === flight else { return }',
+              'the takeover closure still finishes only the flight that armed it')
+
     return c
 
 

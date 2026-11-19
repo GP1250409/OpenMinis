@@ -233,6 +233,12 @@ struct ToolGroupAccordionToggle {
                                                  headerItem: request.item,
                                                  memberItems: request.memberItems)
         let flight = ToolGroupAccordionFlight(collectionView: cv, layout: layout)
+        // [T-toolgroup-accordion] One transaction owns the takeover channel at a
+        // time: the closure captures the flight (and through it the list), so
+        // whatever a previous transaction left armed is dropped before this one
+        // installs its own. `disarmAbortChannel` refuses a flight that never
+        // armed the channel, so this can never clear an unrelated owner.
+        env.currentFlight()?.disarmAbortChannel()
         env.storeFlight(flight)
         // Published for the other viewport owner (status-bar flight); see
         // MessageListLayout.toolGroupAccordionAbort.
@@ -240,17 +246,24 @@ struct ToolGroupAccordionToggle {
         // another session with the same row count, or a replaced span row all
         // keep the numbers valid while the indices now point at the wrong rows.
         flight.liveItems = { env.items() }
+        flight.armAbortChannel()
         layout.toolGroupAccordionAbort = {
             // The abort channel is reached from the layout's own takeover paths
             // (a status-bar flight starting, a structural conflict). Only the
             // flight this transaction started may be finished through it.
             guard env.currentFlight() === flight else { return }
             env.storeFlight(nil)
+            // `finish` disarms this very closure through the flight's channel
+            // ownership; doing it from inside the closure is safe because the
+            // call itself retains it.
             flight.finish(.interrupted)
         }
         flight.start(plan, direction: request.expanding ? .expand : .collapse) { outcome in
             if env.currentFlight() === flight {
                 env.storeFlight(nil)
+                // Belt and suspenders: `finish` already disarmed the channel
+                // this flight armed, and this line can only run while no newer
+                // flight owns the store.
                 env.layout.toolGroupAccordionAbort = nil
             }
             // The structure may only converge when the flight really reached

@@ -37,6 +37,21 @@
 //     real height exists; a row without one is returned as UNMEASURED so the
 //     caller can switch instantly instead of animating to a guess.
 //
+//  4. The container must measure in the SAME coordinate / safe-area context the
+//     row has inside the list. Rule 4 was missing and run 44506193558 caught
+//     it: the container used to be parked at the window origin, i.e. inside the
+//     62pt status-bar safe area, while the list's rows live below its
+//     `adjustedContentInset.top`. A `UIHostingConfiguration` cell laid out
+//     inside that safe area reports its content height PLUS the inset
+//     (320 → 382 on a notch device), so the same row measured 62pt taller off
+//     screen than on screen and every frozen height — the reveal frontier, the
+//     anchor, the final row height — was wrong. The container is therefore
+//     placed where the list's FIRST row lives (the list's origin inside the
+//     window, pushed down by its own top inset) and never inside the window's
+//     top safe area. The number comes from the live window/list geometry, never
+//     from a constant: rotation, split screen and the keyboard move these
+//     insets and the probe follows them.
+//
 
 import UIKit
 
@@ -58,12 +73,18 @@ enum ToolGroupAccordionMeasurement {
         /// Rows whose cell UIKit refused to create (no window / zero width /
         /// layout kept them outside the container). Diagnostics only.
         var unhosted: [Int] = []
+        /// The coordinate / safe-area context the probe measured in
+        /// (`rowY` in window coordinates, the container's top inset, the list's
+        /// origin and the window's top safe-area inset). Diagnostics only: a
+        /// context mismatch is exactly the defect run 44506193558 exposed, so
+        /// the caller's log line carries the numbers.
+        var context: String = "-"
         var complete: Bool { unmeasured.isEmpty }
         var summary: String {
             let src = ["measured", "cached", "seeded"]
                 .map { "\($0)=\(sources[$0] ?? 0)" }
                 .joined(separator: " ")
-            return "measured=\(heights.count)/\(heights.count + unmeasured.count) \(src)"
+            return "measured=\(heights.count)/\(heights.count + unmeasured.count) \(src) ctx=\(context)"
         }
     }
 
@@ -98,13 +119,15 @@ enum ToolGroupAccordionMeasurement {
     }
 
     /// Measure `rows` (list index + the item drawn at it) inside a private
-    /// container added to the same window, at the list's width.
+    /// container added to the same window, at the list's width AND in the same
+    /// coordinate / safe-area context its rows have (rule 4 above).
     ///
     /// - Parameters:
     ///   - configure: the PRODUCTION cell configuration. It must run in
     ///     measurement mode (`writesListState: false`) — see rule 1 above.
-    ///   - collectionView: the user's list; only its window and width are read.
-    ///     Its content offset, its layout and its cells are never touched.
+    ///   - collectionView: the user's list; only its window, width, origin and
+    ///     top inset are read. Its content offset, its layout and its cells are
+    ///     never touched.
     static func naturalHeights(rows: [(index: Int, item: MessageListItem)],
                                in collectionView: UICollectionView,
                                configure: @escaping (SelfSizingCell, MessageListItem, IndexPath) -> Void) -> Result {
@@ -115,16 +138,36 @@ enum ToolGroupAccordionMeasurement {
             result.unmeasured = rows.map(\.index)
             return result
         }
+        // [T-toolgroup-accordion] Rule 4: the probe row has to sit where a list
+        // row sits. `listTopInset` is the list's own top inset (its first row
+        // lives below it) and `windowTopInset - listOrigin.y` lifts a list that
+        // starts at the window origin out of the window's top safe area. Taking
+        // the larger of the two means the row is never drawn inside the safe
+        // area, which is what made a 320pt row measure 382pt (run 44506193558).
+        // Both numbers are read live, so rotation / split screen / keyboard
+        // changes are followed instead of compensated with a constant.
+        let listOrigin = collectionView.convert(CGPoint.zero, to: window)
+        let listTopInset = collectionView.adjustedContentInset.top
+        let windowTopInset = window.safeAreaInsets.top
+        let topInset = max(listTopInset, max(0, windowTopInset - listOrigin.y))
+        result.context = String(format: "rowY=%.1f inset=%.1f listY=%.1f listInset=%.1f safeTop=%.1f",
+                                listOrigin.y + topInset, topInset, listOrigin.y, listTopInset, windowTopInset)
         let host = Host()
         host.configure = configure
         let containerLayout = MessageListLayout()
-        let container = UICollectionView(frame: CGRect(x: 0, y: 0, width: width, height: 64),
+        let container = UICollectionView(frame: CGRect(x: listOrigin.x, y: listOrigin.y, width: width, height: 64),
                                          collectionViewLayout: containerLayout)
         container.register(SelfSizingCell.self, forCellWithReuseIdentifier: Host.reuseIdentifier)
         container.isUserInteractionEnabled = false
         container.isScrollEnabled = false
         container.alpha = 0
         container.dataSource = host
+        // `.never` + an explicit inset: the container no longer depends on what
+        // UIKit infers for an inset-adjusting scroll view it did not put in a
+        // view controller, so the probe context is the LIST's context only.
+        container.contentInsetAdjustmentBehavior = .never
+        container.contentInset = UIEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+        container.contentOffset = CGPoint(x: 0, y: -topInset)
         window.addSubview(container)
         defer {
             container.removeFromSuperview()
@@ -142,11 +185,20 @@ enum ToolGroupAccordionMeasurement {
             // CONDITION, not a content cap: it stops as soon as UIKit hands over
             // the cell, and reports the row unhosted after a few doublings
             // rather than pretending it was measured.
-            var height: CGFloat = 64
+            // The starting height leaves the whole 64pt window BELOW the top
+            // inset (the previous 64 included the inset, which left only a
+            // sliver of the row inside the container on a notch device).
+            var height: CGFloat = 64 + topInset
             var cell: SelfSizingCell?
             var attempts = 0
             repeat {
-                container.frame = CGRect(x: 0, y: 0, width: width, height: height)
+                // The ORIGIN and the inset stay fixed: they are the measurement
+                // context. Only the height grows, and the offset is re-asserted
+                // so the single row is always the row drawn just below the
+                // safe-area edge.
+                container.frame = CGRect(x: listOrigin.x, y: listOrigin.y, width: width, height: height)
+                container.contentInset = UIEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+                container.contentOffset = CGPoint(x: 0, y: -topInset)
                 container.layoutIfNeeded()
                 cell = container.cellForItem(at: IndexPath(item: 0, section: 0)) as? SelfSizingCell
                 if cell == nil {

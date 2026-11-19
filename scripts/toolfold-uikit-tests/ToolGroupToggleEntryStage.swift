@@ -333,6 +333,13 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private func expandEnded() {
         check(flight == nil, "expand: the flight cleared itself at the end")
         check(layout.toolGroupAccordionSpan == nil, "expand: the reveal window is gone")
+        // [T-toolgroup-accordion] A channel that outlives its flight keeps the
+        // flight (and through it the list) alive, and can finish a LATER reveal
+        // by mistake. `takeoverCase` covers the takeover path; this covers the
+        // path that ends on its own (run 44506193558 only asserted the takeover
+        // and cancel paths, which is how the leak stayed invisible).
+        check(layout.toolGroupAccordionAbort == nil,
+              "expand: the abort channel is disarmed when the flight ends normally")
         check(anchors.last == 40, "expand: the tapped row was put back (\(anchors.last ?? -1))")
         check(items.count == expectedExpandedCount, "expand: the rows stay open")
         check(applyCallers.contains("toolGroupAccordionEnd"), "expand: the end converged through applySnapshot")

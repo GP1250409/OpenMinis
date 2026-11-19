@@ -558,9 +558,36 @@ final class SelectableMarkdownTextView: UIView {
         listLayout.clearToolGroupAccordion()
         listLayout.clearHeightCache()
         for i in 0..<rows.count { listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i) }
+        // [T-toolgroup-accordion] Same shape as production's snapshot apply (see
+        // `renderStyle`): the reload's self-sizing corrections (40 → 28) must not
+        // write a `contentOffsetAdjustment`. Un-suppressed, they left the list a
+        // few points outside the legal window of a short list, and the flight's
+        // own clamp — not the tap — then moved the header (run 44506193558:
+        // `drift=-4.33`).
+        listLayout.suppressContentOffsetAdjustment = true
         list.reloadData()
         list.setNeedsLayout()
         list.layoutIfNeeded()
+        listLayout.suppressContentOffsetAdjustment = false
+        normalizeViewportToLegalTop()
+    }
+
+    /// [T-toolgroup-accordion] A tap always arrives on a LEGAL viewport: a
+    /// UIScrollView clamps its own offset, so production never hands the flight
+    /// an anchor measured at -4.33pt above the top. This stage reloads its list
+    /// between cases, so it puts the viewport back on the legal top explicitly
+    /// instead of inheriting a leftover from the previous case. Returns how far
+    /// the offset had to move (diagnostics / assertion).
+    @discardableResult
+    func normalizeViewportToLegalTop() -> CGFloat {
+        let top = -list.adjustedContentInset.top
+        let delta = list.contentOffset.y - top
+        if abs(delta) > 0.01 {
+            list.setContentOffset(CGPoint(x: 0, y: top), animated: false)
+            list.setNeedsLayout()
+            list.layoutIfNeeded()
+        }
+        return list.contentOffset.y - top
     }
 
     /// Replace the data source WITHOUT touching the reveal window: the flying
@@ -610,11 +637,17 @@ final class SelectableMarkdownTextView: UIView {
         guard let scene = currentScene else { check(false, "the accordion stage keeps its scene"); return }
         list.setNeedsLayout()
         list.layoutIfNeeded()
+        // [T-toolgroup-accordion] The anchor is only meaningful on a legal
+        // viewport (production always is). Normalise first, then assert it, so
+        // the mid-flight drift measures the flight and not a stale offset the
+        // previous case left behind.
+        let strayOffset = normalizeViewportToLegalTop()
+        check(abs(strayOffset) <= 0.5,
+              "the tap is taken on a legal viewport, never on a stale offset (Δ=\(String(format: "%.2f", strayOffset)))")
         let heights = (1...3).map { listLayout.naturalHeightForAccordion(at: $0) }
         check(heights.allSatisfy { $0 > 1 }, "accordion member rows have a measured natural height \(heights)")
         let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
         accordionHeaderY = headerY
-        accordionFollowYBefore = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
         let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: headerY)
         check(plan.headerItem == listItems[0] && plan.memberItems == Array(listItems[1...3]),
               "accordion plan addresses exactly the rows the list holds")
@@ -626,6 +659,14 @@ final class SelectableMarkdownTextView: UIView {
             self.checkAccordionSettled()
             self.startAccordionCollapse()
         }
+        // [T-toolgroup-accordion] The baseline of "rows below the run move DOWN"
+        // is the CLOSED state, which `start` applies synchronously (reveal 0,
+        // member rows 0 high). Reading it before the span existed compared
+        // against the fully open rest geometry that the animation never shows —
+        // production inserts the rows and installs the span in the same turn
+        // (run 44506193558: 128.0 → 53.3, i.e. the rows had to shrink first).
+        list.layoutIfNeeded()
+        accordionFollowYBefore = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { self.checkAccordionMidFlight() }
     }
 
@@ -644,12 +685,25 @@ final class SelectableMarkdownTextView: UIView {
               "a member row is partially revealed (clipped, not scaled): \(heights.map { String(format: "%.1f", $0) })")
         let attrs0 = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!
         let drift = attrs0.frame.minY - list.contentOffset.y - accordionHeaderY
-        check(abs(drift) <= 0.75, "tapped header stays at its screen Y mid-flight (drift=\(String(format: "%.2f", drift)))")
+        check(abs(drift) <= 0.75,
+              "tapped header stays at its screen Y mid-flight (drift=\(String(format: "%.2f", drift)) "
+                + "header=\(String(format: "%.2f", attrs0.frame.minY)) offset=\(String(format: "%.2f", list.contentOffset.y)) "
+                + "anchor=\(String(format: "%.2f", accordionHeaderY)))")
         let follow = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
-        check(follow > accordionFollowYBefore + 1, "rows below the run move down while it opens (\(String(format: "%.1f", accordionFollowYBefore))→\(String(format: "%.1f", follow)))")
-        let memberMaxY = list.layoutAttributesForItem(at: IndexPath(item: 3, section: 0))!.frame.maxY
-        check(abs(follow - memberMaxY - listLayout.itemSpacing) <= 0.75,
-              "following row sits exactly after the revealed span")
+        check(follow > accordionFollowYBefore + 1,
+              "rows below the run move down while it opens (\(String(format: "%.1f", accordionFollowYBefore))→\(String(format: "%.1f", follow)))")
+        // [T-toolgroup-accordion] The revealed span ends at the FRONTIER
+        // (`Σ shown == total × reveal`, measured from the run's own top), not at
+        // the last member row's frame: below the frontier the member rows are
+        // hidden and 0 high, and the layout gives a zero-height row no trailing
+        // gap, so the last span row's `maxY` sits one gap above the frontier.
+        // Comparing against it (run 44506193558) measured the layout's gap policy
+        // instead of the reveal.
+        let runTop = attrs0.frame.maxY + listLayout.itemSpacing
+        let frontier = runTop + summary
+        check(abs(follow - (frontier + listLayout.itemSpacing)) <= 0.75,
+              "following row sits exactly after the revealed span (follow=\(String(format: "%.1f", follow)) "
+                + "frontier=\(String(format: "%.1f", frontier)))")
         if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) as? SelfSizingCell {
             let natural = flight.currentPlan!.naturalHeights[0]
             cell.setNeedsLayout()
@@ -696,15 +750,53 @@ final class SelectableMarkdownTextView: UIView {
         let heights = (1...3).map { listLayout.cachedHeight(at: $0) ?? ToolGroupRowView.rowHeight }
         let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
         accordionHeaderY = headerY
+        let followBefore = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
         let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: headerY)
         let flight = makeFlight()
         flight.reduceMotion = { false }
         flight.start(plan, direction: .collapse) { outcome in
+            // This flight runs to its own END: the reversal/drag case below owns
+            // a SEPARATE flight and scene. Sharing one flight made that case's
+            // forced `.interrupted` run these end-of-close assertions, and both
+            // cases then advanced the stage — which duplicated every later case
+            // (run 44506193558: "collapse completed (outcome=interrupted)", and
+            // the entry stage ran twice).
             self.check(outcome == .completed, "accordion collapse completed (outcome=\(outcome.rawValue))")
+            guard outcome == .completed else { return }
             self.check(self.listLayout.toolGroupAccordionSpan == nil, "collapse cleared its span")
-            self.check((1...3).allSatisfy { (self.listLayout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))!.frame.height) <= 0.75 },
-                       "every member row is 0 high after the close (the structural removal is a no-op)")
+            // `finish` clears the span BEFORE this callback, so the member rows
+            // are back at the heights they were frozen at: the close's own
+            // geometry is "0 revealed, rows at their natural height", and
+            // dropping the rows is the structural step (the entry stage asserts
+            // that one). The old "every member row is 0 high" expected the span
+            // to survive the callback, which `finish` never does.
+            let closed = (1...3).map { self.listLayout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))!.frame.height }
+            self.check(zip(closed, heights).allSatisfy { pair in abs(pair.0 - pair.1) <= 0.75 },
+                       "every member row is back at its frozen height after the close, nothing left clipped (\(closed))")
             self.check(self.accordionFlight?.reveal == 0, "collapse ended fully hidden")
+            let followAfter = self.list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
+            self.check(abs(followAfter - followBefore) <= 0.75,
+                       "the row after the closed run is back where it started (\(followBefore)→\(followAfter))")
+            self.startRetargetCase()
+        }
+    }
+
+    /// [T-toolgroup-accordion] A second tap on the same run mid-close: the flight
+    /// reverses in place instead of restarting, and a drag that takes the
+    /// viewport afterwards leaves the offset exactly where the finger left it.
+    /// Own scene + own flight, so the forced `.interrupted` here can never run
+    /// another case's end-of-flight assertions.
+    func startRetargetCase() {
+        let scene = makeScene(tag: "retarget", tools: 3)
+        applyScene(scene, prefix: "retarget")
+        let heights = (1...3).map { listLayout.naturalHeightForAccordion(at: $0) }
+        let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
+        accordionHeaderY = headerY
+        let plan = makePlan(for: scene, memberRange: 1...3, heights: heights, anchorY: headerY)
+        let flight = makeFlight()
+        flight.reduceMotion = { false }
+        flight.start(plan, direction: .collapse) { outcome in
+            self.check(outcome == .interrupted, "retarget: the reversal ends interrupted (outcome=\(outcome.rawValue))")
             self.startReduceMotionCase()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { self.retargetAccordionMidFlight() }
@@ -724,7 +816,6 @@ final class SelectableMarkdownTextView: UIView {
             self.check(abs(self.list.contentOffset.y - offsetBefore) < 0.5,
                        "interrupt leaves the viewport where the finger left it (\(offsetBefore)→\(self.list.contentOffset.y))")
             self.check(self.listLayout.toolGroupAccordionSpan == nil, "interrupt path clears the span at once")
-            self.startReduceMotionCase()
         }
     }
 

@@ -112,6 +112,35 @@ final class ToolGroupAccordionFlight {
     /// of the tap that started it.
     var finalDirection: Direction { direction }
 
+    // MARK: - Takeover channel ownership
+
+    /// True while THIS flight is the one that armed
+    /// `layout.toolGroupAccordionAbort`.
+    ///
+    /// [T-toolgroup-accordion] The closure is installed by the transaction that
+    /// starts the flight, and it must be disarmed on EVERY terminal path:
+    /// takeover, drag interrupt, cancel, normal end (and the reduce-motion
+    /// shortcut). Deciding that from `currentFlight() === flight` alone cannot
+    /// work for the takeover path: the abort closure clears the stored flight
+    /// BEFORE it finishes this one, so by the time the completion runs the
+    /// identity check is false and the closure stayed armed with a dead flight
+    /// captured (run 44506193558: `takeover: the abort channel is disarmed after
+    /// the takeover`). Ownership therefore travels with the flight object:
+    /// only the flight that armed the channel may clear it, so a newer
+    /// transaction's channel is never stolen.
+    private(set) var ownsAbortChannel = false
+
+    /// Take ownership of the layout's takeover channel (the transaction arms it
+    /// right before installing its closure).
+    func armAbortChannel() { ownsAbortChannel = true }
+
+    /// Disarm the takeover channel this flight armed, and only that one.
+    func disarmAbortChannel() {
+        guard ownsAbortChannel else { return }
+        ownsAbortChannel = false
+        layout.toolGroupAccordionAbort = nil
+    }
+
     // MARK: - Start / retarget / finish
 
     /// Begin a flight. Applies the start state (all rows closed for `.expand`,
@@ -171,6 +200,11 @@ final class ToolGroupAccordionFlight {
         guard !didFinish else { return }
         didFinish = true
         lastOutcome = outcome
+        // [T-toolgroup-accordion] Disarm BEFORE the completion runs and before
+        // anything else can look at the owner: a takeover has already cleared
+        // the stored flight, so nobody downstream can recognise this flight as
+        // the owner anymore.
+        disarmAbortChannel()
         link?.invalidate()
         link = nil
         restoreClip()
@@ -205,8 +239,11 @@ final class ToolGroupAccordionFlight {
         // through it the collection view and the layout), so leaving it armed on
         // a cancel is a retain cycle the list never gets back: the owner drops
         // its reference and then, if the toggle falls back to the instant
-        // switch, nothing else ever clears it.
+        // switch, nothing else ever clears it. A cancel means the list itself is
+        // going away, so the channel is cleared outright, not only while this
+        // flight still owns it.
         layout.toolGroupAccordionAbort = nil
+        ownsAbortChannel = false
         plan = nil
         onFinish = nil
     }
