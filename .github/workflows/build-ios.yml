@@ -112,6 +112,9 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/toolfold_linux_check.py 2>&1 | tee toolfold-regression.log
+          # [T-toolgroup-accordion] Shipping reveal math COMPILED+RUN on Linux
+          # plus the static contract that freezes the pre-accordion cut.
+          python3 scripts/toolgroup_accordion_regression.py 2>&1 | tee toolgroup-accordion-regression.log
           # [T-fold-open-card] The genui A/B regression, FULL logic (compiles the
           # production planner and walks show_ui streaming/running/none x the four
           # switch combinations). It had never been executed before this run.

@@ -481,7 +481,164 @@ final class SelectableMarkdownTextView: UIView {
         NotificationCenter.default.post(name: .toolGroupToggled, object: rows[0].run.firstBlockId)
         NotificationCenter.default.removeObserver(obs)
         check(received == rows[0].run.firstBlockId, "toolGroupToggled notification delivers firstBlockId")
-        finish()
+        startAccordionStage()
+    }
+
+    // MARK: - [T-toolgroup-accordion] Real accordion flight
+
+    /// One folded run (header row + 3 member rows) followed by two rows that
+    /// must move smoothly while the run opens. The rows are ToolGroupCellV3 for
+    /// every slot on purpose: this stage is about GEOMETRY (the accordion is
+    /// row-type agnostic), and the production `ToolGroupAccordionFlight` +
+    /// `MessageListLayout` are the real ones the chat list uses.
+    func startAccordionStage() {
+        let msg = ChatMessage(blocks: [AssistantBlock(kind: .shellTool, toolStatus: .success, toolUseId: "acc")])
+        let run = ToolFoldPlanner.foldedRuns(in: msg.blocks, ended: true).first!
+        rows = (0..<6).map { i in
+            RowCase(label: "acc-\(i)", message: msg, run: run, expanded: i == 0)
+        }
+        listLayout.clearToolGroupAccordion()
+        listLayout.clearHeightCache()
+        for i in 0..<rows.count { listLayout.setEstimatedHeight(Self.initialEstimateHeight, at: i) }
+        list.reloadData()
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.beginAccordionFlight() }
+    }
+
+    func beginAccordionFlight() {
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+        let heights = (1...3).map { listLayout.naturalHeightForAccordion(at: $0) }
+        check(heights.allSatisfy { $0 > 1 }, "accordion member rows have a measured natural height \(heights)")
+        let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
+        accordionHeaderY = headerY
+        accordionFollowYBefore = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
+        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
+                                                headerIndex: 0, anchorY: headerY)
+        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        flight.reduceMotion = { false }
+        accordionFlight = flight
+        flight.start(plan, direction: .expand) { outcome in
+            self.check(outcome == .completed, "accordion expand completed (outcome=\(outcome.rawValue))")
+            self.captureAccordionFrame("accordion-end")
+            self.checkAccordionSettled()
+            self.startAccordionCollapse()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { self.checkAccordionMidFlight() }
+    }
+
+    func checkAccordionMidFlight() {
+        guard let flight = accordionFlight, let heights = listLayout.toolGroupAccordionVisibleHeights else {
+            check(false, "accordion mid-flight: flight and span still live")
+            return
+        }
+        let reveal = flight.reveal
+        check(flight.framesApplied >= 3 && reveal > 0.02 && reveal < 0.98,
+              "accordion mid-flight is NOT an instant cut: frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", reveal))")
+        let summary = heights.reduce(0, +)
+        check(abs(summary - flight.currentPlan!.naturalHeights.reduce(0, +) * reveal) <= 1.0,
+              "mid-flight revealed height follows the eased reveal (\(String(format: "%.1f", summary)) vs reveal)")
+        check(heights.contains { $0 > 0.5 && $0 < flight.currentPlan!.naturalHeights[0] - 0.5 },
+              "a member row is partially revealed (clipped, not scaled): \(heights.map { String(format: "%.1f", $0) })")
+        let attrs0 = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!
+        let drift = attrs0.frame.minY - list.contentOffset.y - accordionHeaderY
+        check(abs(drift) <= 0.75, "tapped header stays at its screen Y mid-flight (drift=\(String(format: "%.2f", drift)))")
+        let follow = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
+        check(follow > accordionFollowYBefore + 1, "rows below the run move down while it opens (\(String(format: "%.1f", accordionFollowYBefore))→\(String(format: "%.1f", follow)))")
+        let memberMaxY = list.layoutAttributesForItem(at: IndexPath(item: 3, section: 0))!.frame.maxY
+        check(abs(follow - memberMaxY - listLayout.itemSpacing) <= 0.75,
+              "following row sits exactly after the revealed span")
+        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) {
+            check(cell.clipsToBounds && cell.contentView.clipsToBounds, "straddling member cell clips its content")
+        } else {
+            check(false, "straddling member cell exists mid-flight")
+        }
+        captureAccordionFrame("accordion-mid")
+    }
+
+    func checkAccordionSettled() {
+        check(listLayout.toolGroupAccordionSpan == nil, "accordion span cleared after the flight")
+        check(accordionFlight?.reveal == 1, "accordion ended fully revealed")
+        let attrs = (1...3).map { list.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))! }
+        for (k, a) in attrs.enumerated() {
+            let natural = listLayout.cachedHeight(at: k + 1) ?? -1
+            check(abs(a.frame.height - natural) <= 0.75,
+                  "member row \(k + 1) restored to its measured height (\(a.frame.height) vs \(natural))")
+        }
+        let follow = list.layoutAttributesForItem(at: IndexPath(item: 4, section: 0))!.frame.minY
+        check(abs(follow - (attrs[2].frame.maxY + listLayout.itemSpacing)) <= 0.75,
+              "following row restored exactly under the open run")
+        if let cell = list.cellForItem(at: IndexPath(item: 1, section: 0)) {
+            check(!cell.clipsToBounds, "clipping flag restored on the cell")
+        }
+        check(abs(list.contentSize.height - listLayout.collectionViewContentSize.height) <= 1.0,
+              "contentSize agrees with the layout after the flight")
+    }
+
+    func startAccordionCollapse() {
+        let heights = (1...3).map { listLayout.cachedHeight(at: $0) ?? ToolGroupRowView.rowHeight }
+        let headerY = list.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!.frame.minY - list.contentOffset.y
+        accordionHeaderY = headerY
+        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
+                                                headerIndex: 0, anchorY: headerY)
+        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        flight.reduceMotion = { false }
+        accordionFlight = flight
+        flight.start(plan, direction: .collapse) { outcome in
+            self.check(outcome == .completed, "accordion collapse completed (outcome=\(outcome.rawValue))")
+            self.check(self.listLayout.toolGroupAccordionSpan == nil, "collapse cleared its span")
+            self.check((1...3).allSatisfy { (self.listLayout.layoutAttributesForItem(at: IndexPath(item: $0, section: 0))!.frame.height) <= 0.75 },
+                       "every member row is 0 high after the close (the structural removal is a no-op)")
+            self.check(self.accordionFlight?.reveal == 0, "collapse ended fully hidden")
+            self.startReduceMotionCase()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { self.retargetAccordionMidFlight() }
+    }
+
+    func retargetAccordionMidFlight() {
+        guard let flight = accordionFlight else { check(false, "retarget: flight live"); return }
+        let before = flight.reveal
+        check(before > 0.02 && before < 0.98, "collapse was mid-flight before the second tap (\(String(format: "%.3f", before)))")
+        flight.retarget(.expand)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            guard let f = self.accordionFlight else { return }
+            self.check(f.reveal > before, "second tap reverses in place, does not restart (\(String(format: "%.3f", before))→\(String(format: "%.3f", f.reveal)))")
+            self.check(f.framesApplied >= 2, "reversal kept the same flight (frames=\(f.framesApplied))")
+            f.finish(.interrupted)
+            self.check(self.listLayout.toolGroupAccordionSpan == nil, "interrupt path clears the span at once")
+            self.startReduceMotionCase()
+        }
+    }
+
+    func startReduceMotionCase() {
+        let heights = (1...3).map { ToolGroupRowView.rowHeight }
+        let plan = ToolGroupAccordionFlight.Plan(memberRange: 1...3, naturalHeights: heights,
+                                                headerIndex: 0, anchorY: 0)
+        let flight = ToolGroupAccordionFlight(collectionView: list, layout: listLayout)
+        flight.reduceMotion = { true }
+        flight.start(plan, direction: .expand) { outcome in
+            self.check(outcome == .instant, "reduce motion applies the terminal state without animating")
+            self.check(flight.reveal == 1 && self.listLayout.toolGroupAccordionSpan == nil,
+                       "reduce motion leaves no span behind")
+            self.captureAccordionFrame("accordion-reduce-motion")
+            self.finish()
+        }
+    }
+
+    var accordionFlight: ToolGroupAccordionFlight?
+    var accordionHeaderY: CGFloat = 0
+    var accordionFollowYBefore: CGFloat = 0
+
+    func captureAccordionFrame(_ name: String) {
+        list.setNeedsLayout()
+        list.layoutIfNeeded()
+        let renderer = UIGraphicsImageRenderer(bounds: list.bounds)
+        let img = renderer.image { ctx in list.drawHierarchy(in: list.bounds, afterScreenUpdates: true) }
+        if let data = img.pngData() {
+            try? data.write(to: output.appendingPathComponent("\(name).png"))
+            pngCount += 1
+        }
     }
 
     func finish() {

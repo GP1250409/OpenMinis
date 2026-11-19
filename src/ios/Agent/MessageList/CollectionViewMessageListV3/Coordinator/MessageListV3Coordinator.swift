@@ -247,6 +247,10 @@ extension CollectionViewMessageListV3 {
         /// The session the two sets above belong to.
         var toolFoldSessionId: String?
         var toolGroupToggleSub: AnyCancellable?
+        /// [T-toolgroup-accordion] The single in-flight open/close of a folded
+        /// run. One at a time: a second tap retargets it, a snapshot swap or a
+        /// drag finishes it. See Coordinator+ToolFolding `toggleToolGroup`.
+        var toolGroupAccordionFlight: ToolGroupAccordionFlight?
 
         // === Attachment mount invalidation ===
         // [T-ios-user-attach-mount-invalidate] Drain mounts attachments onto an

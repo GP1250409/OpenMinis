@@ -78,6 +78,14 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     '.github/workflows/build-ios.yml',
     'scripts/ci_validation_scope.py',
     'scripts/toolfold',
+    # [T-toolgroup-accordion] 2026-11-19. The chat tool-group accordion adds
+    # two Support files (shipping math + the frame driver) compiled by the
+    # mandatory toolfold UIKit step, and its own Linux-runnable gate. These
+    # are inputs of the toolfold module only; map/chart/theme modules are
+    # untouched by any of them, so an incremental dispatch stays valid.
+    'scripts/toolgroup_accordion_regression.py',
+    'scripts/toolfold-uikit-tests/',
+    'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion',
     'scripts/statusbar_scroll_regression.py',
     'scripts/statusbar-scroll-tests/',
     # [T-statusbar-native-scroll] the lifecycle type is a new production file

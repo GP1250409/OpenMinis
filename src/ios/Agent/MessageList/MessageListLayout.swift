@@ -16,6 +16,78 @@ final class MessageListLayout: UICollectionViewLayout {
     /// Default estimated height for cells that haven't been measured yet.
     var estimatedItemHeight: CGFloat = 200
 
+    // MARK: - [T-toolgroup-accordion] Live reveal of one folded tool run
+
+    /// The member rows of a folded run that is being opened or closed, with
+    /// their frozen natural heights and the current reveal (0…1).
+    ///
+    /// `prepare()` hands each row `min(natural, frontier - Σ before)` instead of
+    /// its cached height, so the rows BELOW the run move by exactly the
+    /// revealed amount every frame while the rows themselves keep their text
+    /// size (the straddling cell clips). The cache is never written from here:
+    /// clearing the span restores the exact pre-flight geometry.
+    struct ToolGroupAccordionSpan: Equatable {
+        var lowerBound: Int
+        var naturalHeights: [CGFloat]
+        var reveal: CGFloat
+        var upperBound: Int { lowerBound + max(0, naturalHeights.count - 1) }
+        var range: ClosedRange<Int> { lowerBound...max(lowerBound, upperBound) }
+    }
+
+    /// Shared by prepare() (main) and possible async-render layout reads — same
+    /// reason as `_streamingLock`, but a separate lock so the span can never
+    /// deadlock with the streaming reads.
+    private var _accordionLock = os_unfair_lock_s()
+    private var _toolGroupAccordion: ToolGroupAccordionSpan?
+
+    var toolGroupAccordionSpan: ToolGroupAccordionSpan? {
+        os_unfair_lock_lock(&_accordionLock)
+        defer { os_unfair_lock_unlock(&_accordionLock) }
+        return _toolGroupAccordion
+    }
+
+    func setToolGroupAccordion(_ span: ToolGroupAccordionSpan?) {
+        os_unfair_lock_lock(&_accordionLock)
+        _toolGroupAccordion = span
+        os_unfair_lock_unlock(&_accordionLock)
+    }
+
+    func updateToolGroupAccordionReveal(_ reveal: CGFloat) {
+        os_unfair_lock_lock(&_accordionLock)
+        if var s = _toolGroupAccordion {
+            s.reveal = min(1, max(0, reveal))
+            _toolGroupAccordion = s
+        }
+        os_unfair_lock_unlock(&_accordionLock)
+    }
+
+    func clearToolGroupAccordion() {
+        setToolGroupAccordion(nil)
+    }
+
+    /// True while `index` is one of the rows the accordion owns.
+    func isToolGroupAccordionIndex(_ index: Int) -> Bool {
+        guard let span = toolGroupAccordionSpan else { return false }
+        return span.range.contains(index)
+    }
+
+    /// The height the layout currently believes `index` has: cache, then the
+    /// two estimate sources, then the default. This is the height the row is
+    /// DRAWN at right now, which is exactly what the accordion must freeze
+    /// (freezing anything else would pop on the first frame).
+    func naturalHeightForAccordion(at index: Int) -> CGFloat {
+        if let cached = heightCache[index] { return cached }
+        if let precalc = precalcHeights[index] { return precalc }
+        if let est = estimatedHeights[index] { return est }
+        return estimatedItemHeight
+    }
+
+    /// Row heights for the current reveal, in span order. `nil` when no span.
+    var toolGroupAccordionVisibleHeights: [CGFloat]? {
+        guard let span = toolGroupAccordionSpan else { return nil }
+        return ToolGroupAccordion.visibleHeights(natural: span.naturalHeights, reveal: span.reveal)
+    }
+
     /// Per-item estimated heights based on content analysis (text length, role, etc.).
     /// These are cheaper than full UIHostingConfiguration rendering but much more
     /// accurate than the single `estimatedItemHeight` constant, reducing the
@@ -386,11 +458,21 @@ final class MessageListLayout: UICollectionViewLayout {
         // [T-queued-candidate-spacing] True while the row being laid out is a
         // hugging footer the row above gave its gap up for.
         var gapWithheld = false
+        // [T-toolgroup-accordion] Per-row clipped heights for the run that is
+        // animating right now (empty at rest). Computed once per prepare from
+        // the frozen natural heights, never written back to the cache.
+        var accordionShown: [Int: CGFloat] = [:]
+        if let span = toolGroupAccordionSpan, !span.naturalHeights.isEmpty {
+            let shown = ToolGroupAccordion.visibleHeights(natural: span.naturalHeights, reveal: span.reveal)
+            for (k, v) in shown.enumerated() { accordionShown[span.lowerBound + k] = v }
+        }
         for i in 0..<itemCount {
             let ip = IndexPath(item: i, section: 0)
             let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
             let h: CGFloat
-            if let cached = heightCache[i] {
+            if let shown = accordionShown[i] {
+                h = shown
+            } else if let cached = heightCache[i] {
                 h = cached
             } else if let precalc = precalcHeights[i] {
                 h = precalc
@@ -398,6 +480,11 @@ final class MessageListLayout: UICollectionViewLayout {
                 h = est
             } else {
                 h = estimatedItemHeight
+            }
+            // Rows fully below the reveal frontier occupy no space and must not
+            // draw: the run's content appears as the frontier passes it.
+            if let shown = accordionShown[i], shown <= 0.5 {
+                attrs.isHidden = true
             }
             attrs.frame = CGRect(x: 0, y: y, width: width, height: h)
             itemAttributes.append(attrs)
@@ -476,6 +563,7 @@ final class MessageListLayout: UICollectionViewLayout {
 
         var result: [UICollectionViewLayoutAttributes] = []
         for attrs in itemAttributes {
+            if attrs.isHidden { continue }
             if attrs.frame.maxY < expandedRect.minY { continue }
             if attrs.frame.minY > expandedRect.maxY { break }
             result.append(attrs)
@@ -587,6 +675,16 @@ final class MessageListLayout: UICollectionViewLayout {
         let index = preferredAttributes.indexPath.item
         let preferred = preferredAttributes.size.height
         let original = originalAttributes.size.height
+
+        // [T-toolgroup-accordion] Member rows of a folded run that is opening or
+        // closing are laid out at a CLIPPED height on purpose. UIKit measuring
+        // them would ask for the natural height every frame and undo the
+        // reveal, so the accordion owns these rows for the length of the
+        // flight. The natural height was frozen at tap time and is restored
+        // when the span is cleared (the coordinator re-measures then).
+        if isToolGroupAccordionIndex(index) {
+            return false
+        }
 
         // While the user is browsing (scrollMode == .userBrowsing), defer
         // self-sizing for cells that already have a cached height — prevents

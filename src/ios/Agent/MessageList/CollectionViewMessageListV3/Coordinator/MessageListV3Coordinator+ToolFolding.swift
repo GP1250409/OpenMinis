@@ -242,8 +242,105 @@ extension CollectionViewMessageListV3.Coordinator {
             // sight — the tap would look like it did nothing.
             scrollMode = .userBrowsing
 
-            applySnapshot(messages: vm.messages, caller: "toolGroupToggle")
+            // [T-toolgroup-accordion] A second tap while the run is still
+            // moving flips it in place: the frozen heights are still valid
+            // because the rows never left the snapshot, so this is a direction
+            // change from the CURRENT reveal, not a restart (no flash, no
+            // re-measure, no structural churn).
+            if let flight = toolGroupAccordionFlight, flight.isRunning,
+               let live = flight.currentPlan, live.headerIndex == oldIdx,
+               ds.snapshot().itemIdentifiers.firstIndex(of: item) == oldIdx {
+                flight.retarget(expanding ? .expand : .collapse)
+                log.info("[ToolFold][Accordion] retarget group=\(firstBlockId.uuidString.prefix(8)) direction=\(expanding ? "expand" : "collapse") reveal=\(String(format: "%.3f", flight.reveal))")
+                return
+            }
+            // One flight at a time: another run's flight is dropped (geometry
+            // settles exactly, no callback — this tap owns the list now).
+            if let other = toolGroupAccordionFlight {
+                toolGroupAccordionFlight = nil
+                other.cancel()
+            }
 
+            let memberIndices: ([MessageListItem]) -> [Int] = { items in
+                var out: [Int] = []
+                for id in run.memberIds {
+                    guard let k = items.firstIndex(of: .assistantBlock(run.messageId, id)) else { return [] }
+                    out.append(k)
+                }
+                return out
+            }
+            // Reduce motion: the terminal geometry, one frame, no intermediate
+            // state at all (the legacy instant switch below, unchanged).
+            let reduceMotion = UIAccessibility.isReduceMotionEnabled
+            if reduceMotion {
+                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
+                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
+                                             cv: cv, layout: layout, ds: ds, log: log)
+                return
+            }
+
+            if expanding {
+                // The member rows have to exist before they can be revealed.
+                // This is the same structural apply the list always did; the
+                // rows are then frozen and pulled back to reveal 0 inside this
+                // same turn, before anything is drawn.
+                applySnapshot(messages: vm.messages, caller: "toolGroupToggle")
+                UIView.performWithoutAnimation { cv.layoutIfNeeded() }
+            }
+            let items = ds.snapshot().itemIdentifiers
+            guard let headerIdx = items.firstIndex(of: item) else {
+                log.warning("[ToolFold][Accordion] header MISS group=\(firstBlockId.uuidString.prefix(8))")
+                return
+            }
+            let idxs = memberIndices(items)
+            let contiguous = !idxs.isEmpty
+                && idxs.count == run.memberIds.count
+                && idxs == Array(idxs[0]...(idxs[0] + idxs.count - 1))
+                && idxs[0] > headerIdx
+            guard contiguous else {
+                // A run whose member rows are not one contiguous span right
+                // below its header (an interleaved row the plan drew between
+                // them) cannot be revealed as a window: keep the old instant
+                // switch rather than animate the wrong rows.
+                log.info("[ToolFold][Accordion] fallback=non-contiguous group=\(firstBlockId.uuidString.prefix(8)) members=\(idxs.count)/\(run.memberIds.count)")
+                legacyInstantToolGroupToggle(item: item, run: run, firstBlockId: firstBlockId,
+                                             expanding: expanding, oldIdx: oldIdx, anchorY: anchorY,
+                                             cv: cv, layout: layout, ds: ds, log: log)
+                return
+            }
+            let heights = idxs.map { layout.naturalHeightForAccordion(at: $0) }
+            let span = idxs[0]...(idxs[0] + idxs.count - 1)
+            let plan = ToolGroupAccordionFlight.Plan(memberRange: span, naturalHeights: heights,
+                                                     headerIndex: headerIdx, anchorY: anchorY)
+            let flight = ToolGroupAccordionFlight(collectionView: cv, layout: layout)
+            toolGroupAccordionFlight = flight
+            flight.start(plan, direction: expanding ? .expand : .collapse) { [weak self] outcome in
+                guard let self, let vm = self.vm else { return }
+                if self.toolGroupAccordionFlight === flight { self.toolGroupAccordionFlight = nil }
+                // Exact restore: the structure now matches the business state
+                // (a close drops its rows only here, with every member row
+                // already at 0 height, so nothing moves on screen), then the
+                // measured heights and the tapped title are put back.
+                self.applySnapshot(messages: vm.messages, caller: "toolGroupAccordionEnd")
+                self.restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
+                log.info("[ToolFold][Accordion] end group=\(firstBlockId.uuidString.prefix(8)) outcome=\(outcome.rawValue) frames=\(flight.framesApplied) reveal=\(String(format: "%.3f", flight.reveal))")
+            }
+            log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(headerIdx) span=\(span.lowerBound)...\(span.upperBound) anchorY=\(String(format: "%.1f", anchorY)) mode=accordion")
+        }
+
+        /// [T-toolgroup-accordion] The pre-accordion switch, kept verbatim for
+        /// the two cases that must not animate: reduce motion, and a run whose
+        /// member rows are not a contiguous span. Same calls in the same order
+        /// as before, so its behaviour (and its regression evidence) is
+        /// unchanged.
+        private func legacyInstantToolGroupToggle(item: MessageListItem, run: ToolFoldRun, firstBlockId: UUID,
+                                                  expanding: Bool, oldIdx: Int, anchorY: CGFloat,
+                                                  cv: UICollectionView,
+                                                  layout: MessageListLayout,
+                                                  ds: UICollectionViewDiffableDataSource<Section, MessageListItem>,
+                                                  log: AppLogger) {
+            guard let vm else { return }
+            if expanding { applySnapshot(messages: vm.messages, caller: "toolGroupToggle") }
             guard let idx = ds.snapshot().indexOfItem(item) else { return }
             let ip = IndexPath(item: idx, section: 0)
             (cv.cellForItem(at: ip) as? SelfSizingCell)?.clearCachedHeight()
@@ -257,8 +354,20 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             layout.invalidateLayout()
             cv.layoutIfNeeded()
+            restoreToolGroupToggleAnchor(item: item, anchorY: anchorY)
+            log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(idx) anchorY=\(String(format: "%.1f", anchorY)) mode=instant")
+        }
 
-            if let newMinY = cv.layoutAttributesForItem(at: ip)?.frame.minY {
+        /// Put the tapped row back at `anchorY` on screen, inside the legal
+        /// offset window. Shared by the instant path and the accordion's end.
+        private func restoreToolGroupToggleAnchor(item: MessageListItem, anchorY: CGFloat) {
+            guard let cv = viewController?.collectionView,
+                  let layout = viewController?.messageListLayout,
+                  let ds = dataSource,
+                  let idx = ds.snapshot().indexOfItem(item) else { return }
+            layout.invalidateLayout()
+            cv.layoutIfNeeded()
+            if let newMinY = cv.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))?.frame.minY {
                 let minOff = -cv.adjustedContentInset.top
                 let maxOff = max(minOff, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
                 let target = min(max(newMinY - anchorY, minOff), maxOff)
@@ -267,7 +376,6 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
             }
             if isNearBottom() { scrollMode = .autoScrolling }
-            log.info("[ToolFold] toggle group=\(firstBlockId.uuidString.prefix(8)) expanded=\(expanding) members=\(run.memberIds.count) idx=\(oldIdx)→\(idx) anchorY=\(String(format: "%.1f", anchorY))")
         }
 
         /// [T-user-ask-toggle-drift] A cell the user tapped open or shut

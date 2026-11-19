@@ -57,6 +57,13 @@ extension CollectionViewMessageListV3.Coordinator {
             // suspends streaming and defers self-sizing immediately below, and
             // `settleAfterInteraction` flushes/restores both exactly once.
             finishStatusBarScrollToTop(reason: .drag, restoring: false)
+            // [T-toolgroup-accordion] Same ownership rule for the accordion: the
+            // finger takes the viewport, so the flight lands AT ONCE (its last
+            // frame is already the legal geometry) instead of fighting the pan.
+            if let flight = toolGroupAccordionFlight {
+                toolGroupAccordionFlight = nil
+                flight.finish(.interrupted)
+            }
             // [T-user-ask-anchor-flight] The finger takes the viewport: the
             // answered-question card's parked anchor and its probe chain must
             // not keep suppressing compensation or write an offset under the

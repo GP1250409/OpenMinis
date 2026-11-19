@@ -124,6 +124,10 @@ sources = [
     IOS / 'Agent/MessageList/MessageListLayout.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift',
+    # [T-toolgroup-accordion] the shipping reveal math + the frame driver the
+    # chat list uses; the fixture drives THIS class, not a copy.
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordion.swift',
+    IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupAccordionFlight.swift',
     OUT / 'ProductionMessageListItem.swift',
     OUT / 'ProductionSelfSizingCell.swift',
     IOS / 'Agent/MessageList/CollectionViewMessageListV3/Cells/MessageListV3Cells.swift',
@@ -191,6 +195,13 @@ if diag_file.exists():
     assert len(diag_lines) == 12, f'expected 12 TOOLFOLD_UIKIT_DIAG lines, got {len(diag_lines)}'
 marker = (OUT / 'result.log').read_text()
 print(marker, flush=True)
-assert 'TOOLFOLD_UIKIT_PASS checks=33 png=12' in marker, marker
-assert len(list(OUT.glob('*.png'))) == 12
-print('TOOLFOLD_UIKIT_ARTIFACT_OK png=12', flush=True)
+# [T-toolgroup-accordion] 33 checks / 12 PNGs before the accordion stage; the
+# stage adds real intermediate-frame evidence (mid-flight, end, reduce motion).
+import re as _re
+m = _re.search(r'TOOLFOLD_UIKIT_PASS checks=(\d+) png=(\d+)', marker)
+assert m, marker
+_checks, _png = int(m.group(1)), int(m.group(2))
+assert _png == 15, f'expected 15 PNGs (12 render + 3 accordion frames), got {_png}'
+assert _checks >= 55, f'expected >= 55 checks (33 before the accordion stage), got {_checks}'
+assert len(list(OUT.glob('*.png'))) == 15
+print(f'TOOLFOLD_UIKIT_ARTIFACT_OK png={_png} checks={_checks}', flush=True)

@@ -1,0 +1,259 @@
+//
+//  ToolGroupAccordionFlight.swift
+//  Minis - V3 chat message list (Agent/MessageList/CollectionViewMessageListV3)
+//
+//  [T-toolgroup-accordion] The frame driver of the chat tool-call accordion.
+//
+//  One flight animates one folded tool run from closed to open (or back). It
+//  owns: the frozen natural heights of the member rows, the reveal clock
+//  (CADisplayLink on the main run loop, `.common` mode — same as the sidebar
+//  accordion), the per-frame relayout, the clipped rows, and the offset that
+//  keeps the tapped title where the user tapped it.
+//
+//  Why a flight and not a UIView animation: the list rows are self-sizing and
+//  the layout caches their heights (MessageListLayout). Animating a constraint
+//  or a snapshot would either scale the text or fade a screenshot. Here every
+//  frame writes ONE number (the reveal) into the layout, the layout hands each
+//  member row `min(natural, frontier - Σ before)`, and UIKit re-positions the
+//  rows below it. Text keeps its size; only the clipping window grows.
+//
+//  Scope discipline: this type never touches folding policy, the two switches,
+//  the question card or the status-bar scroll flight. The coordinator passes a
+//  plan and gets one `onFinish` call back.
+//
+
+import QuartzCore
+import UIKit
+
+final class ToolGroupAccordionFlight {
+
+    enum Direction {
+        case expand
+        case collapse
+
+        var targetReveal: CGFloat { self == .expand ? 1 : 0 }
+    }
+
+    /// How the flight ended. `.instant` = reduce motion / zero duration: the
+    /// caller still gets the terminal state, but no intermediate frame existed.
+    enum Outcome: String {
+        case completed
+        case interrupted      // user drag / scroll-to-top flight took the viewport
+        case cancelled        // view went away (window nil, session swap, background)
+        case instant          // reduce motion: applied without animating
+    }
+
+    struct Plan {
+        /// Row range of the run's member rows in the CURRENT data source.
+        var memberRange: ClosedRange<Int>
+        /// Natural (unclipped) height of each member row, in range order.
+        var naturalHeights: [CGFloat]
+        /// Row of the tapped group header (the row whose screen Y is pinned).
+        var headerIndex: Int
+        /// The header's screen Y at the moment of the tap.
+        var anchorY: CGFloat
+    }
+
+    /// Frames at most this many member rows per flight. A run with hundreds of
+    /// rows still only needs the visible ones; but the layout needs every row's
+    /// height to place the following content, so the plan carries them all.
+    static let maxFramesPerFlight = 64
+
+    private weak var collectionView: UICollectionView?
+    private let layout: MessageListLayout
+
+    private var link: CADisplayLink?
+    private var plan: Plan?
+    private var direction: Direction = .expand
+    private(set) var reveal: CGFloat = 0
+    private var fromReveal: CGFloat = 0
+    private var startedAt: CFTimeInterval = 0
+    private var duration: CFTimeInterval = ToolGroupAccordion.duration
+    private var didFinish = false
+    private var onFinish: ((Outcome) -> Void)?
+
+    /// Injected so the harness can force reduce motion; production reads the
+    /// system switch.
+    var reduceMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+
+    /// Diagnostics counter (frames actually laid out) — the harness asserts it
+    /// is > 1 so "instant" can never pass as "animated".
+    private(set) var framesApplied = 0
+    private(set) var lastOutcome: Outcome?
+
+    init(collectionView: UICollectionView, layout: MessageListLayout) {
+        self.collectionView = collectionView
+        self.layout = layout
+    }
+
+    var isRunning: Bool { link != nil }
+    var currentPlan: Plan? { plan }
+
+    // MARK: - Start / retarget / finish
+
+    /// Begin a flight. Applies the start state (all rows closed for `.expand`,
+    /// fully open for `.collapse`) before the first frame so the caller can
+    /// return to the run loop with the list already in the right geometry.
+    func start(_ plan: Plan, direction: Direction,
+               duration: CFTimeInterval = ToolGroupAccordion.duration,
+               onFinish: @escaping (Outcome) -> Void) {
+        guard let cv = collectionView, !plan.naturalHeights.isEmpty,
+              plan.naturalHeights.count == plan.memberRange.count else {
+            onFinish(.cancelled)
+            return
+        }
+        self.plan = plan
+        self.direction = direction
+        self.duration = duration
+        self.onFinish = onFinish
+        self.didFinish = false
+        self.framesApplied = 0
+        self.fromReveal = direction == .expand ? 0 : 1
+        self.reveal = fromReveal
+        self.startedAt = CACurrentMediaTime()
+        layout.setToolGroupAccordion(ToolGroupAccordionSpan(lowerBound: plan.memberRange.lowerBound,
+                                                           naturalHeights: plan.naturalHeights,
+                                                           reveal: fromReveal))
+        applyFrame(cv: cv, logFrame: false)
+
+        if reduceMotion() || duration <= 0 {
+            // Reduce motion: no intermediate frame at all. Terminal geometry,
+            // then hand control back synchronously.
+            setReveal(direction.targetReveal, cv: cv)
+            finish(.instant)
+            return
+        }
+        let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        // Same run-loop mode as the sidebar accordion: keep animating while the
+        // finger is still down on the list (tracking mode) instead of freezing
+        // the first frame.
+        l.add(to: .main, forMode: .common)
+        link = l
+    }
+
+    /// A second tap on the same run while a flight is in the air. The frozen
+    /// heights stay valid (the rows never left), so this is a direction flip
+    /// from the CURRENT reveal — no restart from 0, no structural churn.
+    func retarget(_ direction: Direction) {
+        guard isRunning else { return }
+        self.direction = direction
+        self.fromReveal = reveal
+        self.startedAt = CACurrentMediaTime()
+    }
+
+    /// Stop at once and hand ownership back (drag, scroll-to-top flight,
+    /// snapshot swap, view teardown). The caller decides what the final
+    /// structure is; the layout override is already cleared here.
+    func finish(_ outcome: Outcome) {
+        guard !didFinish else { return }
+        didFinish = true
+        lastOutcome = outcome
+        link?.invalidate()
+        link = nil
+        restoreClip()
+        layout.clearToolGroupAccordion()
+        if let cv = collectionView, cv.window != nil, outcome != .cancelled {
+            cv.layoutIfNeeded()
+        }
+        plan = nil
+        let cb = onFinish
+        onFinish = nil
+        cb?(outcome)
+    }
+
+    /// The window went away / the session changed: drop everything silently.
+    func cancel() {
+        guard !didFinish else { return }
+        didFinish = true
+        lastOutcome = .cancelled
+        link?.invalidate()
+        link = nil
+        restoreClip()
+        layout.clearToolGroupAccordion()
+        plan = nil
+        onFinish = nil
+    }
+
+    // MARK: - Frames
+
+    @objc private func tick(_ link: CADisplayLink) {
+        guard let cv = collectionView, let plan = plan else { finish(.cancelled); return }
+        // The list must be on a window to be laid out at all (production
+        // self-sizing refuses off-window cells) — a flight cannot continue
+        // without it.
+        guard cv.window != nil else { finish(.cancelled); return }
+        // Drag takeover: the user's finger owns the viewport from the first
+        // touch. Never fight a pan/deceleration.
+        if cv.isTracking || cv.isDecelerating {
+            finish(.interrupted)
+            return
+        }
+        let elapsed = CACurrentMediaTime() - startedAt
+        let p = ToolGroupAccordion.progress(elapsed: elapsed, duration: duration)
+        let r = fromReveal + (direction.targetReveal - fromReveal) * p
+        setReveal(r, cv: cv)
+        if p >= 1 { finish(.completed); return }
+        _ = plan
+    }
+
+    private func setReveal(_ r: CGFloat, cv: UICollectionView) {
+        reveal = min(1, max(0, r))
+        layout.updateToolGroupAccordionReveal(reveal)
+        applyFrame(cv: cv, logFrame: true)
+    }
+
+    /// One geometry step: relayout, clip the straddling row, put the header
+    /// back where the user tapped it (clamped to the legal offset window).
+    private func applyFrame(cv: UICollectionView, logFrame: Bool) {
+        guard let plan = plan else { return }
+        layout.invalidateLayout()
+        cv.layoutIfNeeded()
+        framesApplied += 1
+
+        // Only the row that straddles the frontier can overflow its frame; the
+        // rows below the frontier are hidden by the layout (height 0). Clip the
+        // straddling cell so the text is revealed, never scaled or faded.
+        let clipped = ToolGroupAccordion.clippedRow(natural: plan.naturalHeights, reveal: reveal)
+        var clipIndex: Int?
+        if let k = clipped {
+            let idx = plan.memberRange.lowerBound + k
+            clipIndex = idx
+            if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) {
+                cell.clipsToBounds = true
+                cell.contentView.clipsToBounds = true
+            }
+        }
+
+        // Anchor: rows below the header grow DOWNWARD, so the header's content
+        // Y does not move; only the legal clamp (bottom pin / short content)
+        // can move it. Re-derive the offset every frame from the header's real
+        // frame instead of trusting the pre-flight number.
+        guard let attrs = layout.layoutAttributesForItem(at: IndexPath(item: plan.headerIndex, section: 0)) else { return }
+        let topInset = cv.adjustedContentInset.top
+        let bottomInset = cv.adjustedContentInset.bottom
+        let target = ToolGroupAccordion.anchoredOffset(headerY: attrs.frame.minY, anchorY: plan.anchorY,
+                                                      contentHeight: cv.contentSize.height,
+                                                      viewportHeight: cv.bounds.height,
+                                                      topInset: topInset, bottomInset: bottomInset)
+        if abs(target - cv.contentOffset.y) > 0.5 {
+            cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)
+        }
+        if logFrame {
+            let drift = ToolGroupAccordion.anchorDrift(headerY: attrs.frame.minY, contentOffset: cv.contentOffset.y,
+                                                       anchorY: plan.anchorY)
+            AppLogger(category: "ToolFold").debug(String(
+                format: "[ToolFold][Accordion] frame=%d reveal=%.3f header=%.1f offset=%.1f drift=%.2f clip=%@",
+                framesApplied, reveal, attrs.frame.minY, cv.contentOffset.y, drift,
+                clipIndex.map { String($0) } ?? "-"))
+        }
+    }
+
+    private func restoreClip() {
+        guard let cv = collectionView, let plan = plan else { return }
+        for idx in plan.memberRange {
+            if let cell = cv.cellForItem(at: IndexPath(item: idx, section: 0)) {
+                cell.clipsToBounds = false
+            }
+        }
+    }
+}
