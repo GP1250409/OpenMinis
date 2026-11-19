@@ -111,8 +111,12 @@ def method_body(path: pathlib.Path, name: str) -> str:
 
 
 PRELUDE = '''import Foundation
+import Dispatch
 #if canImport(Combine)
 import Combine
+#endif
+#if canImport(Darwin)
+import Darwin
 #endif
 
 // Deterministic main-queue dependency for the resume notification. On Linux the
@@ -131,14 +135,29 @@ enum SliceMainQueue {
     }
 }
 
-#if canImport(Combine)
-// Real GCD: let the queued main-queue notification run.
-func pump() {
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-}
-#else
+#if os(Linux)
 func pump() { SliceMainQueue.drain() }
+#else
+// Real GCD flavour (the macOS runner, where the same assertions must hold
+// through real Combine): the production body queues on DispatchQueue.main, so
+// enqueue a marker BEHIND it (FIFO) and let the main queue drain. The semaphore
+// proves the notification has already run when the marker signals; the deadline
+// only stops a broken queue plumbing from hanging the suite (the assertion that
+// follows then fails honestly instead of blocking).
+func pump() {
+    // Watchdog: if the host's runloop ever stopped draining the main queue, the
+    // deadline below could not be reached (RunLoop.run can block). SIGALRM ends
+    // the process in 20 s instead of a hung CI job; the last PASS line still
+    // names the assertion that was in flight.
+    alarm(20)
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.main.async { done.signal() }
+    let deadline = Date(timeIntervalSinceNow: 5)
+    while done.wait(timeout: .now()) == .timedOut, Date() < deadline {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+    }
+    alarm(0)
+}
 #endif
 
 #if !canImport(Combine)
