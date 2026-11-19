@@ -241,8 +241,10 @@ def static_checks():
     c.present(legacy, 'applySnapshot(messages: vm.messages, caller: "toolGroupToggle")',
               'legacy fallback applies the snapshot unconditionally again (a close must drop its rows)')
     c.absent(legacy, 'if expanding { applySnapshot', 'frozen negative: gating the legacy apply on expanding desyncs a reduce-motion close')
-    c.present(toggle, 'finishStatusBarScrollToTop(reason: .toolGroupToggle, offset: cv.contentOffset.y)',
-              'a tap takes the viewport from an active status-bar flight')
+    c.present(toggle, 'finishStatusBarScrollToTop(reason: .superseded, offset: cv.contentOffset.y)',
+              'a tap takes the viewport from an active status-bar flight (no new EndReason case)')
+    c.absent((IOS / 'Agent/MessageList/CollectionViewMessageListV3/Support/StatusBarScrollToTop.swift').read_text(),
+             'case toolGroupToggle', 'frozen negative: the status-bar reason enum is not extended')
     c.present(delegate, 'func beginStatusBarScrollToTop() {\n            // [T-toolgroup-accordion]',
               'the status-bar flight cancels the accordion on its own start')
     c.present(toggle, 'case .interrupted, .cancelled:\n                    break',

@@ -46,10 +46,6 @@ final class StatusBarScrollToTopLifecycle {
         /// [T-user-ask-anchor-flight] An answered-question card toggle took the
         /// viewport: it ends the flight first, then re-measures the card.
         case askToggle
-        /// [T-toolgroup-accordion] A folded tool run's open/close took the
-        /// viewport: the same ownership rule as `.askToggle`, kept as its own
-        /// reason so the logs say which feature interrupted the flight.
-        case toolGroupToggle
         case watchdog
     }
 

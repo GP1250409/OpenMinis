@@ -252,7 +252,10 @@ extension CollectionViewMessageListV3.Coordinator {
                 // Same call shape as `.askToggle`: end the flight at the offset
                 // the system animation had reached, let its resume pass thaw
                 // self-sizing/streaming, and only then let the reveal write.
-                _ = finishStatusBarScrollToTop(reason: .toolGroupToggle, offset: cv.contentOffset.y)
+                _ = // `.superseded` is the existing reason for "another list writer owns
+                // the viewport now"; the enum is deliberately NOT extended (the
+                // status-bar gate enumerates its reasons).
+                finishStatusBarScrollToTop(reason: .superseded, offset: cv.contentOffset.y)
                 log.info("[ToolFold][Accordion] took the viewport from a status-bar flight")
             }
 
