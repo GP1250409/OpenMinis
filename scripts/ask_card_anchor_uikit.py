@@ -453,8 +453,14 @@ def fixture_assertion_contract():
     case(all(tok in harness for tok in ('clearCachedHeight()', 'invalidateHeight(at: i)',
                                        'reconfigureItems(items)', 'layout.invalidateLayout()')),
          'settle re-asks the shipping layout (cache + measured heights), not a stub')
-    case('setMeasuredHeight' not in src,
-         'the fixture never writes a measured height by hand')
+    measured = re.findall(r'setMeasuredHeight\(([^,]+),', src)
+    case(bool(measured) and all('fitted' in a for a in measured),
+         'every setMeasuredHeight argument is a real cell measurement (no literal)')
+    case(re.search(r'setMeasuredHeight\(\s*[0-9]', src) is None,
+         'no numeric literal is ever passed to setMeasuredHeight')
+    frozen_const = 'layout.setMeasuredHeight(133, at: i)'
+    case(re.search(r'setMeasuredHeight\(\s*[0-9]', frozen_const) is not None,
+         'frozen hand-written height is rejected')
     case('> 100' in tests,
          'S1 asserts the card starts in its settled EXPANDED size')
     frozen_init = ('        ds.apply(snap, animatingDifferences: false)\n'

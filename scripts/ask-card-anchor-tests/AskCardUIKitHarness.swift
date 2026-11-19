@@ -205,10 +205,19 @@ final class AskCardFixture {
         for _ in 0..<passes {
             let items = ds.snapshot().itemIdentifiers
             for (i, _) in items.enumerated() {
-                if let cell = cv.cellForItem(at: IndexPath(item: i, section: 0)) as? SelfSizingCell {
-                    cell.clearCachedHeight()
-                }
+                let ip = IndexPath(item: i, section: 0)
                 layout.invalidateHeight(at: i)
+                guard let cell = cv.cellForItem(at: ip) as? SelfSizingCell else { continue }
+                cell.clearCachedHeight()
+                cell.contentView.setNeedsLayout()
+                cell.contentView.layoutIfNeeded()
+                // The SAME channel the shipping toggle uses: measure the real
+                // cell, then install that number through the production layout.
+                let fitted = cell.preferredLayoutAttributesFitting(
+                    UICollectionViewLayoutAttributes(forCellWith: ip)).size.height
+                if fitted.isFinite, fitted > 1 {
+                    layout.setMeasuredHeight(fitted, at: i)
+                }
             }
             var snap = ds.snapshot()
             snap.reconfigureItems(items)
