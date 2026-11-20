@@ -10,7 +10,10 @@
 // MessageListLayout, real SelfSizingCell and real UIHostingConfiguration rows,
 // and the rows are deliberately TALL (320 / 300 / 280pt against an 80pt
 // estimate) with the run parked below five 220pt rows — the "long tool output"
-// case the accordion used to need a measurement probe for.
+// case the accordion used to need a measurement probe for. Three 220pt tail
+// rows below the run give the list room to scroll, so the tapped header can be
+// placed high in the viewport AND the inserted member rows still land inside it
+// (real UIKit self-sizing, measured for real instead of read back as estimates).
 //
 // The 0.32s accordion (flight, frozen member heights, span, retarget, probe,
 // deferred converge) was cancelled by user decision on 2026-11-20. Every case
@@ -43,7 +46,7 @@ final class EntryRowConfiguration: NSObject, UIContentConfiguration {
 
 final class EntryRowContentView: UIView, UIContentView {
     private let label = UILabel()
-    private var heightConstraint: NSLayoutConstraint?
+    private var heightConstraint: NSLayoutConstraint!
 
     var configuration: UIContentConfiguration {
         didSet { apply() }
@@ -57,7 +60,7 @@ final class EntryRowContentView: UIView, UIContentView {
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         let c = heightAnchor.constraint(equalToConstant: configuration.height)
@@ -71,7 +74,25 @@ final class EntryRowContentView: UIView, UIContentView {
     private func apply() {
         guard let config = configuration as? EntryRowConfiguration else { return }
         label.text = config.isExpanded.map { $0 ? "Hide tool calls" : "Show tool calls" } ?? ""
-        heightConstraint?.constant = config.height
+        heightConstraint.constant = config.height
+    }
+
+    /// The row's height is FIXED (production's `ToolGroupRowView.rowHeight`),
+    /// so the fitting answer is that height at the proposed width, not a size
+    /// Auto Layout has to discover. Without this the free label width made
+    /// `systemLayoutSizeFitting` answer `{1.7976931348623157e+308, 28}` and
+    /// UIKit raised NSInternalInconsistencyException inside the cell's self-size
+    /// pass (8 times in CI run 44650457236); the shipping SelfSizingCell's
+    /// `noff_try_objc` guard swallowed the exception, so the tapped row never
+    /// really measured. The override keeps the measurement deterministic.
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        let height = (configuration as? EntryRowConfiguration)?.height ?? 28
+        let width = targetSize.width.isFinite && targetSize.width > 1 ? targetSize.width : 390
+        return CGSize(width: width, height: height)
     }
 }
 
@@ -87,14 +108,22 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     private let memberBlocks = [UUID(), UUID(), UUID()]
     private let followBlock = UUID()
     private let fillerBlocks = (0..<5).map { _ in UUID() }
+    /// Rows below the run: give the list room to scroll so the header can be
+    /// parked high in the viewport (real user tap) and the member rows still
+    /// land inside it (real measurement). The near-bottom case rebuilds
+    /// WITHOUT these to reproduce the "offset ends exactly on the legal
+    /// bottom" clamp the original fixture asserted.
+    private let tailBlocks = (0..<3).map { _ in UUID() }
+    private let memberHeights: [CGFloat] = [320, 300, 280]
 
     private var items: [MessageListItem] = []
     private var contentHeights: [MessageListItem: CGFloat] = [:]
     private var pendingExpanded = true
     private var applyCallers: [String] = []
-    private var anchors: [CGFloat] = []
     private var headerRefreshes = 0
     private var headerRefreshExpanded: Bool?
+    private var expectedExpandedCount = 0
+    private var expectedFoldedCount = 0
 
     private var reduceMotion = false
     private var streaming = false
@@ -105,8 +134,6 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         memberBlocks.map { .assistantBlock(messageId, $0) }
     }
     private var groupItem: MessageListItem { .toolGroup(messageId, groupBlock) }
-    private var expectedExpandedCount: Int { fillerBlocks.count + 1 + memberBlocks.count + 1 }
-    private var expectedFoldedCount: Int { fillerBlocks.count + 1 + 1 }
 
     init(window: UIWindow, report: @escaping (Bool, String) -> Void) {
         self.window = window
@@ -151,38 +178,63 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
                 .margins(.all, 0))
     }
 
-    private func rebuildFolded(scrollHeaderVisible: Bool = true) {
-        items = fillerBlocks.map { .assistantBlock(messageId, $0) }
+    /// The long-tool-output list: five 220pt rows, the 28pt group header, the
+    /// (folded-out) member rows, a 120pt follow row, and — when `tails` — three
+    /// 220pt rows below so the header can be parked high while the members stay
+    /// inside the 500pt viewport.
+    private func rebuildFolded(tails: Bool = true) {
+        var rows = fillerBlocks.map { .assistantBlock(messageId, $0) }
             + [groupItem, .assistantBlock(messageId, followBlock)]
+        if tails { rows += tailBlocks.map { .assistantBlock(messageId, $0) } }
+        items = rows
+        contentHeights = [:]
         for block in fillerBlocks { contentHeights[.assistantBlock(messageId, block)] = 220 }
         contentHeights[groupItem] = 28
         contentHeights[.assistantBlock(messageId, followBlock)] = 120
-        for block in memberBlocks { contentHeights[.assistantBlock(messageId, block)] = 0 }
-        contentHeights[.assistantBlock(messageId, memberBlocks[0])] = 320
-        contentHeights[.assistantBlock(messageId, memberBlocks[1])] = 300
-        contentHeights[.assistantBlock(messageId, memberBlocks[2])] = 280
-        pendingExpanded = false
-        reload()
-        if scrollHeaderVisible {
-            scrollHeaderIntoView()
-        } else {
-            list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
-            list.setNeedsLayout()
-            list.layoutIfNeeded()
+        for block in tailBlocks { contentHeights[.assistantBlock(messageId, block)] = 220 }
+        for (block, height) in zip(memberBlocks, memberHeights) {
+            contentHeights[.assistantBlock(messageId, block)] = height
         }
+        pendingExpanded = false
+        expectedFoldedCount = items.count
+        expectedExpandedCount = expectedFoldedCount + memberBlocks.count
+        reload()
+        list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
+        settle()
     }
 
-    /// Put the tapped group header at the bottom edge of the 500pt viewport so
-    /// (1) the header is live on screen (`cellForItem` is non-nil, just like a
-    /// real user tap) and (2) the member rows inserted below it start off screen
-    /// and still exercise `ToolGroupAccordionMeasurement`.
-    private func scrollHeaderIntoView() {
-        let headerIP = IndexPath(item: fillerBlocks.count, section: 0)
-        guard let headerFrame = layout.layoutAttributesForItem(at: headerIP)?.frame else { return }
-        let minOff = -list.adjustedContentInset.top
-        let maxOff = max(minOff, list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height)
-        let target = min(maxOff, max(minOff, headerFrame.maxY - list.bounds.height))
-        list.contentOffset = CGPoint(x: 0, y: target)
+    /// Content genuinely shorter than the viewport (the group header + follow
+    /// row only; the member rows are inserted by the tap): the only legal
+    /// offset is the top inset, so any anchor write the transaction might
+    /// attempt must collapse to it.
+    private func rebuildShort() {
+        items = [groupItem, .assistantBlock(messageId, followBlock)]
+        contentHeights = [:]
+        contentHeights[groupItem] = 28
+        contentHeights[.assistantBlock(messageId, followBlock)] = 120
+        for block in memberBlocks { contentHeights[.assistantBlock(messageId, block)] = 20 }
+        pendingExpanded = false
+        expectedFoldedCount = items.count
+        expectedExpandedCount = expectedFoldedCount + memberBlocks.count
+        reload()
+        list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
+        settle()
+    }
+
+    /// A real user scroll: park the tapped header's top edge at `screenY`
+    /// inside the legal offset window, then settle. Never writes an offset
+    /// outside [minOff, maxOff].
+    private func positionHeader(at screenY: CGFloat) {
+        settle()
+        guard let idx = items.firstIndex(of: groupItem),
+              let frame = layout.layoutAttributesForItem(at: IndexPath(item: idx, section: 0))?.frame else { return }
+        let w = legalWindow()
+        let target = min(max(frame.minY - screenY, w.min), w.max)
+        list.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+        settle()
+    }
+
+    private func settle() {
         list.setNeedsLayout()
         list.layoutIfNeeded()
     }
@@ -194,22 +246,34 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
             layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
         list.reloadData()
-        list.setNeedsLayout()
-        list.layoutIfNeeded()
+        settle()
     }
 
     /// The BUSINESS structure apply: insert / remove the member rows, exactly
-    /// what the coordinator's `applySnapshot` does to the list.
+    /// what the coordinator's `applySnapshot` does to the list — identity remap
+    /// of the index-keyed height caches, suppression of the commit-time offset
+    /// compensation, the apply, then a settle.
     private func syncStructure() {
+        let old = items
         let members = memberItems
         items.removeAll { members.contains($0) }
         if pendingExpanded, let at = items.firstIndex(of: groupItem).map({ $0 + 1 }) {
             items.insert(contentsOf: members, at: at)
         }
+        // [T-toolgroup-original-toggle] Mirror `applySnapshot`: remap measured /
+        // estimate / precalc heights by IDENTITY before the apply, so a member
+        // height measured at one index never survives the fold at a different
+        // index (the historical stale-index-height trap).
+        layout.updateCacheForSnapshot(oldIds: old, newIds: items)
         for (index, item) in items.enumerated() {
             layout.setEstimatedHeight(estimateHeight(item), at: index)
         }
-        list.reloadData()
+        // Same as `applySnapshot`: suppress `contentOffsetAdjustment` for the
+        // commit's own layout pass, then let the transaction's settle run with
+        // compensation restored.
+        layout.suppressContentOffsetAdjustment = true
+        defer { layout.suppressContentOffsetAdjustment = false }
+        UIView.performWithoutAnimation { list.reloadData() }
         list.setNeedsLayout()
         list.layoutIfNeeded()
     }
@@ -254,7 +318,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
                                         memberItems: memberItems,
                                         expanding: expanding,
                                         oldIndex: items.firstIndex(of: groupItem) ?? fillerBlocks.count,
-                                        anchorY: 40,
+                                        anchorY: headerScreenY() ?? 0,
                                         groupTag: "entry")
     }
 
@@ -300,6 +364,14 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
               "\(label): offset stays legal (\(off) in \(w.min)…\(w.max))")
     }
 
+    /// The tapped row must come back to where the tap landed, ±0.75pt.
+    private func checkAnchor(_ label: String, anchor: CGFloat?) {
+        let after = headerScreenY() ?? -999
+        let target = anchor ?? after
+        check(abs(after - target) <= 0.75,
+              "\(label): the tapped row is back at its screen anchor (\(after) vs \(target))")
+    }
+
     // MARK: - Cases
 
     func start() {
@@ -307,8 +379,15 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     }
 
     private func expandCase() {
+        rebuildFolded(tails: true)
+        // The header parked 60pt below the top of the viewport, like a real tap
+        // on a visible row; the three member rows land inside the viewport and
+        // must self-size for real (their estimate is 80, their content 320/300/280).
+        positionHeader(at: 60)
+        let anchor = headerScreenY()
         pendingExpanded = true
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         check(outcome != .missing("not-in-snapshot"), "expand: the transaction found the row (\(outcome))")
         check(items.count == expectedExpandedCount,
               "expand: the business apply put the member rows in the list (\(items.count)/\(expectedExpandedCount))")
@@ -328,8 +407,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         } else {
             check(false, "expand: the transaction applied (\(outcome))")
         }
-        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
-              "expand: the tapped row is back at its screen anchor (\(headerScreenY() ?? -1))")
+        checkAnchor("expand", anchor: anchor)
         checkNoFlightResidue("expand")
         // Member rows are really in the list, at their real heights, below the header.
         let measured: [CGFloat] = memberItems.indices.map { offset in
@@ -342,10 +420,18 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     }
 
     private func collapseCase() {
+        rebuildFolded(tails: true)
+        // Tap the header at the bottom edge of the viewport: after the member
+        // rows drop, the content is still tall enough that the same offset stays
+        // legal, so the row keeps its screen anchor exactly.
+        positionHeader(at: 472)
+        let anchor = headerScreenY()
         pendingExpanded = false
-        let before = anchors.count
         let outcome = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
-        if case .applied = outcome {} else { check(false, "close: the transaction applied (outcome=\(outcome))") }
+        settle()
+        if case .applied(let r) = outcome {
+            check(!r.moved, "close: no separate anchor write — the offset was not rewritten (\(r.moved))")
+        } else { check(false, "close: the transaction applied (outcome=\(outcome))") }
         check(items.count == expectedFoldedCount,
               "close: the member rows are dropped by the SAME apply (\(items.count)/\(expectedFoldedCount))")
         check(headerRefreshes == 2 && headerRefreshExpanded == false,
@@ -353,9 +439,7 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         let cfg = list.cellForItem(at: IndexPath(item: fillerBlocks.count, section: 0))?
             .contentConfiguration as? EntryRowConfiguration
         check(cfg?.isExpanded == false, "close: the live header cell flips to closed at once")
-        check(anchors.count == before, "close: no separate anchor pass on the original path (\(anchors.count))")
-        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
-              "close: the tapped row is still at its screen anchor (\(headerScreenY() ?? -1))")
+        checkAnchor("close", anchor: anchor)
         checkNoFlightResidue("close")
         check(applyCallers == ["toolGroupToggle", "toolGroupToggle"],
               "close: still one apply per tap, no end-of-flight apply (\(applyCallers))")
@@ -365,19 +449,21 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// A continuous double tap: expand then close without a run-loop turn in
     /// between. The original switch has no "in-flight" state to retarget, so the
     /// second tap is just the next transaction and the list ends on its state.
+    /// The header is parked at the bottom edge where every one of the three
+    /// steps keeps its offset legal, so the row never drifts.
     private func repeatTapCase() {
-        rebuildFolded()
-        pendingExpanded = true
-        _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
-        pendingExpanded = false
-        _ = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
-        pendingExpanded = true
-        _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        rebuildFolded(tails: true)
+        positionHeader(at: 472)
+        for expanding in [true, false, true] {
+            pendingExpanded = expanding
+            let anchor = headerScreenY()
+            _ = ToolGroupOriginalToggle.run(request(expanding: expanding), in: environment())
+            settle()
+            checkAnchor("repeat", anchor: anchor)
+        }
         check(items.count == expectedExpandedCount,
               "repeat: three taps leave the structure of the last one (\(items.count)/\(expectedExpandedCount))")
         checkNoFlightResidue("repeat")
-        check(abs((headerScreenY() ?? -999) - 40) < 0.6,
-              "repeat: the header never drifted (\(headerScreenY() ?? -1))")
         shortCase()
     }
 
@@ -385,38 +471,51 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// cannot hold, so it collapses to the legal top inset — the pre-accordion
     /// clamp, verified on the real layout.
     private func shortCase() {
-        rebuildFolded(scrollHeaderVisible: false)
+        rebuildShort()
+        settle()
+        let w = legalWindow()
+        check(list.contentSize.height <= list.bounds.height - list.adjustedContentInset.top + 0.5,
+              "short: the content is really shorter than the viewport (precondition)")
+        check(abs(w.max - w.min) < 0.5,
+              "short: the only legal offset is the top inset (max \(w.max) == min \(w.min))")
+        let anchor = headerScreenY()
         pendingExpanded = true
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         let top = -list.adjustedContentInset.top
         check(abs(list.contentOffset.y - top) < 0.6,
               "short: the list stays at its legal top (\(list.contentOffset.y) vs \(top))")
         if case .applied(let r) = outcome {
             check(r.offset >= top - 0.5, "short: the transaction clamped instead of scrolling past the top (\(r.offset))")
+            check(!r.moved, "short: no offset write was attempted (the clamp was honoured)")
         } else {
             check(false, "short: the transaction applied (\(outcome))")
         }
         check(items.count == expectedExpandedCount, "short: the rows are still open")
+        checkAnchor("short", anchor: anchor)
         checkNoFlightResidue("short")
         nearBottomCase()
     }
 
     /// The header parked at the bottom edge: a close keeps it there and the
-    /// offset ends exactly on the legal bottom, never past it.
+    /// offset ends exactly on the legal bottom, never past it. Rebuilt WITHOUT
+    /// the tail rows so the bottom of the content is the run's own follow row
+    /// (the geometry the original clamp assertion was written for).
     private func nearBottomCase() {
-        rebuildFolded(scrollHeaderVisible: false)
-        list.setNeedsLayout()
-        list.layoutIfNeeded()
-        list.contentOffset = CGPoint(x: 0, y: max(-list.adjustedContentInset.top,
-                                                  list.contentSize.height - list.bounds.height))
-        list.layoutIfNeeded()
+        rebuildFolded(tails: false)
+        list.contentOffset = CGPoint(x: 0, y: legalWindow().max)
+        settle()
         pendingExpanded = true
         _ = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         pendingExpanded = false
         _ = ToolGroupOriginalToggle.run(request(expanding: false), in: environment())
+        settle()
         let w = legalWindow()
         check(list.contentOffset.y <= w.max + 0.5,
               "near-bottom: the offset ends on or above the legal bottom (\(list.contentOffset.y) ≤ \(w.max))")
+        check(abs(list.contentOffset.y - w.max) < 0.6,
+              "near-bottom: the close lands exactly on the legal bottom (\(list.contentOffset.y) vs \(w.max))")
         checkNoFlightResidue("near-bottom")
         streamingCase()
     }
@@ -427,12 +526,16 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// and the business state is the only input.
     private func streamingCase() {
         streaming = true
-        rebuildFolded()
+        rebuildFolded(tails: true)
+        positionHeader(at: 472)
+        let anchor = headerScreenY()
         pendingExpanded = true
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         check(items.count == expectedExpandedCount,
               "streaming: the open is applied, not declined (\(items.count)/\(expectedExpandedCount))")
         if case .applied = outcome {} else { check(false, "streaming: applied (outcome=\(outcome))") }
+        checkAnchor("streaming", anchor: anchor)
         checkNoFlightResidue("streaming")
         streaming = false
         reduceMotionCase()
@@ -441,27 +544,37 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
     /// Reduce motion changes nothing either: there is no animation left to
     /// suppress, so the same instant switch is the whole behaviour.
     private func reduceMotionCase() {
-        rebuildFolded()
+        rebuildFolded(tails: true)
+        positionHeader(at: 472)
         reduceMotion = true
+        let anchor = headerScreenY()
         pendingExpanded = true
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         check(items.count == expectedExpandedCount,
               "reduce-motion: the same instant switch runs (\(items.count)/\(expectedExpandedCount))")
         if case .applied = outcome {} else { check(false, "reduce-motion: applied (outcome=\(outcome))") }
+        checkAnchor("reduce-motion", anchor: anchor)
         checkNoFlightResidue("reduce-motion")
         reduceMotion = false
         missingRowCase()
     }
 
     /// A session swap under the tap: the row is gone, so the transaction owes
-    /// only the business apply and must not write the offset.
+    /// only the business apply and must not write the offset. The swap is a
+    /// REAL data-source replace + settle (the list is rebuilt before the tap),
+    /// so the baseline the offset is compared against is the post-swap offset,
+    /// not the pre-swap one the transaction's own apply legitimately clamps.
     private func missingRowCase() {
-        rebuildFolded()
+        rebuildFolded(tails: true)
+        positionHeader(at: 472)
         pendingExpanded = true
         let saved = items
         items = fillerBlocks.map { .assistantBlock(messageId, $0) }
+        reload()
         let before = list.contentOffset.y
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
+        settle()
         if case .missing = outcome {
             check(true, "missing: the transaction reports the missing row")
         } else {
