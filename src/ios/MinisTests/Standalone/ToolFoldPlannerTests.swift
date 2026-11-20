@@ -689,17 +689,28 @@ struct OriginalToggleSources {
 }
 /// The steps the original toggle consists of, checked ACROSS the production
 /// call chain. An empty result is the pass.
+/// Comments may NAME the cancelled module (they explain why it is gone); only
+/// executable code must be free of it. Stripping `//` before the absence checks
+/// keeps them about behaviour instead of about prose.
+func codeOnly(_ text: String) -> String {
+    text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+        if let r = line.range(of: "//") { return String(line[..<r.lowerBound]) }
+        return String(line)
+    }.joined(separator: "\n")
+}
 func originalToggleMissing(_ s: OriginalToggleSources) -> [String] {
     var missing: [String] = []
     func need(_ name: String, _ ok: Bool) { if !ok { missing.append(name) } }
+    let tapCode = codeOnly(s.tap)
+    let txnCode = codeOnly(s.txn)
     // 1. the tap keeps its business half and hands the switch to production
     need("tap-anchorY", s.tap.contains("let anchorY ="))
     need("tap-userBrowsing", s.tap.contains("scrollMode = .userBrowsing"))
     need("tap-transaction", s.tap.contains("ToolGroupOriginalToggle.run(request, in: env)"))
     need("tap-apply", s.tap.contains("self.applySnapshot(messages: vm.messages, caller: caller)"))
     need("tap-reconfigure", s.tap.contains("self?.refreshToolGroupToggleRow(item)"))
-    need("tap-no-flight", !s.tap.contains("ToolGroupAccordion") && !s.tap.contains("Flight")
-         && !s.tap.contains("retarget") && !s.tap.contains("deferConverge"))
+    need("tap-no-flight", !tapCode.contains("ToolGroupAccordion") && !tapCode.contains("Flight")
+         && !tapCode.contains("retarget") && !tapCode.contains("deferConverge"))
     // 2. the transaction is the original instant switch, in the old order
     need("transaction-apply", s.txn.contains("env.applyStructure(\"toolGroupToggle\")"))
     need("transaction-invalidation", ordered(s.txn, ["clearCachedHeight()",
@@ -710,8 +721,8 @@ func originalToggleMissing(_ s: OriginalToggleSources) -> [String] {
     need("transaction-anchor", ordered(s.txn, ["let target = min(max(newMinY - request.anchorY, minOff), maxOff)",
                                                "cv.setContentOffset(CGPoint(x: cv.contentOffset.x, y: target), animated: false)"]))
     need("transaction-instant", s.txn.contains("animated: false"))
-    need("transaction-no-animation", !s.txn.contains("CADisplayLink") && !s.txn.contains("UIView.animate"))
-    need("transaction-no-span", !s.txn.contains("setToolGroupAccordion") && !s.txn.contains("ToolGroupAccordion"))
+    need("transaction-no-animation", !txnCode.contains("CADisplayLink") && !txnCode.contains("UIView.animate"))
+    need("transaction-no-span", !txnCode.contains("setToolGroupAccordion") && !txnCode.contains("ToolGroupAccordion"))
     // 3. the header refresh IS the full invalidation, in the old order
     need("refresh-chain", ordered(s.refresh, ["clearCachedHeight()",
                                               "layout.invalidateHeight(at: idx)",
