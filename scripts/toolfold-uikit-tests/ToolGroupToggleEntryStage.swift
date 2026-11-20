@@ -578,7 +578,21 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
         let saved = items
         items = fillerBlocks.map { .assistantBlock(messageId, $0) }
         reload()
+        // [T-toolgroup-original-toggle] The swap is itself a structure apply:
+        // production clamps an offset left outside the NEW content
+        // (`applySnapshot`'s shrink clamp). Do that here, as a logged
+        // PRECONDITION, so the assertion below measures what the TRANSACTION
+        // writes and not what the swap legitimately clamped.
+        let swapWindow = legalWindow()
+        if abs(list.contentOffset.y - min(max(list.contentOffset.y, swapWindow.min), swapWindow.max)) > 0.5 {
+            let clamped = min(max(list.contentOffset.y, swapWindow.min), swapWindow.max)
+            print("TOOLFOLD_ENTRY_PRECONDITION missing: swap clamp \(list.contentOffset.y) -> \(clamped) in \(swapWindow.min)…\(swapWindow.max)")
+            list.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
+            list.layoutIfNeeded()
+        }
         let before = list.contentOffset.y
+        check(before >= swapWindow.min - 0.5 && before <= swapWindow.max + 0.5,
+              "missing: the swap left a legal offset before the tap (\(before) in \(swapWindow.min)…\(swapWindow.max))")
         let outcome = ToolGroupOriginalToggle.run(request(expanding: true), in: environment())
         settle()
         if case .missing = outcome {
