@@ -366,10 +366,16 @@ final class ToolGroupToggleEntryStage: NSObject, UICollectionViewDataSource {
 
     /// The tapped row must come back to where the tap landed, ±0.75pt.
     private func checkAnchor(_ label: String, anchor: CGFloat?) {
+        // A missing anchor would make this check compare the row against ITSELF
+        // and pass while the tap landed on a row that was not on screen. The
+        // anchor is a fact the case must establish, so an absent one fails.
+        guard let anchor else {
+            check(false, "\(label): the tapped row was on screen when the tap landed (no frame)")
+            return
+        }
         let after = headerScreenY() ?? -999
-        let target = anchor ?? after
-        check(abs(after - target) <= 0.75,
-              "\(label): the tapped row is back at its screen anchor (\(after) vs \(target))")
+        check(abs(after - anchor) <= 0.75,
+              "\(label): the tapped row is back at its screen anchor (\(after) vs \(anchor))")
     }
 
     // MARK: - Cases
