@@ -204,7 +204,7 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                 let subtitleY=16+m.titleHeight+4
                 guard maxPixelContrast(image,box:CGRect(x:10,y:16,width:width-20,height:m.titleHeight),surface:surface,minimum:primaryMin)>=primaryMin else { fatalError("dynamic title contrast") }
                 guard maxPixelContrast(image,box:CGRect(x:10,y:subtitleY,width:width-20,height:m.subtitleHeight),surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic subtitle contrast") }
-                guard maxPixelContrast(image,box:CGRect(x:10,y:m.footerY+42,width:width-20,height:m.sourceHeight),surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic source contrast") }
+                guard maxPixelContrast(image,box:CGRect(x:10,y:m.contentY,width:width-20,height:m.sourceHeight),surface:surface,minimum:mutedMin)>=mutedMin else { fatalError("dynamic source contrast") }
                 dynamicChecks+=3
                 for tick in m.legendTicks {
                     guard maxPixelContrast(image,box:tick.frame,surface:surface,minimum:primaryMin)>=primaryMin else { fatalError("dynamic tick contrast") }

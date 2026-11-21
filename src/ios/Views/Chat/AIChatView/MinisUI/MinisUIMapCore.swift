@@ -256,12 +256,70 @@ enum MUMapTypography {
     static func naturalWidth(_ text: String, size: Double) -> Double {
         Double(measure(text,width:1000000,size:size).width)
     }
+    /// Single-line height for a chip. UIKit asks the same font that draws it;
+    /// Linux uses the documented 1.3em fallback so contract tests stay stable.
+    static func lineHeight(size: Double, bold: Bool = false) -> Double {
+        #if canImport(UIKit)
+        return ceil(UIFont.systemFont(ofSize: size, weight: bold ? .semibold : .regular).lineHeight)
+        #else
+        return ceil(size * 1.3)
+        #endif
+    }
 }
 struct MUMapLegendTick: Equatable {
     let index: Int
     let anchorX: Double
     let text: String
     let frame: CGRect
+}
+// [T-showui-map-chips] A highlight caption is a content-sized chip, never a
+// full-width bar. The height formula and the Canvas consume the SAME chip list,
+// so what is reserved and what is drawn cannot drift apart.
+struct MUMapChip: Equatable {
+    let text: String
+    let frame: CGRect
+}
+enum MUMapChipStyle {
+    static let fontSize = 13.0
+    static let horizontalPadding = 8.0
+    static let verticalPadding = 4.0
+    static let cornerRadius = 4.0
+    static let columnGap = 6.0
+    static let rowGap = 4.0
+    /// Plot bottom edge → first chip row.
+    static let mapGap = 8.0
+    /// Last chip row → source/note block.
+    static let contentGap = 6.0
+    /// Chips share the plot's left/right margin and never exceed that usable width.
+    static let margin = 10.0
+    static var height: Double { lineHeight + verticalPadding * 2 }
+    static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
+}
+enum MUMapChipLayout {
+    /// Flow layout: the chip hugs its own text, wraps when the row is full, and
+    /// clamps to the usable width (the Canvas then ends it with an ellipsis).
+    static func chips(_ c: MUComp, values: [String: Double], region: String, width: Double) -> [MUMapChip] {
+        let usable = max(1.0, width - MUMapChipStyle.margin * 2)
+        let unit = c.str("unit") ?? ""
+        var result: [MUMapChip] = []
+        var x = MUMapChipStyle.margin, y = 0.0
+        for code in MUMapCore.highlights(c).prefix(3) {
+            let label = c.name == "BlockMap"
+                ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
+                : MUMapPackStore.shared.displayName(for: code, region: region)
+            let value = values[code].map { String(format:"%.4g",$0) + (unit.isEmpty ? "" : " " + unit) } ?? MUMapL10n.noData
+            let text = label + "  " + value
+            let natural = Double(MUMapTypography.measure(text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
+            let w = min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))
+            if x > MUMapChipStyle.margin, x + w > MUMapChipStyle.margin + usable + 0.001 {
+                x = MUMapChipStyle.margin
+                y += MUMapChipStyle.height + MUMapChipStyle.rowGap
+            }
+            result.append(MUMapChip(text: text, frame: CGRect(x: x, y: y, width: w, height: MUMapChipStyle.height)))
+            x += w + MUMapChipStyle.columnGap
+        }
+        return result
+    }
 }
 struct MUMapMetrics {
     let width: Double
@@ -285,6 +343,10 @@ struct MUMapMetrics {
     let plotY: Double
     let plotHeight: Double
     let footerY: Double
+    /// Content-sized highlight captions, absolute to the card's top-left.
+    let highlightChips: [MUMapChip]
+    /// First line after the chip block (source/note start here).
+    let contentY: Double
     let height: Double
     init(_ c: MUComp, width: Double) {
         self.width = max(1,width)
@@ -435,8 +497,13 @@ struct MUMapMetrics {
         } else {
             plotHeight = Double(rows)*cell+Double(rows-1)*2
         }
-        footerY=top+plotHeight+8
-        height=ceil(footerY+Double(min(3,c.strings("highlight").count))*14+sourceHeight+noteHeight+10)
+        let chipTop=top+plotHeight+MUMapChipStyle.mapGap
+        footerY=chipTop
+        let laidOut=MUMapChipLayout.chips(c,values:MUMapCore.values(c),region:regionArg,width:self.width)
+        let placed=laidOut.map { MUMapChip(text:$0.text,frame:$0.frame.offsetBy(dx:0,dy:chipTop)) }
+        highlightChips=placed
+        contentY=placed.map { Double($0.frame.maxY) }.max().map { $0+MUMapChipStyle.contentGap } ?? chipTop
+        height=ceil(contentY+sourceHeight+noteHeight+10)
     }
     func rect(_ tile: MUMapTile) -> CGRect {
         CGRect(x:inset+Double(tile.column)*(cell+gap),y:plotY+Double(tile.row)*(cell+gap),width:cell,height:cell)

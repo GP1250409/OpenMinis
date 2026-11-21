@@ -223,17 +223,19 @@ struct MUMapView: View {
         else { drawGeo(context,m,theme,values,highlight,bins,colors) }
         let region=comp.str("region") ?? "us"
         let packMeta=comp.name == "GeoMap" ? MUMapPackStore.shared.metadata(for:region) : nil
-        var footer=m.footerY
-        for code in highlight.prefix(3) {
-            let label=comp.name == "BlockMap"
-                ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
-                : MUMapPackStore.shared.displayName(for:code,region:region)
-            let value=values[code].map { String(format:"%.4g",$0)+(comp.str("unit") ?? "") } ?? MUMapL10n.noData
-            // A dedicated one-line box (<=3 lines total), never over the plot.
-            context.fill(Path(CGRect(x:10,y:footer,width:max(0,m.width-20),height:12)),with:.color(theme.accent.color))
-            text(label+"  "+value,CGRect(x:17,y:footer,width:m.width-34,height:12),context:context,color:theme.accent.ink,size:9,bold:true)
-            footer+=14
+        // [T-showui-map-chips] Content-sized captions from the shared layout:
+        // hugging width, flow wrap, never a full-width bar. The text only earns
+        // an ellipsis when a single chip reaches the card's usable width.
+        for chip in m.highlightChips {
+            context.fill(Path(roundedRect:chip.frame,cornerRadius:MUMapChipStyle.cornerRadius),with:.color(theme.accent.color))
+            // 1.5pt of drawing slack absorbs the rounding difference between the
+            // native measurement and `Text.measure`, so a hugging chip is never
+            // truncated by accident; a genuinely over-wide chip still ellipsizes.
+            let inner=CGRect(x:chip.frame.minX+MUMapChipStyle.horizontalPadding,y:chip.frame.minY,
+                             width:max(1,chip.frame.width-MUMapChipStyle.horizontalPadding*2+1.5),height:chip.frame.height)
+            text(chip.text,inner,context:context,color:theme.accent.ink,size:MUMapChipStyle.fontSize,bold:true)
         }
+        var footer=m.contentY
         if let source=comp.str("source") {
             paragraph(MUMapL10n.sourcePrefix+source,CGRect(x:10,y:footer,width:m.width-20,height:m.sourceHeight),context:context,color:theme.muted,size:10); footer+=m.sourceHeight
         }

@@ -375,4 +375,63 @@ check((store.geometry(for: "cn")?.overlays.count ?? 0) == 1, "synthetic cn-admin
 store.resetToDefaultSearchPaths()
 try? FileManager.default.removeItem(at: synthRoot)
 
+// [T-showui-map-chips] Highlight captions hug their text (2026-11-21 spec):
+// width = text + 2×8pt, flow wrap, 6pt/4pt gaps, 8pt under the plot, clamped
+// to the card's usable width — never a full-width bar.
+let chipProgram = "root = GeoMap(\"world\", [\"CN\", \"US\", \"DE\", \"AE\", \"JP\", \"BR\"], [80, 5, 86, 78, 89, 55], \"blue\", \"示例指数\", \"示意数据\", \"示意数据\", \"指数\", [\"CN\", \"US\", \"AE\"], [40, 70], \"cutout\")"
+let chipV = MinisUIEngine.validate(chipProgram)
+check(chipV.ok, "highlight chip fixture validates")
+if let chipComp = chipV.root {
+    let m320 = MUMapMetrics(chipComp, width: 320), m430 = MUMapMetrics(chipComp, width: 430)
+    check(m320.highlightChips.count == 3, "three highlight chips")
+    check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×4pt")
+    check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count == 3, "three captions render three widths")
+    check(m320.highlightChips.last?.frame.width == m320.highlightChips.map { $0.frame.width }.max(), "the longest caption earns the widest chip")
+    check(m320.highlightChips.allSatisfy { $0.frame.width < 300 - 1 }, "captions never stretch across the card")
+    for chip in m320.highlightChips {
+        let natural = Double(MUMapTypography.measure(chip.text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
+        check(abs(chip.frame.width - (natural + MUMapChipStyle.horizontalPadding * 2 + 1)) < 0.51, "chip width follows its text")
+    }
+    for (a, b) in zip(m320.highlightChips, m430.highlightChips) {
+        check(abs(a.frame.width - b.frame.width) < 1e-9, "card width does not change a hugging chip")
+    }
+    check(abs(m320.footerY - (m320.plotY + m320.plotHeight + MUMapChipStyle.mapGap)) < 1e-9, "chips start 8pt under the map")
+    check(abs(m320.highlightChips[0].frame.minY - m320.footerY) < 1e-9, "first chip row on the map's bottom margin")
+    check(m320.highlightChips.allSatisfy { $0.frame.minX >= 10 - 1e-9 && $0.frame.maxX <= 310 + 1e-9 }, "chips stay inside the card")
+    let rows = Dictionary(grouping: m320.highlightChips) { Int($0.frame.minY.rounded()) }
+    check(rows.values.allSatisfy { row in abs((row.map { $0.frame.minX }.min() ?? 0) - 10) < 1e-9 }, "every chip row aligns with the map edge")
+    check(rows.count >= 2, "overflowing captions flow onto another row")
+    for i in m320.highlightChips.indices {
+        for j in m320.highlightChips.indices where j > i {
+            check(!m320.highlightChips[i].frame.intersects(m320.highlightChips[j].frame), "chips never overlap")
+        }
+    }
+    check(abs(m320.contentY - ((m320.highlightChips.map { $0.frame.maxY }.max() ?? 0) + MUMapChipStyle.contentGap)) < 1e-9, "source follows the chip block")
+    check(m320.height == ceil(m320.contentY + m320.sourceHeight + m320.noteHeight + 10), "height reserves every chip row")
+    check(MinisUIEngine.estimatedHeight(chipComp, width: 320) == CGFloat(m320.height), "estimatedHeight exact with chips")
+    check(m320.highlightChips.allSatisfy { !$0.text.isEmpty && $0.text.contains("  ") }, "chip text is region + value")
+
+    let longUnit = MinisUIEngine.validate("root = BlockMap(\"us\", [\"CA\", \"TX\", \"WY\"], [11, 2, 33], null, \"高亮\", null, null, \"亿美元（2026 年第三季度初值，未经季节调整的完整说明）\", [\"CA\", \"TX\", \"WY\"], null)")
+    check(longUnit.ok, "long-unit chip fixture validates")
+    if let longComp = longUnit.root {
+        let lm = MUMapMetrics(longComp, width: 200)
+        check(lm.highlightChips.count == 3, "long captions keep three chips")
+        check(lm.highlightChips.allSatisfy { abs($0.frame.width - 180) < 1e-9 }, "caption clamps to the usable width")
+        check(Set(lm.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 3, "clamped captions take one row each")
+        check(zip(lm.highlightChips, lm.highlightChips.dropFirst()).allSatisfy { abs($1.frame.minY - ($0.frame.maxY + MUMapChipStyle.rowGap)) < 1e-9 }, "4pt between chip rows")
+        check(lm.highlightChips.allSatisfy { $0.frame.maxX <= 190 + 1e-9 }, "clamped caption never overflows")
+        check(lm.height == ceil(lm.contentY + lm.sourceHeight + lm.noteHeight + 10), "clamped rows still counted once")
+    }
+    let plainMetrics = MUMapMetrics(component(region: "us", codes: ["CA"], values: [1]), width: 390)
+    check(plainMetrics.highlightChips.isEmpty, "no highlight leaves no chip block")
+    check(abs(plainMetrics.contentY - plainMetrics.footerY) < 1e-9, "no chip block leaves no extra gap")
+}
+// Acceptance #4: chip ink keeps ≥4.5:1 against the accent fill in both schemes.
+for surfaceHex in ["#FFFFFF", "#F1EFEA", "#000000", "#1C1C1E"] {
+    for style in ["", "economist", "economist2017"] {
+        let theme = MUMapTheme.resolve(style).adapted(to: MUMapRGB(hex: surfaceHex))
+        check(theme.accent.ink.contrast(on: theme.accent) >= 4.5, "chip ink contrast \(style) on \(surfaceHex)")
+    }
+}
+
 print("MAP_REGRESSION_PASS checks=\(checks)")

@@ -49,3 +49,24 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 
 - 连续/离散分箱图例采用单行 `6pt` 色带与不重叠共享边界刻度（`9.5pt`），并在「无数据」行右侧给出首末档范围摘要；副标题采用 `11pt` 自动换行。
 - 暗色承载表面（`luminance < 0.179`）下，画布主文字与刻度采用高对比近白 `#F3F4F6`、说明与次要文字采用 `#B8C0CC`，保留原有分箱填充色与色阶顺序不变。
+
+## 5. highlight 标注框：内容自适应 chip（mod-showui-map-chips-20261121）
+
+`highlight` 的每个 region code 渲染为一个 **由内容决定宽度** 的 chip，不再是横贯卡片的色条。几何常量集中在 `MUMapChipStyle`（`MinisUIMapCore.swift`），测高公式与 `Canvas` 绘制读取同一份 `m.highlightChips`，因此占位与绘制不会脱节。
+
+| 项目 | 值 |
+|---|---|
+| 字号 | `13pt`（semibold，与 canvas 绘制字体同源测量） |
+| 水平 / 垂直内边距 | `8pt` / `4pt`（chip 高度 = 行高 + 8） |
+| 圆角 | `4pt` |
+| chip 间距 | 水平 `6pt`，换行 `4pt` |
+| 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |
+| chip 块到来源/说明 | `6pt`（`contentY`） |
+| 最大宽度 | 卡片可用宽度（`width − 20`），超长尾部省略号截断，不换行、不缩字 |
+| 对齐 | 与地图左边缘（`x = 10`）对齐，逐行流式排布，放不下自动换行 |
+
+- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 8pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差），因此「阿联酋 78 指数」天然比「美国 5 指数」宽；卡片从 320pt 拉宽到 430pt 时 chip 宽度不变（除非触到上限）。
+- 文字由 `label + "  " + 数值 + 单位` 组成；数值沿用 `%.4g`，无数据时显示「无数据」，单位为空时不追加空格。
+- 文字颜色为 `theme.accent.ink`，在强调色底上对比度恒定 ≥ 4.5:1（黑/白按亮度 0.179 分界）；强调色本身仍按承载表面做 `readable` 适配。
+- `highlight` 仍最多 3 个 code，`bins` / `cutout` / `mode` / `points` 行为不变。
+- 回归：`scripts/map-tests/main.swift` 新增 chip 用例（宽度随文本、320→430 不变、流式换行、4pt 行距、超宽截断、无 highlight 不留空、`estimatedHeight` 精确一致、暗色对比度）；`scripts/map-tests/MapRenderFixture.swift` 的来源行采样改读 `m.contentY`（原先写死 `footerY + 42`，只在恰好 3 条 14pt 色条时成立）。
