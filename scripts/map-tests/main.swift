@@ -384,7 +384,7 @@ check(chipV.ok, "highlight chip fixture validates")
 if let chipComp = chipV.root {
     let m320 = MUMapMetrics(chipComp, width: 320), m430 = MUMapMetrics(chipComp, width: 430)
     check(m320.highlightChips.count == 3, "three highlight chips")
-    check(m320.highlightChips.map { $0.index } == [0, 1, 2], "chips keep data order for their accents")
+    check(m320.highlightChips.first?.text.hasPrefix("中国") == true, "chips keep data order")
     check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×3pt")
     check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 11, bold: true) + 6)) < 1e-9, "11pt chip height")
     check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count >= 2, "caption width follows its text")
@@ -450,26 +450,15 @@ if let chipComp = chipV.root {
     check(plainMetrics.highlightChips.isEmpty, "no highlight leaves no chip block")
     check(abs(plainMetrics.contentY - plainMetrics.footerY) < 1e-9, "no chip block leaves no extra gap")
 }
-// Every theme gives each of the five slots a clearly different, readable accent,
-// and the chip ink keeps >=4.5:1 against that accent in both schemes.
-func rgbDistance(_ a: MUMapRGB, _ b: MUMapRGB) -> Double {
-    let (r1, g1, b1) = a.rgb, (r2, g2, b2) = b.rgb
-    return ((r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2)).squareRoot()
-}
+// One accent for every highlight (the theme accent, as before), and the chip
+// ink keeps >=4.5:1 against that accent in both schemes.
 for surfaceHex in ["#FFFFFF", "#F1EFEA", "#1C1C1E", "#000000"] {
     let surface = MUMapRGB(hex: surfaceHex)
     let floor = surface.luminance < 0.179 ? 3.6 : 3.0
     for style in ["", "economist", "economist2017"] {
-        let accents = MUMapHighlightColors.resolve(style: style, surface: surface)
-        check(accents.count == MUMapHighlightColors.slotCount, "five highlight accents \(style) on \(surfaceHex)")
-        check(Set(accents.map { $0.hex }).count == MUMapHighlightColors.slotCount, "no repeated accent \(style) on \(surfaceHex)")
-        for i in accents.indices {
-            check(accents[i].contrast(on: surface) >= floor, "accent visible \(style) \(i) on \(surfaceHex)")
-            check(accents[i].ink.contrast(on: accents[i]) >= 4.5, "chip ink contrast \(style) \(i) on \(surfaceHex)")
-            for j in accents.indices where j > i {
-                check(rgbDistance(accents[i], accents[j]) > 0.25, "accents stay distinct \(style) \(i)/\(j) on \(surfaceHex)")
-            }
-        }
+        let accent = MUMapTheme.resolve(style).adapted(to: surface).accent
+        check(accent.contrast(on: surface) >= floor, "accent visible \(style) on \(surfaceHex)")
+        check(accent.ink.contrast(on: accent) >= 4.5, "chip ink contrast \(style) on \(surfaceHex)")
     }
 }
 

@@ -171,12 +171,8 @@ struct MUMapView: View {
 
     private func draw(_ context: GraphicsContext, _ m: MUMapMetrics) {
         let theme=MUMapTheme.resolve(style).adapted(to: surface), values=MUMapCore.values(comp)
-        let highlight=MUMapCore.highlights(comp)
-        // [T-showui-map-chips] One accent per highlight slot: the chip and the
-        // map outline of that region share the colour, so the legend reads.
-        let accents=MUMapHighlightColors.resolve(style:style,surface:surface)
-        var highlightColors:[String:MUMapRGB]=[:]
-        for (i,code) in highlight.prefix(MUMapHighlightColors.slotCount).enumerated() { highlightColors[code]=accents[i % accents.count] }
+        // At most five codes take part in the outline; extras are dropped in order.
+        let highlight=Array(MUMapCore.highlights(comp).prefix(MUMapChipStyle.highlightLimit))
         let bins=MUMapBins(values:comp.numbers("values"),boundaries:comp.numbers("bins"),diverging:(comp.str("scale") ?? "").hasPrefix("diverging"))
         let colors=MUMapScale.colors(comp.str("scale"),style:style,count:bins.count)
         let hairline=surface.luminance < 0.179 ? theme.muted.color.opacity(0.65) : theme.text.color
@@ -224,22 +220,21 @@ struct MUMapView: View {
         if let unit=comp.str("unit") {
             paragraph(unit,CGRect(x:10,y:m.unitY,width:m.width-20,height:m.unitHeight),context:context,color:theme.muted,size:10)
         }
-        if comp.name == "BlockMap" { drawBlocks(context,m,theme,values,highlightColors,bins,colors) }
-        else { drawGeo(context,m,theme,values,highlightColors,bins,colors) }
+        if comp.name == "BlockMap" { drawBlocks(context,m,theme,values,highlight,bins,colors) }
+        else { drawGeo(context,m,theme,values,highlight,bins,colors) }
         let region=comp.str("region") ?? "us"
         let packMeta=comp.name == "GeoMap" ? MUMapPackStore.shared.metadata(for:region) : nil
         // [T-showui-map-chips] Content-sized captions from the shared layout:
         // hugging width, flow wrap, never a full-width bar. The text only earns
         // an ellipsis when a single chip reaches the card's usable width.
         for chip in m.highlightChips {
-            let accent=accents[min(chip.index,accents.count-1)]
-            context.fill(Path(roundedRect:chip.frame,cornerRadius:MUMapChipStyle.cornerRadius),with:.color(accent.color))
+            context.fill(Path(roundedRect:chip.frame,cornerRadius:MUMapChipStyle.cornerRadius),with:.color(theme.accent.color))
             // 1.5pt of drawing slack absorbs the rounding difference between the
             // native measurement and `Text.measure`, so a hugging chip is never
             // truncated by accident; a genuinely over-wide chip still ellipsizes.
             let inner=CGRect(x:chip.frame.minX+MUMapChipStyle.horizontalPadding,y:chip.frame.minY,
                              width:max(1,chip.frame.width-MUMapChipStyle.horizontalPadding*2+1.5),height:chip.frame.height)
-            text(chip.text,inner,context:context,color:accent.ink,size:MUMapChipStyle.fontSize,bold:true)
+            text(chip.text,inner,context:context,color:theme.accent.ink,size:MUMapChipStyle.fontSize,bold:true)
         }
         var footer=m.contentY
         if let source=comp.str("source") {
@@ -253,20 +248,20 @@ struct MUMapView: View {
         }
     }
 
-    private func drawBlocks(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlightColors: [String:MUMapRGB], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
+    private func drawBlocks(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
         let tileBorder = surface.luminance < 0.179 ? theme.muted.color.opacity(0.55) : theme.text.color
         for tile in MUMapRegion.tiles(comp.str("region") ?? "us") {
             let rect=m.rect(tile), fill=values[tile.code].map { colors[bins.index($0)] } ?? theme.missing
             context.fill(Path(rect),with:.color(fill.color))
             context.stroke(Path(rect.insetBy(dx:0.25,dy:0.25)),with:.color(tileBorder),lineWidth:0.5)
-            if let accent=highlightColors[tile.code] {
-                context.stroke(Path(rect.insetBy(dx:1,dy:1)),with:.color(accent.color),lineWidth:2)
+            if highlight.contains(tile.code) {
+                context.stroke(Path(rect.insetBy(dx:1,dy:1)),with:.color(theme.accent.color),lineWidth:2)
             }
             text(tile.label,rect.insetBy(dx:1,dy:1),context:context,color:fill.ink,size:min(12,max(5,m.cell*0.36)),bold:true,centered:true)
         }
     }
 
-    private func drawGeo(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlightColors: [String:MUMapRGB], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
+    private func drawGeo(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
         let rect=CGRect(x:10,y:m.plotY,width:max(1,m.width-20),height:m.plotHeight)
         let region=comp.str("region") ?? "us"
         guard let packMeta=MUMapPackStore.shared.metadata(for:region),
@@ -284,7 +279,7 @@ struct MUMapView: View {
         if packMeta.manifest.styleHints.clipToCanvas { ctx.clip(to:Path(rect)) }
 
         let strokeW=packMeta.manifest.styleHints.featureStrokeWidth
-        let highlightSet=Set(highlightColors.keys)
+        let highlightSet=Set(highlight)
         var highlightedIndices:[Int]=[]
         for (idx,feat) in packMeta.features.enumerated() where idx < packGeom.featurePaths.count {
             guard let transformed=packGeom.featurePaths[idx].copy(using:&xform) else { continue }
@@ -315,9 +310,8 @@ struct MUMapView: View {
             }
         }
         for idx in highlightedIndices {
-            if let transformed=packGeom.featurePaths[idx].copy(using:&xform),
-               let accent=highlightColors[packMeta.features[idx].code] {
-                ctx.stroke(Path(transformed),with:.color(accent.color),lineWidth:1.25)
+            if let transformed=packGeom.featurePaths[idx].copy(using:&xform) {
+                ctx.stroke(Path(transformed),with:.color(theme.accent.color),lineWidth:1.25)
             }
         }
 

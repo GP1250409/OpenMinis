@@ -276,8 +276,6 @@ struct MUMapLegendTick: Equatable {
 // full-width bar. The height formula and the Canvas consume the SAME chip list,
 // so what is reserved and what is drawn cannot drift apart.
 struct MUMapChip: Equatable {
-    /// Highlight slot in data order; also picks the chip's accent colour.
-    let index: Int
     let text: String
     let frame: CGRect
 }
@@ -295,6 +293,8 @@ enum MUMapChipStyle {
     static let contentGap = 6.0
     /// Chips share the plot's left/right margin and never exceed that usable width.
     static let margin = 10.0
+    /// More than five captions turn the map into a wall of labels; extras are dropped.
+    static let highlightLimit = 5
     static var height: Double { lineHeight + verticalPadding * 2 }
     static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
 }
@@ -308,7 +308,7 @@ enum MUMapChipLayout {
         let unit = c.str("unit") ?? ""
         var result: [MUMapChip] = []
         var x = MUMapChipStyle.margin, y = 0.0
-        for (index, code) in MUMapCore.highlights(c).prefix(MUMapHighlightColors.slotCount).enumerated() {
+        for code in MUMapCore.highlights(c).prefix(MUMapChipStyle.highlightLimit) {
             let label = c.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
                 : MUMapPackStore.shared.displayName(for: code, region: region)
@@ -320,27 +320,11 @@ enum MUMapChipLayout {
                 x = MUMapChipStyle.margin
                 y += MUMapChipStyle.height + MUMapChipStyle.rowGap
             }
-            result.append(MUMapChip(index: index, text: text,
+            result.append(MUMapChip(text: text,
                                     frame: CGRect(x: x, y: y, width: w, height: MUMapChipStyle.height)))
             x += w + MUMapChipStyle.columnGap
         }
         return result
-    }
-}
-/// One accent per highlight slot, in the same data order the map outlines use.
-/// The three hues stay clearly different (never three blues) and are re-checked
-/// against the real card surface so small chips keep >=4.5:1 ink contrast.
-enum MUMapHighlightColors {
-    static let slotCount = 5
-    static func resolve(style: String, surface: MUMapRGB) -> [MUMapRGB] {
-        let base: [String]
-        switch style {
-        case "economist2017": base = ["#E3120B", "#006BA2", "#EBB434", "#1B7F4B", "#7A4E9E"]
-        case "economist": base = ["#E62923", "#0F5499", "#EBB434", "#7A4E9E", "#1B7F4B"]
-        default: base = ["#007AFF", "#FF9500", "#AF52DE", "#34C759", "#FF3B30"]
-        }
-        let floor = surface.luminance < 0.179 ? 3.6 : 3.0
-        return base.map { MUMapRGB(hex: $0).readable(on: surface, minimum: floor) }
     }
 }
 struct MUMapMetrics {
@@ -522,7 +506,7 @@ struct MUMapMetrics {
         let chipTop=top+plotHeight+MUMapChipStyle.mapGap
         footerY=chipTop
         let laidOut=MUMapChipLayout.chips(c,values:MUMapCore.values(c),region:regionArg,width:self.width)
-        let placed=laidOut.map { MUMapChip(index:$0.index,text:$0.text,frame:$0.frame.offsetBy(dx:0,dy:chipTop)) }
+        let placed=laidOut.map { MUMapChip(text:$0.text,frame:$0.frame.offsetBy(dx:0,dy:chipTop)) }
         highlightChips=placed
         contentY=placed.map { Double($0.frame.maxY) }.max().map { $0+MUMapChipStyle.contentGap } ?? chipTop
         height=ceil(contentY+sourceHeight+noteHeight+10)
