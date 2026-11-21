@@ -276,15 +276,16 @@ struct MUMapLegendTick: Equatable {
 // full-width bar. The height formula and the Canvas consume the SAME chip list,
 // so what is reserved and what is drawn cannot drift apart.
 struct MUMapChip: Equatable {
+    /// Highlight slot in data order; also picks the chip's accent colour.
+    let index: Int
     let text: String
     let frame: CGRect
 }
 enum MUMapChipStyle {
-    static let fontSize = 13.0
-    static let horizontalPadding = 8.0
-    static let verticalPadding = 4.0
+    static let fontSize = 11.0
+    static let horizontalPadding = 6.0
+    static let verticalPadding = 3.0
     static let cornerRadius = 4.0
-    static let columnGap = 6.0
     static let rowGap = 4.0
     /// Plot bottom edge → first chip row.
     static let mapGap = 8.0
@@ -296,14 +297,15 @@ enum MUMapChipStyle {
     static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
 }
 enum MUMapChipLayout {
-    /// Flow layout: the chip hugs its own text, wraps when the row is full, and
-    /// clamps to the usable width (the Canvas then ends it with an ellipsis).
+    /// One legend row per highlight: the chip hugs its own text, starts on the
+    /// plot's left edge, and clamps to the usable width (the Canvas then ends it
+    /// with an ellipsis). A single column keeps three different widths tidy.
     static func chips(_ c: MUComp, values: [String: Double], region: String, width: Double) -> [MUMapChip] {
         let usable = max(1.0, width - MUMapChipStyle.margin * 2)
         let unit = c.str("unit") ?? ""
         var result: [MUMapChip] = []
-        var x = MUMapChipStyle.margin, y = 0.0
-        for code in MUMapCore.highlights(c).prefix(3) {
+        var y = 0.0
+        for (index, code) in MUMapCore.highlights(c).prefix(3).enumerated() {
             let label = c.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
                 : MUMapPackStore.shared.displayName(for: code, region: region)
@@ -311,14 +313,27 @@ enum MUMapChipLayout {
             let text = label + "  " + value
             let natural = Double(MUMapTypography.measure(text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
             let w = min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))
-            if x > MUMapChipStyle.margin, x + w > MUMapChipStyle.margin + usable + 0.001 {
-                x = MUMapChipStyle.margin
-                y += MUMapChipStyle.height + MUMapChipStyle.rowGap
-            }
-            result.append(MUMapChip(text: text, frame: CGRect(x: x, y: y, width: w, height: MUMapChipStyle.height)))
-            x += w + MUMapChipStyle.columnGap
+            result.append(MUMapChip(index: index, text: text,
+                                    frame: CGRect(x: MUMapChipStyle.margin, y: y, width: w, height: MUMapChipStyle.height)))
+            y += MUMapChipStyle.height + MUMapChipStyle.rowGap
         }
         return result
+    }
+}
+/// One accent per highlight slot, in the same data order the map outlines use.
+/// The three hues stay clearly different (never three blues) and are re-checked
+/// against the real card surface so small chips keep >=4.5:1 ink contrast.
+enum MUMapHighlightColors {
+    static let slotCount = 3
+    static func resolve(style: String, surface: MUMapRGB) -> [MUMapRGB] {
+        let base: [String]
+        switch style {
+        case "economist2017": base = ["#E3120B", "#006BA2", "#EBB434"] // red / blue / gold
+        case "economist": base = ["#E62923", "#0F5499", "#EBB434"]     // red / blue / gold
+        default: base = ["#007AFF", "#FF9500", "#AF52DE"]              // blue / orange / purple
+        }
+        let floor = surface.luminance < 0.179 ? 3.6 : 3.0
+        return base.map { MUMapRGB(hex: $0).readable(on: surface, minimum: floor) }
     }
 }
 struct MUMapMetrics {
@@ -500,7 +515,7 @@ struct MUMapMetrics {
         let chipTop=top+plotHeight+MUMapChipStyle.mapGap
         footerY=chipTop
         let laidOut=MUMapChipLayout.chips(c,values:MUMapCore.values(c),region:regionArg,width:self.width)
-        let placed=laidOut.map { MUMapChip(text:$0.text,frame:$0.frame.offsetBy(dx:0,dy:chipTop)) }
+        let placed=laidOut.map { MUMapChip(index:$0.index,text:$0.text,frame:$0.frame.offsetBy(dx:0,dy:chipTop)) }
         highlightChips=placed
         contentY=placed.map { Double($0.frame.maxY) }.max().map { $0+MUMapChipStyle.contentGap } ?? chipTop
         height=ceil(contentY+sourceHeight+noteHeight+10)

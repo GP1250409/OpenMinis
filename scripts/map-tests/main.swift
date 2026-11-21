@@ -375,22 +375,26 @@ check((store.geometry(for: "cn")?.overlays.count ?? 0) == 1, "synthetic cn-admin
 store.resetToDefaultSearchPaths()
 try? FileManager.default.removeItem(at: synthRoot)
 
-// [T-showui-map-chips] Highlight captions hug their text (2026-11-21 spec):
-// width = text + 2×8pt, flow wrap, 6pt/4pt gaps, 8pt under the plot, clamped
-// to the card's usable width — never a full-width bar.
+// [T-showui-map-chips] Highlight captions are a one-row-per-code legend: the
+// chip hugs its text (11pt + 2×6pt), rows step by height+4pt, the block starts
+// 8pt under the plot, and each slot carries its own accent colour — the same
+// colour the map outlines that region with.
 let chipProgram = "root = GeoMap(\"world\", [\"CN\", \"US\", \"DE\", \"AE\", \"JP\", \"BR\"], [80, 5, 86, 78, 89, 55], \"blue\", \"示例指数\", \"示意数据\", \"示意数据\", \"指数\", [\"CN\", \"US\", \"AE\"], [40, 70], \"cutout\")"
 let chipV = MinisUIEngine.validate(chipProgram)
 check(chipV.ok, "highlight chip fixture validates")
 if let chipComp = chipV.root {
     let m320 = MUMapMetrics(chipComp, width: 320), m430 = MUMapMetrics(chipComp, width: 430)
     check(m320.highlightChips.count == 3, "three highlight chips")
-    check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×4pt")
+    check(m320.highlightChips.map { $0.index } == [0, 1, 2], "chips keep data order for their accents")
+    check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×3pt")
+    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 11, bold: true) + 6)) < 1e-9, "11pt chip height")
     check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count == 3, "three captions render three widths")
     check(m320.highlightChips.last?.frame.width == m320.highlightChips.map { $0.frame.width }.max(), "the longest caption earns the widest chip")
     check(m320.highlightChips.allSatisfy { $0.frame.width < 300 - 1 }, "captions never stretch across the card")
     for chip in m320.highlightChips {
         let natural = Double(MUMapTypography.measure(chip.text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
         check(abs(chip.frame.width - (natural + MUMapChipStyle.horizontalPadding * 2 + 1)) < 0.51, "chip width follows its text")
+        check(abs(chip.frame.minX - 10) < 1e-9, "every chip starts on the map's left edge")
     }
     for (a, b) in zip(m320.highlightChips, m430.highlightChips) {
         check(abs(a.frame.width - b.frame.width) < 1e-9, "card width does not change a hugging chip")
@@ -398,9 +402,8 @@ if let chipComp = chipV.root {
     check(abs(m320.footerY - (m320.plotY + m320.plotHeight + MUMapChipStyle.mapGap)) < 1e-9, "chips start 8pt under the map")
     check(abs(m320.highlightChips[0].frame.minY - m320.footerY) < 1e-9, "first chip row on the map's bottom margin")
     check(m320.highlightChips.allSatisfy { $0.frame.minX >= 10 - 1e-9 && $0.frame.maxX <= 310 + 1e-9 }, "chips stay inside the card")
-    let rows = Dictionary(grouping: m320.highlightChips) { Int($0.frame.minY.rounded()) }
-    check(rows.values.allSatisfy { row in abs((row.map { $0.frame.minX }.min() ?? 0) - 10) < 1e-9 }, "every chip row aligns with the map edge")
-    check(rows.count >= 2, "overflowing captions flow onto another row")
+    check(Set(m320.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 3, "one tidy legend row per highlight")
+    check(zip(m320.highlightChips, m320.highlightChips.dropFirst()).allSatisfy { abs($1.frame.minY - ($0.frame.maxY + MUMapChipStyle.rowGap)) < 1e-9 }, "4pt between legend rows")
     for i in m320.highlightChips.indices {
         for j in m320.highlightChips.indices where j > i {
             check(!m320.highlightChips[i].frame.intersects(m320.highlightChips[j].frame), "chips never overlap")
@@ -418,7 +421,6 @@ if let chipComp = chipV.root {
         check(lm.highlightChips.count == 3, "long captions keep three chips")
         check(lm.highlightChips.allSatisfy { abs($0.frame.width - 180) < 1e-9 }, "caption clamps to the usable width")
         check(Set(lm.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 3, "clamped captions take one row each")
-        check(zip(lm.highlightChips, lm.highlightChips.dropFirst()).allSatisfy { abs($1.frame.minY - ($0.frame.maxY + MUMapChipStyle.rowGap)) < 1e-9 }, "4pt between chip rows")
         check(lm.highlightChips.allSatisfy { $0.frame.maxX <= 190 + 1e-9 }, "clamped caption never overflows")
         check(lm.height == ceil(lm.contentY + lm.sourceHeight + lm.noteHeight + 10), "clamped rows still counted once")
     }
@@ -426,11 +428,26 @@ if let chipComp = chipV.root {
     check(plainMetrics.highlightChips.isEmpty, "no highlight leaves no chip block")
     check(abs(plainMetrics.contentY - plainMetrics.footerY) < 1e-9, "no chip block leaves no extra gap")
 }
-// Acceptance #4: chip ink keeps ≥4.5:1 against the accent fill in both schemes.
-for surfaceHex in ["#FFFFFF", "#F1EFEA", "#000000", "#1C1C1E"] {
+// Every theme gives each of the three slots a clearly different, readable accent,
+// and the chip ink keeps >=4.5:1 against that accent in both schemes.
+func rgbDistance(_ a: MUMapRGB, _ b: MUMapRGB) -> Double {
+    let (r1, g1, b1) = a.rgb, (r2, g2, b2) = b.rgb
+    return ((r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2)).squareRoot()
+}
+for surfaceHex in ["#FFFFFF", "#F1EFEA", "#1C1C1E", "#000000"] {
+    let surface = MUMapRGB(hex: surfaceHex)
+    let floor = surface.luminance < 0.179 ? 3.6 : 3.0
     for style in ["", "economist", "economist2017"] {
-        let theme = MUMapTheme.resolve(style).adapted(to: MUMapRGB(hex: surfaceHex))
-        check(theme.accent.ink.contrast(on: theme.accent) >= 4.5, "chip ink contrast \(style) on \(surfaceHex)")
+        let accents = MUMapHighlightColors.resolve(style: style, surface: surface)
+        check(accents.count == 3, "three highlight accents \(style) on \(surfaceHex)")
+        check(Set(accents.map { $0.hex }).count == 3, "no repeated accent \(style) on \(surfaceHex)")
+        for i in accents.indices {
+            check(accents[i].contrast(on: surface) >= floor, "accent visible \(style) \(i) on \(surfaceHex)")
+            check(accents[i].ink.contrast(on: accents[i]) >= 4.5, "chip ink contrast \(style) \(i) on \(surfaceHex)")
+            for j in accents.indices where j > i {
+                check(rgbDistance(accents[i], accents[j]) > 0.25, "accents stay distinct \(style) \(i)/\(j) on \(surfaceHex)")
+            }
+        }
     }
 }
 
