@@ -105,6 +105,12 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupOriginalToggle.swift',
     'scripts/statusbar_scroll_regression.py',
     'scripts/statusbar-scroll-tests/',
+    # [T-user-ask-border-inset] The answered / pending user_ask card chrome is
+    # drawn by this view; the mandatory toolfold UIKit suite compiles it and
+    # the ask-card fixtures measure it. A change here is a toolfold input only
+    # (map / chart / theme trees are untouched), so an incremental dispatch
+    # stays valid.
+    'src/ios/Views/Chat/UserAskCardView.swift',
     # [T-statusbar-native-scroll] the lifecycle type is a new production file
     # inside the message-list dependency tree; the suite above must run on the
     # current commit, so its script paths are safe incremental inputs.
