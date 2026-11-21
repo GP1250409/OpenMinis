@@ -499,8 +499,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     cell.contentView.setNeedsLayout()
                     cell.contentView.layoutIfNeeded()
                     cell.clearCachedHeight()
-                    fittedHeight = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
-                                                                 scale: UIScreen.main.scale)
+                    fittedHeight = cell.preferredLayoutAttributesFitting(attrs).size.height
                     CATransaction.commit()
                 }
 
@@ -690,8 +689,7 @@ extension CollectionViewMessageListV3.Coordinator {
             cell.contentView.setNeedsLayout()
             cell.contentView.layoutIfNeeded()
             cell.clearCachedHeight()
-            let fitted = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
-                                                       scale: UIScreen.main.scale)
+            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
             let current = attrs.frame.height
             guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else {
                 layout.endVerifyChain(token: token); return
@@ -839,8 +837,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     cell.contentView.setNeedsLayout()
                     cell.contentView.layoutIfNeeded()
                     cell.clearCachedHeight()
-                    let fitted = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
-                                                       scale: UIScreen.main.scale)
+                    let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
                     if fitted.isFinite, fitted > 1 {
                         layout.setMeasuredHeight(fitted, at: i)
                         txn.appliedHeight = fitted

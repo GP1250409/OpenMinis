@@ -76,13 +76,6 @@ R("skipSame", ToggleAnchorMath.skipsVisibleCompensation(index: 7, anchored: 7))
 R("skipOther", ToggleAnchorMath.skipsVisibleCompensation(index: 8, anchored: 7))
 R("skipNone", ToggleAnchorMath.skipsVisibleCompensation(index: 7, anchored: nil))
 R("key", ToggleAnchorMath.anchorTopKey)
-// [T-user-ask-pixel-align] measured heights snap to the device pixel grid
-R("pxWhole", f(ToggleAnchorMath.pixelAligned(58, scale: 3)))
-R("pxLow", f(ToggleAnchorMath.pixelAligned(58.1, scale: 3)))
-R("pxHigh", f(ToggleAnchorMath.pixelAligned(58.4, scale: 3)))
-R("pxHalf", f(ToggleAnchorMath.pixelAligned(58.5, scale: 3)))
-R("pxZero", f(ToggleAnchorMath.pixelAligned(0, scale: 3)))
-R("pxNoScale", f(ToggleAnchorMath.pixelAligned(58.4, scale: 0)))
 // [T-user-ask-expand-anim] duration, Reduce Motion, one-shot request
 R("dur", ToggleAnchorMath.animationDuration)
 R("durRM", ToggleAnchorMath.animationDuration(reduceMotion: true).map { "\($0)" } ?? "nil")
@@ -196,14 +189,6 @@ check("reveal: top at the edge → no room → no scroll", r["revealNoRoom"] == 
 check("layout skips compensation only for the anchored index",
       r["skipSame"] == "true" && r["skipOther"] == "false" && r["skipNone"] == "false")
 check("notification key is stable", r["key"] == "anchorTop")
-// [T-user-ask-pixel-align] 58.1 → 174.3 → 174 → 58.0; 58.4 → 175.2 → 175 →
-// 58.333; 58.5 → 175.5 → 176 → 58.667; degenerate inputs pass through.
-check("pixel align: whole height unchanged", r["pxWhole"] == "58.0")
-check("pixel align: 58.1 snaps down to the 1/3 pt grid", r["pxLow"] == "58.0")
-check("pixel align: 58.4 snaps to 58.333", r["pxHigh"] == "58.3")
-check("pixel align: 58.5 snaps up to 58.667", r["pxHalf"] == "58.7")
-check("pixel align: zero height passes through", r["pxZero"] == "0.0")
-check("pixel align: a non-positive scale is ignored", r["pxNoScale"] == "58.4")
 
 print("\n2. Simulated expand/collapse cycles")
 let start = r["newStart"] ?? "?"
@@ -256,13 +241,11 @@ if let r0 = v3.range(of: "func remeasureKeepingTop("),
           body.contains("(cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false\n                cv.layoutIfNeeded()"))
     check("single-pass: the cell's height goes straight to the new measure (no drop to the estimate)",
           body.contains("layout.setMeasuredHeight(fittedHeight, at: i)"))
-    check("single-pass: the measured height is snapped to the pixel grid",
-          body.contains("fittedHeight = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height"))
     // [T-user-ask-expand-overlap] streaming: the measure must see the NEW state
     if let flip = body.range(of: "_ = request?.run()"),
        let conf = body.range(of: "self.configureCell(cell, item: item, indexPath: ip)"),
        let lay = body.range(of: "cell.contentView.layoutIfNeeded()"),
-       let meas = body.range(of: "ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs)") {
+       let meas = body.range(of: "fittedHeight = cell.preferredLayoutAttributesFitting(attrs).size.height") {
         check("overlap: flip → fresh hosting config → content layout → measure, in that order",
               flip.lowerBound < conf.lowerBound && conf.lowerBound < lay.lowerBound && lay.lowerBound < meas.lowerBound)
     } else {
@@ -281,8 +264,6 @@ if let r0 = v3.range(of: "func remeasureKeepingTop("),
 } else {
     check("remeasureKeepingTop found", false)
 }
-check("thinking: the manual toggle snaps its measured height to the pixel grid too",
-      v3.contains("let fitted = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,"))
 let card = source("Views/Chat/UserAskCardView.swift")
 check("card: the resolved card's tap hands a one-shot request to the list (no direct toggle)",
       card.contains("let request = ToggleRequest { [block] in block.isThinkingExpanded.toggle() }")
