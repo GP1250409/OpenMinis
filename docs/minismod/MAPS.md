@@ -56,8 +56,8 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 
 | 项目 | 值 |
 |---|---|
-| 字号 | `11pt`（semibold，与 canvas 绘制字体同源测量） |
-| 水平 / 垂直内边距 | `6pt` / `3pt`（chip 高度 = 行高 + 6） |
+| 字号 | `11pt`（semibold，与 canvas 绘制字体同源测量；11pt 是「仍能单行又有留白」的上限） |
+| 水平 / 垂直内边距 | `8pt` / `4pt`（chip 高度 = 行高 + 8） |
 | 圆角 | `4pt` |
 | chip 间距 | 同一行 `6pt`，换行 `4pt` |
 | 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |
@@ -65,8 +65,8 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 | 最大宽度 | 卡片可用宽度（`width − 20`），超长尾部省略号截断，不换行、不缩字 |
 | 上限 | 5 个 code；多余的按顺序丢弃，不报错 |
 
-- 布局是**单行优先**的流式排布：三个短标签一行放得下就只占一行（320pt 卡片上「TX/NC/OH + 百分点」合计约 284pt），放不下才换到第二行，再放不下才继续下一行。整行左对齐在 `x = 10`。
-- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 6pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
+- 布局是**单行优先**的流式排布：放得下就只占一行，放不下才按 4pt 行距换行。320pt 卡片上「TX/NC/OH + 百分点」三项合计约 303pt，差 3pt 折成 2+1；卡片 ≥324pt（真机约 370pt）即排成一行。整行左对齐在 `x = 10`。
+- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 8pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
 - 颜色沿用回调前的规则：所有标注与地图轮廓统一使用主题强调色 `theme.accent`（按承载表面 `readable` 适配），chip 文字用 `theme.accent.ink`，对比度恒定 ≥ 4.5:1。不逐项分色。
 - 文字由 `label + "  " + 数值 + 单位` 组成；数值沿用 `%.4g`，无数据时显示「无数据」，单位为空时不追加空格。
 - `bins` / `cutout` / `mode` / `points` 行为不变。
