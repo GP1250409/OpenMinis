@@ -416,9 +416,10 @@ extension CollectionViewMessageListV3.Coordinator {
             let oldFrame = cv.layoutAttributesForItem(at: ip)?.frame
             let anchorY = (oldFrame?.minY ?? cv.contentOffset.y) - cv.contentOffset.y
             let oldHeight = oldFrame?.height ?? 0
-            // [T-user-ask-expand-anim] Reduce Motion: the same single pass,
-            // just without animation.
-            let duration = ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)
+            // [T-user-ask-single-pass] No animation duration: the pass below is
+            // applied once, with no UIKit animation, so there is no interval in
+            // which the height and the offset could be at different points of
+            // their travel. (Reduce Motion is therefore irrelevant here.)
 
             scrollMode = .userBrowsing
             // [T-user-ask-anchor-token] The anchor is token-owned: a late
@@ -498,7 +499,8 @@ extension CollectionViewMessageListV3.Coordinator {
                     cell.contentView.setNeedsLayout()
                     cell.contentView.layoutIfNeeded()
                     cell.clearCachedHeight()
-                    fittedHeight = cell.preferredLayoutAttributesFitting(attrs).size.height
+                    fittedHeight = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
+                                                                 scale: UIScreen.main.scale)
                     CATransaction.commit()
                 }
 
@@ -537,29 +539,31 @@ extension CollectionViewMessageListV3.Coordinator {
                     CATransaction.commit()
                 }
                 layout.invalidateLayout()
-                // The list strips UIKit animations from its layout passes
-                // (NoAnimationCollectionView); let this one pass animate so the
-                // rows around the card move with it instead of jumping.
-                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = duration != nil
-                cv.layoutIfNeeded()
+                // [T-user-ask-single-pass] No animated layout pass. The cell's
+                // height and the offset below must land in the SAME frame:
+                // animating the offset while the height is applied instantly is
+                // exactly the two-stage move the device recording shows - the
+                // card's bottom jumps down by the height delta in one frame and
+                // then climbs back over 0.2s (the user reads that as the page
+                // bouncing). The thinking row already works this way (one
+                // no-animation pass, top held) and does not bounce.
                 (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
+                cv.layoutIfNeeded()
 
                 guard let frame = cv.layoutAttributesForItem(at: ip)?.frame else { return }
                 newFrame = frame
 
                 // ---- 4. settle the offset inside the NEW legal range ----
                 let newMaxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
-                var plan = ToggleAnchorMath.cardAnchorPlan(newMinY: frame.minY, anchorY: anchorY,
+                let plan = ToggleAnchorMath.cardAnchorPlan(newMinY: frame.minY, anchorY: anchorY,
                                                            minOffset: minOff, maxOffset: newMaxOff)
-                var target = plan.offset
-                if frame.height > oldHeight + 0.5, !userHoldsOffset {
-                    let visibleTop = target + cv.adjustedContentInset.top
-                    let visibleBottom = target + cv.bounds.height - cv.adjustedContentInset.bottom
-                    reveal = ToggleAnchorMath.revealShift(cellMinY: frame.minY, cellMaxY: frame.maxY,
-                                                          visibleTop: visibleTop, visibleBottom: visibleBottom)
-                    reveal = min(reveal, max(0, max(minOff, newMaxOff) - target))
-                    target += reveal
-                }
+                let target = plan.offset
+                // [T-user-ask-single-pass] No reveal scroll. An expansion keeps
+                // the row's top where the user tapped it and lets the grown
+                // content extend downward - exactly what the thinking row does.
+                // The extra post-resize scroll was a SECOND offset write inside
+                // the animation window, i.e. another way for the page to move
+                // after the user had already seen the card grow.
                 if !userHoldsOffset, abs(target - cv.contentOffset.y) > 0.5 {
                     cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
                 }
@@ -609,21 +613,18 @@ extension CollectionViewMessageListV3.Coordinator {
                                               anchorY: settledAnchorY, token: anchorToken)
                 }
             }
-            if let duration {
-                // Short ease-out, no spring overshoot; a tap during the
-                // animation starts from where things are on screen.
-                UIView.animate(withDuration: duration, delay: 0,
-                               options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-                               animations: changes, completion: { _ in finish() })
-            } else {
-                changes()
-                finish()
-            }
-            log.info("[ThinkingCollapse] ANCHORED block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", oldHeight, newFrame?.height ?? -1)) anchorY=\(String(format: "%.1f", anchorY)) offset→\(String(format: "%.1f", cv.contentOffset.y)) reveal=\(String(format: "%.1f", reveal)) clamped=\(anchorClamped ? 1 : 0) token=\(anchorToken) animated=\(duration != nil) request=\(request != nil) drag=\(userHoldsOffset ? 1 : 0)")
+            // [T-user-ask-single-pass] One pass, no animation. The flip, the new
+            // height and the settled offset all land before the next frame is
+            // drawn, so there is no second movement for the eye to catch. This
+            // is the same contract the thinking row runs (and the reason its
+            // expansion does not bounce).
+            changes()
+            finish()
+            log.info("[ThinkingCollapse] ANCHORED block=\(blockId.uuidString.prefix(8)) idx=\(i) h=\(String(format: "%.1f→%.1f", oldHeight, newFrame?.height ?? -1)) anchorY=\(String(format: "%.1f", anchorY)) offset→\(String(format: "%.1f", cv.contentOffset.y)) reveal=\(String(format: "%.1f", reveal)) clamped=\(anchorClamped ? 1 : 0) token=\(anchorToken) animated=0 request=\(request != nil) drag=\(userHoldsOffset ? 1 : 0)")
             // [T-crash-breadcrumbs] Numbers only. A user toggle / end-of-stream
             // collapse, not a per-frame path.
             CrashBreadcrumbs.record("think.toggle",
-                                    detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) clamped=\(anchorClamped ? 1 : 0) animated=\(duration != nil ? 1 : 0)")
+                                    detail: "idx=\(i) h=\(Int(oldHeight))->\(Int(newFrame?.height ?? -1)) offset=\(Int(cv.contentOffset.y)) clamped=\(anchorClamped ? 1 : 0) animated=0")
         }
 
         /// [T-user-ask-expand-verify] The in-pass measure of a toggled card can
@@ -689,7 +690,8 @@ extension CollectionViewMessageListV3.Coordinator {
             cell.contentView.setNeedsLayout()
             cell.contentView.layoutIfNeeded()
             cell.clearCachedHeight()
-            let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+            let fitted = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
+                                                       scale: UIScreen.main.scale)
             let current = attrs.frame.height
             guard fitted.isFinite, fitted > 1, abs(fitted - current) > 0.5 else {
                 layout.endVerifyChain(token: token); return
@@ -699,13 +701,11 @@ extension CollectionViewMessageListV3.Coordinator {
             // The row may have been renumbered by a streaming flush above it.
             layout.retargetTopAnchor(token: token, index: i)
             let userHoldsOffset = cv.isTracking || cv.isDecelerating
-            let duration = ToggleAnchorMath.animationDuration(reduceMotion: UIAccessibility.isReduceMotionEnabled)
             let apply = {
                 layout.setMeasuredHeight(fitted, at: i)
                 layout.invalidateLayout()
-                (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = duration != nil
-                cv.layoutIfNeeded()
                 (cv as? NoAnimationCollectionView)?.animatesNextLayoutPass = false
+                cv.layoutIfNeeded()
                 guard let frame = cv.layoutAttributesForItem(at: ip)?.frame, !userHoldsOffset else { return }
                 let minOff = -cv.adjustedContentInset.top
                 let maxOff = cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom
@@ -725,14 +725,11 @@ extension CollectionViewMessageListV3.Coordinator {
                                               anchorY: anchorY, token: token, continuation: true)
                 }
             }
-            if duration != nil {
-                UIView.animate(withDuration: 0.2, delay: 0,
-                               options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-                               animations: apply, completion: { _ in done() })
-            } else {
-                apply()
-                done()
-            }
+            // [T-user-ask-single-pass] A correction lands the same way the toggle
+            // does: one no-animation pass. Animating it would put a second
+            // movement back into the window this fix just emptied.
+            apply()
+            done()
         }
 
         // MARK: - [T-thinking-toggle-txn] Manual thinking-row open / close
@@ -842,7 +839,8 @@ extension CollectionViewMessageListV3.Coordinator {
                     cell.contentView.setNeedsLayout()
                     cell.contentView.layoutIfNeeded()
                     cell.clearCachedHeight()
-                    let fitted = cell.preferredLayoutAttributesFitting(attrs).size.height
+                    let fitted = ToggleAnchorMath.pixelAligned(cell.preferredLayoutAttributesFitting(attrs).size.height,
+                                                       scale: UIScreen.main.scale)
                     if fitted.isFinite, fitted > 1 {
                         layout.setMeasuredHeight(fitted, at: i)
                         txn.appliedHeight = fitted

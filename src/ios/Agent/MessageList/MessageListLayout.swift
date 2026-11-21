@@ -1737,6 +1737,18 @@ enum ToggleAnchorMath {
         return max(0, min(overflow, room))
     }
 
+    /// [T-user-ask-pixel-align] Round a measured cell height to the device
+    /// pixel grid (1/scale pt) so the card's horizontal strokes land on whole
+    /// pixels. A fractional height puts the top and bottom border on a half
+    /// pixel; anti-aliasing then spreads each of them over two rows, and the
+    /// horizontal borders read thinner and paler than the vertical ones even
+    /// though the same 0.8pt stroke draws all four sides (device recording:
+    /// top/bottom peak chroma 28 vs left border 75).
+    static func pixelAligned(_ height: CGFloat, scale: CGFloat) -> CGFloat {
+        guard height.isFinite, height > 0, scale > 0 else { return height }
+        return (height * scale).rounded() / scale
+    }
+
     /// The layout skips its visible-cell offset compensation for the cell
     /// being toggled, so a late self-size correction cannot push it upward.
     static func skipsVisibleCompensation(index: Int, anchored: Int?) -> Bool {
