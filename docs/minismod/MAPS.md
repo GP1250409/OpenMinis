@@ -50,22 +50,24 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 - 连续/离散分箱图例采用单行 `6pt` 色带与不重叠共享边界刻度（`9.5pt`），并在「无数据」行右侧给出首末档范围摘要；副标题采用 `11pt` 自动换行。
 - 暗色承载表面（`luminance < 0.179`）下，画布主文字与刻度采用高对比近白 `#F3F4F6`、说明与次要文字采用 `#B8C0CC`，保留原有分箱填充色与色阶顺序不变。
 
-## 5. highlight 图例：小字号单列、一色一项（mod-showui-map-chips-20261121）
+## 5. highlight 图例：单行优先、一项一色（mod-showui-map-chips-20261121）
 
-`highlight` 的每个 region code 渲染为一个 **由内容决定宽度** 的 chip，不再是横贯卡片的色条；三个 code 就是三行图例、三种颜色，地图上该区域的轮廓描边使用同一颜色。几何常量集中在 `MUMapChipStyle`（`MinisUIMapCore.swift`），测高公式与 `Canvas` 绘制读取同一份 `m.highlightChips`，因此占位与绘制不会脱节。
+`highlight` 的每个 region code 渲染为一个 **由内容决定宽度** 的 chip，不再是横贯卡片的色条。几何常量集中在 `MUMapChipStyle`（`MinisUIMapCore.swift`），测高公式与 `Canvas` 绘制读取同一份 `m.highlightChips`，因此占位与绘制不会脱节。
 
 | 项目 | 值 |
 |---|---|
 | 字号 | `11pt`（semibold，与 canvas 绘制字体同源测量） |
 | 水平 / 垂直内边距 | `6pt` / `3pt`（chip 高度 = 行高 + 6） |
 | 圆角 | `4pt` |
-| 行距 | `4pt`；每项单独一行，左边缘统一 `x = 10` |
+| chip 间距 | 同一行 `6pt`，换行 `4pt` |
 | 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |
 | chip 块到来源/说明 | `6pt`（`contentY`） |
 | 最大宽度 | 卡片可用宽度（`width − 20`），超长尾部省略号截断，不换行、不缩字 |
+| 上限 | 5 个 code；多余的按顺序丢弃，不报错 |
 
-- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 6pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差），因此「阿联酋 78 指数」天然比「美国 5 指数」宽；卡片从 320pt 拉宽到 430pt 时 chip 宽度不变（除非触到上限）。
-- 颜色按 highlight 的数据顺序取 `MUMapHighlightColors`：system 蓝/橙/紫，economist 红/蓝/金，2017 红/蓝/金；每色都按承载表面做 `readable` 适配，并保证 chip 文字与其底色 ≥ 4.5:1（黑/白按亮度 0.179 分界）。
+- 布局是**单行优先**的流式排布：三个短标签一行放得下就只占一行（320pt 卡片上「TX/NC/OH + 百分点」合计约 290pt），放不下才换到第二行，再放不下才继续下一行（不退化成丢信息的截断）。整行左对齐在 `x = 10`。
+- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 6pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
+- 颜色按 highlight 的数据顺序取 `MUMapHighlightColors`（每主题 5 槽，互不相同）：system 蓝/橙/紫/绿/红，economist 红/蓝/金/紫/绿，2017 红/蓝/金/绿/紫；每色按承载表面做 `readable` 适配，chip 文字与底色 ≥ 4.5:1。地图上该区域的轮廓描边使用同一颜色。
 - 文字由 `label + "  " + 数值 + 单位` 组成；数值沿用 `%.4g`，无数据时显示「无数据」，单位为空时不追加空格。
-- `highlight` 仍最多 3 个 code，`bins` / `cutout` / `mode` / `points` 行为不变。
-- 回归：`scripts/map-tests/main.swift` 覆盖 chip 宽度随文本、320→430 不变、单列对齐、4pt 行距、超宽截断、无 highlight 不留空、`estimatedHeight` 精确一致，以及三种主题 × 四种承载表面下的「三色互异 / 可见 / 文字 ≥4.5:1」；`scripts/map-tests/MapRenderFixture.swift` 的来源行采样改读 `m.contentY`（原先写死 `footerY + 42`，只在恰好 3 条 14pt 色条时成立）。
+- `bins` / `cutout` / `mode` / `points` 行为不变。
+- 回归：`scripts/map-tests/main.swift` 覆盖宽度随文本、320→430 不变、单行优先、6pt/4pt 间距、5 个合法且 2 行、第 6 个静默丢弃、超宽截断、无 highlight 不留空、`estimatedHeight` 精确一致，以及三种主题 × 四种承载表面下的「五色互异 / 可见 / 文字 ≥4.5:1」；`scripts/map-tests/MapRenderFixture.swift` 的来源行采样改读 `m.contentY`（原先写死 `footerY + 42`，只在恰好 3 条 14pt 色条时成立）。

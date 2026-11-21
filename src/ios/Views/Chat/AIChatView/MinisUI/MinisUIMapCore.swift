@@ -286,6 +286,8 @@ enum MUMapChipStyle {
     static let horizontalPadding = 6.0
     static let verticalPadding = 3.0
     static let cornerRadius = 4.0
+    /// Chip-to-chip gap inside a row.
+    static let columnGap = 6.0
     static let rowGap = 4.0
     /// Plot bottom edge → first chip row.
     static let mapGap = 8.0
@@ -297,15 +299,16 @@ enum MUMapChipStyle {
     static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
 }
 enum MUMapChipLayout {
-    /// One legend row per highlight: the chip hugs its own text, starts on the
-    /// plot's left edge, and clamps to the usable width (the Canvas then ends it
-    /// with an ellipsis). A single column keeps three different widths tidy.
+    /// Single row first: chips sit side by side 6pt apart, wrap once when the
+    /// row is full (4pt row gap), and only continue onto further rows when a
+    /// clamped chip leaves no room — the legend never drops an entry. Each chip
+    /// hugs its own text and clamps to the usable width (Canvas ellipsizes).
     static func chips(_ c: MUComp, values: [String: Double], region: String, width: Double) -> [MUMapChip] {
         let usable = max(1.0, width - MUMapChipStyle.margin * 2)
         let unit = c.str("unit") ?? ""
         var result: [MUMapChip] = []
-        var y = 0.0
-        for (index, code) in MUMapCore.highlights(c).prefix(3).enumerated() {
+        var x = MUMapChipStyle.margin, y = 0.0
+        for (index, code) in MUMapCore.highlights(c).prefix(MUMapHighlightColors.slotCount).enumerated() {
             let label = c.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
                 : MUMapPackStore.shared.displayName(for: code, region: region)
@@ -313,9 +316,13 @@ enum MUMapChipLayout {
             let text = label + "  " + value
             let natural = Double(MUMapTypography.measure(text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
             let w = min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))
+            if x > MUMapChipStyle.margin, x + w > MUMapChipStyle.margin + usable + 0.001 {
+                x = MUMapChipStyle.margin
+                y += MUMapChipStyle.height + MUMapChipStyle.rowGap
+            }
             result.append(MUMapChip(index: index, text: text,
-                                    frame: CGRect(x: MUMapChipStyle.margin, y: y, width: w, height: MUMapChipStyle.height)))
-            y += MUMapChipStyle.height + MUMapChipStyle.rowGap
+                                    frame: CGRect(x: x, y: y, width: w, height: MUMapChipStyle.height)))
+            x += w + MUMapChipStyle.columnGap
         }
         return result
     }
@@ -324,13 +331,13 @@ enum MUMapChipLayout {
 /// The three hues stay clearly different (never three blues) and are re-checked
 /// against the real card surface so small chips keep >=4.5:1 ink contrast.
 enum MUMapHighlightColors {
-    static let slotCount = 3
+    static let slotCount = 5
     static func resolve(style: String, surface: MUMapRGB) -> [MUMapRGB] {
         let base: [String]
         switch style {
-        case "economist2017": base = ["#E3120B", "#006BA2", "#EBB434"] // red / blue / gold
-        case "economist": base = ["#E62923", "#0F5499", "#EBB434"]     // red / blue / gold
-        default: base = ["#007AFF", "#FF9500", "#AF52DE"]              // blue / orange / purple
+        case "economist2017": base = ["#E3120B", "#006BA2", "#EBB434", "#1B7F4B", "#7A4E9E"]
+        case "economist": base = ["#E62923", "#0F5499", "#EBB434", "#7A4E9E", "#1B7F4B"]
+        default: base = ["#007AFF", "#FF9500", "#AF52DE", "#34C759", "#FF3B30"]
         }
         let floor = surface.luminance < 0.179 ? 3.6 : 3.0
         return base.map { MUMapRGB(hex: $0).readable(on: surface, minimum: floor) }
@@ -614,7 +621,6 @@ enum MUMapCore {
                 fail("map-bins", "diverging bins must be zero-symmetric and include zero")
             }
         }
-        if c.strings("highlight").count > 3 { fail("map-highlight", "at most 3 highlights; use a separate legend/Text for more") }
         if c.name == "GeoMap", let packMeta {
             let points = c.matrix("points"), labels = c.strings("pointLabels")
             if points.count > 30 { fail("map-points", "at most 30 points") }
