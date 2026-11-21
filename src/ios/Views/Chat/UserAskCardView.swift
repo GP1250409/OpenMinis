@@ -503,7 +503,7 @@ struct UserAskCardView: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(Color.gray.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.gray.opacity(0.25), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gray.opacity(0.25), lineWidth: 0.8))
     }
 
     /// [T-user-ask-notsent-retry] Retry on the session's last not-sent run
@@ -557,7 +557,7 @@ struct UserAskCardView: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(ChatColors.tint.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ChatColors.tint.opacity(0.35), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(ChatColors.tint.opacity(0.35), lineWidth: 0.8))
     }
 }
 
@@ -652,7 +652,7 @@ private struct UserAskPendingCard: View {
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(tint.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.45), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.45), lineWidth: 1))
         .onChange(of: ask.currentIndex) { _ in
             // The new question starts from its own remembered state (collapsed
             // unless the user opened it earlier in this card).
@@ -1205,7 +1205,7 @@ private struct UserAskResolvedCard: View {
         .padding(.vertical, 12)
         .background(tint.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(tint.opacity(0.35), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.35), lineWidth: 0.8))
         .opacity(dismissReason == .supersededByUserMessage ? 0.6 : 1)
         // [T-user-ask-expand-anim] While the height animates, the cell and
         // the card are briefly different heights; pin the card to the top of
