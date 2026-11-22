@@ -280,7 +280,7 @@ struct MUMapChip: Equatable {
     let frame: CGRect
 }
 enum MUMapChipStyle {
-    static let fontSize = 8.0
+    static let fontSize = 9.0
     static let horizontalPadding = 4.0
     static let verticalPadding = 2.0
     static let cornerRadius = 3.0

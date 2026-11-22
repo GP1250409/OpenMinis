@@ -56,8 +56,8 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 
 | 项目 | 值 |
 |---|---|
-| 字号 | `8pt`（semibold，与 canvas 绘制字体同源测量） |
-| 水平 / 垂直内边距 | `4pt` / `2pt`（chip 高度 = 行高 + 4 ≈ 15pt） |
+| 字号 | `9pt`（semibold，与 canvas 绘制字体同源测量） |
+| 水平 / 垂直内边距 | `4pt` / `2pt`（chip 高度 = 行高 + 4 ≈ 15–16pt） |
 | 圆角 | `3pt` |
 | chip 间距 | 同一行 `6pt`，换行 `4pt` |
 | 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |

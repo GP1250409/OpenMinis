@@ -395,7 +395,7 @@ store.resetToDefaultSearchPaths()
 try? FileManager.default.removeItem(at: synthRoot)
 
 // [T-showui-map-chips] Highlight captions: content-sized chips under the map
-// (8pt + 4×2pt padding, 6pt column gap, 4pt row gap), single row for 1–3 when
+// (9pt + 4×2pt padding, 6pt column gap, 4pt row gap), single row for 1–3 when
 // they fit, balanced multi-row split for 4–5, unified theme accent, map outline
 // in the same colour.
 let chipProgram = "root = GeoMap(\"world\", [\"CN\", \"US\", \"DE\", \"AE\", \"JP\", \"BR\"], [80, 5, 86, 78, 89, 55], \"blue\", \"示例指数\", \"示意数据\", \"示意数据\", \"指数\", [\"CN\", \"US\", \"AE\"], [40, 70], \"cutout\")"
@@ -406,7 +406,7 @@ if let chipComp = chipV.root {
     check(m320.highlightChips.count == 3, "three highlight chips")
     check(m320.highlightChips.first?.text.hasPrefix("中国") == true, "chips keep data order")
     check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×2pt")
-    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 8, bold: true) + 4)) < 1e-9, "8pt chip height")
+    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 9, bold: true) + 4)) < 1e-9, "9pt chip height")
     check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count >= 2, "caption width follows its text")
     check(m320.highlightChips.last?.frame.width == m320.highlightChips.map { $0.frame.width }.max(), "the longest caption earns the widest chip")
     check(m320.highlightChips.allSatisfy { $0.frame.width < 300 - 1 }, "captions never stretch across the card")
