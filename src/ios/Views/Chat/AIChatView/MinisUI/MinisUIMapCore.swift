@@ -280,10 +280,10 @@ struct MUMapChip: Equatable {
     let frame: CGRect
 }
 enum MUMapChipStyle {
-    static let fontSize = 10.0
-    static let horizontalPadding = 5.0
-    static let verticalPadding = 3.0
-    static let cornerRadius = 4.0
+    static let fontSize = 8.0
+    static let horizontalPadding = 4.0
+    static let verticalPadding = 2.0
+    static let cornerRadius = 3.0
     /// Chip-to-chip gap inside a row.
     static let columnGap = 6.0
     static let rowGap = 4.0
@@ -299,15 +299,14 @@ enum MUMapChipStyle {
     static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
 }
 enum MUMapChipLayout {
-    /// Single row first: chips sit side by side 6pt apart, wrap once when the
-    /// row is full (4pt row gap), and only continue onto further rows when a
-    /// clamped chip leaves no room — the legend never drops an entry. Each chip
-    /// hugs its own text and clamps to the usable width (Canvas ellipsizes).
+    /// Even rows: the fewest rows that fit, split as evenly as possible while
+    /// keeping data order — four captions become 2+2 rather than 3+1, five
+    /// become 3+2. Each chip hugs its own text and clamps to the usable width
+    /// (the Canvas then ends it with an ellipsis).
     static func chips(_ c: MUComp, values: [String: Double], region: String, width: Double) -> [MUMapChip] {
         let usable = max(1.0, width - MUMapChipStyle.margin * 2)
         let unit = c.str("unit") ?? ""
-        var result: [MUMapChip] = []
-        var x = MUMapChipStyle.margin, y = 0.0
+        var entries: [(text: String, width: Double)] = []
         for code in MUMapCore.highlights(c).prefix(MUMapChipStyle.highlightLimit) {
             let label = c.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
@@ -315,18 +314,43 @@ enum MUMapChipLayout {
             let value = values[code].map { String(format:"%.4g",$0) + (unit.isEmpty ? "" : " " + unit) } ?? MUMapL10n.noData
             let text = label + "  " + value
             let natural = Double(MUMapTypography.measure(text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
-            let w = min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))
-            if x > MUMapChipStyle.margin, x + w > MUMapChipStyle.margin + usable + 0.001 {
-                x = MUMapChipStyle.margin
-                y += MUMapChipStyle.height + MUMapChipStyle.rowGap
+            entries.append((text, min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))))
+        }
+        var result: [MUMapChip] = []
+        var y = 0.0
+        for row in balancedRows(entries.map { $0.width }, usable: usable) {
+            var x = MUMapChipStyle.margin
+            for i in row {
+                result.append(MUMapChip(text: entries[i].text,
+                                        frame: CGRect(x: x, y: y, width: entries[i].width, height: MUMapChipStyle.height)))
+                x += entries[i].width + MUMapChipStyle.columnGap
             }
-            result.append(MUMapChip(text: text,
-                                    frame: CGRect(x: x, y: y, width: w, height: MUMapChipStyle.height)))
-            x += w + MUMapChipStyle.columnGap
+            y += MUMapChipStyle.height + MUMapChipStyle.rowGap
         }
         return result
     }
+
+    private static func balancedRows(_ widths: [Double], usable: Double) -> [[Int]] {
+        guard !widths.isEmpty else { return [] }
+        func rowWidth(_ idx: [Int]) -> Double {
+            idx.reduce(0.0) { $0 + widths[$1] } + Double(max(0, idx.count - 1)) * MUMapChipStyle.columnGap
+        }
+        // Four or more captions always split into balanced rows (2+2, 3+2): a
+        // lone caption stranded under a full row reads as a mistake.
+        for rows in (widths.count >= 4 ? 2 : 1)...widths.count {
+            var groups: [[Int]] = [], start = 0
+            for k in 0..<rows {
+                let n = widths.count / rows + (k < widths.count % rows ? 1 : 0)
+                groups.append(Array(start..<(start + n)))
+                start += n
+            }
+            if groups.allSatisfy({ rowWidth($0) <= usable + 0.001 }) { return groups }
+        }
+        // A caption wider than the card still gets its own row (Canvas ellipsizes).
+        return widths.indices.map { [$0] }
+    }
 }
+
 /// Shared framing rules for GeoMap: the plot is sized to the pack's ink plus a
 /// hair of margin, so the map fills the card without land touching the border.
 enum MUMapFraming {

@@ -385,8 +385,8 @@ if let chipComp = chipV.root {
     let m320 = MUMapMetrics(chipComp, width: 320), m430 = MUMapMetrics(chipComp, width: 430)
     check(m320.highlightChips.count == 3, "three highlight chips")
     check(m320.highlightChips.first?.text.hasPrefix("中国") == true, "chips keep data order")
-    check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×4pt")
-    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 10, bold: true) + 6)) < 1e-9, "10pt chip height")
+    check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×2pt")
+    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 8, bold: true) + 4)) < 1e-9, "8pt chip height")
     check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count >= 2, "caption width follows its text")
     check(m320.highlightChips.last?.frame.width == m320.highlightChips.map { $0.frame.width }.max(), "the longest caption earns the widest chip")
     check(m320.highlightChips.allSatisfy { $0.frame.width < 300 - 1 }, "captions never stretch across the card")
@@ -395,7 +395,7 @@ if let chipComp = chipV.root {
         check(abs(chip.frame.width - (natural + MUMapChipStyle.horizontalPadding * 2 + 1)) < 0.51, "chip width follows its text")
     }
     check(abs(m320.highlightChips[0].frame.minX - 10) < 1e-9, "the row starts on the map's left edge")
-    let mNarrow = MUMapMetrics(chipComp, width: 240), mWide = MUMapMetrics(chipComp, width: 400)
+    let mNarrow = MUMapMetrics(chipComp, width: 170), mWide = MUMapMetrics(chipComp, width: 400)
     check(Set(mWide.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 1, "three captions share one row once the card is wide enough")
     check(Set(mNarrow.highlightChips.map { Int($0.frame.minY.rounded()) }).count >= 2, "a narrow card flows them onto a second row")
     for (a, b) in zip(mWide.highlightChips, mWide.highlightChips.dropFirst()) {
@@ -418,18 +418,32 @@ if let chipComp = chipV.root {
     check(MinisUIEngine.estimatedHeight(chipComp, width: 320) == CGFloat(m320.height), "estimatedHeight exact with chips")
     check(m320.highlightChips.allSatisfy { !$0.text.isEmpty && $0.text.contains("  ") }, "chip text is region + value")
 
+    // Balanced rows: four captions that do not fit on one row split 2+2, never 3+1.
+    let four = MinisUIEngine.validate("root = BlockMap(\"us\", [\"CA\", \"TX\", \"NY\", \"FL\"], [11, 2, 33, 4], null, \"高亮\", null, null, \"亿\", [\"CA\", \"TX\", \"NY\", \"FL\"], null)")
+    check(four.ok, "four highlights validate")
+    if let fourComp = four.root {
+        let f4 = MUMapMetrics(fourComp, width: 225), wide4 = MUMapMetrics(fourComp, width: 400)
+        let rows = Dictionary(grouping: f4.highlightChips) { Int($0.frame.minY.rounded()) }
+        check(rows.count == 2, "four captions that overflow use two rows")
+        check(rows.values.map(\.count).sorted() == [2, 2], "four captions split 2+2, never 3+1")
+        let wideRows = Dictionary(grouping: wide4.highlightChips) { Int($0.frame.minY.rounded()) }
+        check(wideRows.values.map(\.count).sorted() == [2, 2], "four captions stay 2+2 on a wide card")
+        check(zip(f4.highlightChips, f4.highlightChips.dropFirst()).allSatisfy { a, b in
+            a.frame.minY != b.frame.minY || abs(b.frame.minX - (a.frame.maxX + MUMapChipStyle.columnGap)) < 1e-9
+        }, "row members keep 6pt gaps in data order")
+    }
     // Five entries are legal (no validation error) and flow onto a second row;
     // a sixth is dropped in order, never rejected.
     let five = MinisUIEngine.validate("root = BlockMap(\"us\", [\"CA\", \"TX\", \"NY\", \"FL\", \"OH\"], [11, 2, 33, 4, 55], null, \"高亮\", null, null, \"亿\", [\"CA\", \"TX\", \"NY\", \"FL\", \"OH\"], null)")
     check(five.ok, "five highlights validate without the old cap error")
     if let fiveComp = five.root {
-        let fm = MUMapMetrics(fiveComp, width: 320)
+        let fm = MUMapMetrics(fiveComp, width: 250)
         check(fm.highlightChips.count == 5, "all five entries are kept")
-        check(Set(fm.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 2, "five captions flow onto two rows")
-        check(fm.highlightChips.allSatisfy { $0.frame.maxX <= 310 + 1e-9 }, "wrapped rows stay inside the card")
+        check(Set(fm.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 2, "five captions balance onto two rows")
+        check(fm.highlightChips.allSatisfy { $0.frame.maxX <= 240 + 1e-9 }, "wrapped rows stay inside the card")
         check(zip(fm.highlightChips, fm.highlightChips.dropFirst()).filter { $0.0.frame.minY != $0.1.frame.minY }.allSatisfy { abs($0.1.frame.minY - ($0.0.frame.maxY + MUMapChipStyle.rowGap)) < 1e-9 }, "4pt between chip rows")
         check(fm.height == ceil(fm.contentY + fm.sourceHeight + fm.noteHeight + 10), "two rows counted once")
-        check(MinisUIEngine.estimatedHeight(fiveComp, width: 320) == CGFloat(fm.height), "estimatedHeight exact for five chips")
+        check(MinisUIEngine.estimatedHeight(fiveComp, width: 250) == CGFloat(fm.height), "estimatedHeight exact for five chips")
     }
     let six = MinisUIEngine.validate("root = BlockMap(\"us\", [\"CA\", \"TX\", \"NY\", \"FL\", \"OH\"], [11, 2, 33, 4, 55], null, \"高亮\", null, null, null, [\"CA\", \"TX\", \"NY\", \"FL\", \"OH\", \"WA\"], null)")
     check(six.ok, "a sixth highlight is ignored instead of rejected")
