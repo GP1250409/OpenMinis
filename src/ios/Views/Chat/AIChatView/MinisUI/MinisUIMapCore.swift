@@ -280,8 +280,8 @@ struct MUMapChip: Equatable {
     let frame: CGRect
 }
 enum MUMapChipStyle {
-    static let fontSize = 11.0
-    static let horizontalPadding = 6.0
+    static let fontSize = 10.0
+    static let horizontalPadding = 5.0
     static let verticalPadding = 3.0
     static let cornerRadius = 4.0
     /// Chip-to-chip gap inside a row.
@@ -499,7 +499,10 @@ struct MUMapMetrics {
         if c.name == "GeoMap" {
             let cw = max(1.0, packMeta?.manifest.canvas.width ?? 1000.0)
             let ch = max(1.0, packMeta?.manifest.canvas.height ?? 640.0)
-            plotHeight = max(1, usable * (ch / cw))
+            // Size the slot to the ink, not the canvas: packs keep empty ocean
+            // margins, and matching the canvas left the world map looking small.
+            let aspect = MUMapPackStore.shared.contentAspect(for: regionArg) ?? (ch / cw)
+            plotHeight = max(1, usable * aspect)
         } else {
             plotHeight = Double(rows)*cell+Double(rows-1)*2
         }

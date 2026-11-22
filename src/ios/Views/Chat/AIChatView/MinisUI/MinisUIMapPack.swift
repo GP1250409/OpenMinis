@@ -302,6 +302,9 @@ final class MUMapDecodedGeometry {
     let featurePaths: [CGPath]
     let overlayPaths: [(kind: UInt16, path: CGPath)]
     #endif
+    /// Union of every feature's bounding box: the map's ink, without the empty
+    /// margins the pack canvas carries around the continents.
+    let contentBounds: CGRect
 
     init(features: [[[CGPoint]]], overlays: [MUMapOverlay], byteCost: Int) {
         self.features = features
@@ -318,6 +321,9 @@ final class MUMapDecodedGeometry {
             }
             return p
         }
+        var ink = CGRect.null
+        for p in self.featurePaths where !p.isEmpty { ink = ink.union(p.boundingBox) }
+        self.contentBounds = ink.isNull ? .zero : ink
         self.overlayPaths = overlays.map { ov in
             let p = CGMutablePath()
             if let first = ov.points.first {
@@ -327,6 +333,8 @@ final class MUMapDecodedGeometry {
             }
             return (ov.kind, p)
         }
+        #else
+        self.contentBounds = .zero
         #endif
     }
 }
@@ -483,6 +491,9 @@ final class MUMapPackStore {
     private var orderedIds: [String] = []
 
     private var geomCache: [String: MUMapDecodedGeometry] = [:]
+    /// Ink aspect (height/width) per pack. Kept after the geometry is evicted so
+    /// layout never has to decode just to size the card.
+    private var inkAspect: [String: Double] = [:]
     private var lruOrder: [String] = []
     private var totalCachedBytes = 0
 
@@ -501,6 +512,7 @@ final class MUMapPackStore {
     func clearCache() {
         lock.lock(); defer { lock.unlock() }
         geomCache.removeAll()
+        inkAspect.removeAll()
         lruOrder.removeAll()
         totalCachedBytes = 0
     }
@@ -577,8 +589,26 @@ final class MUMapPackStore {
         }
 
         guard let geom = decoded else { return nil }
+        let ink = geom.contentBounds
+        if ink.width > 1, ink.height > 1 { inkAspect[pid] = Double(ink.height / ink.width) }
         insertCacheLocked(pid, geom: geom)
         return geom
+    }
+
+    /// Height/width of the pack's ink, or nil while the pack has never been
+    /// decoded (callers fall back to the declared canvas).
+    func contentAspect(for rawRegion: String) -> Double? {
+        if let cached = cachedAspect(rawRegion) { return cached }
+        _ = geometry(for: rawRegion)
+        return cachedAspect(rawRegion)
+    }
+
+    private func cachedAspect(_ rawRegion: String) -> Double? {
+        lock.lock(); defer { lock.unlock() }
+        ensureCatalogLoadedLocked()
+        let key = rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let pid = aliasToId[key] else { return nil }
+        return inkAspect[pid]
     }
 
     // MARK: - Internal helpers
@@ -589,6 +619,7 @@ final class MUMapPackStore {
         aliasToId.removeAll()
         orderedIds.removeAll()
         geomCache.removeAll()
+        inkAspect.removeAll()
         lruOrder.removeAll()
         totalCachedBytes = 0
     }

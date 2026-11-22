@@ -270,9 +270,13 @@ struct MUMapView: View {
         if location { context.fill(Path(rect),with:.color(theme.sea.color)) }
 
         let cw=max(1.0,packMeta.manifest.canvas.width), ch=max(1.0,packMeta.manifest.canvas.height)
-        let canvasSize=CGSize(width:cw,height:ch)
-        let viewScale=min(rect.width/cw,rect.height/ch)
-        let tx=rect.midX-(cw/2)*viewScale, ty=rect.midY-(ch/2)*viewScale
+        // Frame the ink, not the canvas: the pack canvas carries empty ocean
+        // margins, which made the world map sit small inside its own card.
+        var frame=CGRect(x:0,y:0,width:cw,height:ch)
+        let ink=packGeom.contentBounds
+        if ink.width>1, ink.height>1 { frame=ink }
+        let viewScale=min(rect.width/frame.width,rect.height/frame.height)
+        let tx=rect.midX-frame.midX*viewScale, ty=rect.midY-frame.midY*viewScale
         var xform=CGAffineTransform(translationX:tx,y:ty).scaledBy(x:viewScale,y:viewScale)
 
         var ctx=context
@@ -317,7 +321,7 @@ struct MUMapView: View {
 
         for zone in packMeta.manifest.zones {
             if let lbl=zone.insetLabel {
-                let a=MUMapProjection.view(CGPoint(x:lbl.x,y:lbl.y),canvasSize:canvasSize,in:rect)
+                let a=CGPoint(x:lbl.x,y:lbl.y).applying(xform)
                 let lblColor=location ? MUMapTheme.resolve(style).landText.readable(on:theme.sea) : theme.landText.readable(on:surface)
                 text(lbl.text,CGRect(x:a.x,y:a.y-10,width:72,height:12),context:context,color:lblColor,size:8)
             }
@@ -326,7 +330,7 @@ struct MUMapView: View {
         let labels=comp.strings("pointLabels")
         for (i,p) in comp.matrix("points").enumerated() where p.count == 3 {
             guard let raw=MUMapProjection.projectPoint(lon:p[0],lat:p[1],manifest:packMeta.manifest) else { continue }
-            let a=MUMapProjection.view(raw,canvasSize:canvasSize,in:rect), capital=p[2] == 1
+            let a=raw.applying(xform), capital=p[2] == 1
             let diameter=capital ? 3.5 : 3.0
             let marker=CGRect(x:a.x-diameter/2,y:a.y-diameter/2,width:diameter,height:diameter)
             let shape=capital ? Path(marker) : Path(ellipseIn:marker)

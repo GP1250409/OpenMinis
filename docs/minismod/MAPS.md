@@ -56,8 +56,8 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 
 | 项目 | 值 |
 |---|---|
-| 字号 | `11pt`（semibold，与 canvas 绘制字体同源测量；11pt 是「仍能单行又有留白」的上限） |
-| 水平 / 垂直内边距 | `6pt` / `3pt`（chip 高度 = 行高 + 6 ≈ 20pt） |
+| 字号 | `10pt`（semibold，与 canvas 绘制字体同源测量） |
+| 水平 / 垂直内边距 | `5pt` / `3pt`（chip 高度 = 行高 + 6 ≈ 18pt） |
 | 圆角 | `4pt` |
 | chip 间距 | 同一行 `6pt`，换行 `4pt` |
 | 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |
@@ -65,8 +65,9 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 | 最大宽度 | 卡片可用宽度（`width − 20`），超长尾部省略号截断，不换行、不缩字 |
 | 上限 | 5 个 code；多余的按顺序丢弃，不报错 |
 
-- 布局是**单行优先**的流式排布：放得下就只占一行，放不下才按 4pt 行距换行。320pt 卡片上「TX/NC/OH + 百分点」三项合计约 292pt（可用 300pt），已经是一行；四枚中文标签（美国/中国/阿联酋/哈萨克斯坦）约 370pt，在手机上仍会 3+1。整行左对齐在 `x = 10`。
-- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 6pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
+- 布局是**单行优先**的流式排布：放得下就只占一行，放不下才按 4pt 行距换行。整行左对齐在 `x = 10`。
+- **地图取景**：GeoMap 的绘图矩形按 pack 的 *内容边界*（所有 feature 的 boundingBox 并集）而不是清单里的画布尺寸来计算和缩放，playground 画布四周的空白海域不会再被算进去——世界地图因此放大约 1.2–1.3 倍并铺满卡片宽度；点/标签走同一个仿射变换，不会漂移。纯 canvas 尺寸仅在 pack 尚未解码时兜底。
+- 宽度公式：`chipWidth = ceil(textWidth) + 2 × 5pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
 - 颜色沿用回调前的规则：所有标注与地图轮廓统一使用主题强调色 `theme.accent`（按承载表面 `readable` 适配），chip 文字用 `theme.accent.ink`，对比度恒定 ≥ 4.5:1。不逐项分色。
 - 文字由 `label + "  " + 数值 + 单位` 组成；数值沿用 `%.4g`，无数据时显示「无数据」，单位为空时不追加空格。
 - `bins` / `cutout` / `mode` / `points` 行为不变。
