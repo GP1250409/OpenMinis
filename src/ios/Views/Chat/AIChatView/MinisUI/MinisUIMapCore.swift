@@ -281,8 +281,8 @@ struct MUMapChip: Equatable {
 }
 enum MUMapChipStyle {
     static let fontSize = 11.0
-    static let horizontalPadding = 8.0
-    static let verticalPadding = 4.0
+    static let horizontalPadding = 6.0
+    static let verticalPadding = 3.0
     static let cornerRadius = 4.0
     /// Chip-to-chip gap inside a row.
     static let columnGap = 6.0

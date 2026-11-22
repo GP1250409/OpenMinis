@@ -386,7 +386,7 @@ if let chipComp = chipV.root {
     check(m320.highlightChips.count == 3, "three highlight chips")
     check(m320.highlightChips.first?.text.hasPrefix("中国") == true, "chips keep data order")
     check(m320.highlightChips.allSatisfy { abs($0.frame.height - MUMapChipStyle.height) < 1e-9 }, "chip height = line + 2×4pt")
-    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 11, bold: true) + 8)) < 1e-9, "11pt chip height")
+    check(abs(MUMapChipStyle.height - (MUMapTypography.lineHeight(size: 11, bold: true) + 6)) < 1e-9, "11pt chip height")
     check(Set(m320.highlightChips.map { Int($0.frame.width.rounded()) }).count >= 2, "caption width follows its text")
     check(m320.highlightChips.last?.frame.width == m320.highlightChips.map { $0.frame.width }.max(), "the longest caption earns the widest chip")
     check(m320.highlightChips.allSatisfy { $0.frame.width < 300 - 1 }, "captions never stretch across the card")
@@ -395,10 +395,10 @@ if let chipComp = chipV.root {
         check(abs(chip.frame.width - (natural + MUMapChipStyle.horizontalPadding * 2 + 1)) < 0.51, "chip width follows its text")
     }
     check(abs(m320.highlightChips[0].frame.minX - 10) < 1e-9, "the row starts on the map's left edge")
-    let m360 = MUMapMetrics(chipComp, width: 360)
-    check(Set(m360.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 1, "three captions share one row once the card is wide enough")
-    check(Set(m320.highlightChips.map { Int($0.frame.minY.rounded()) }).count >= 2, "a narrow card flows them onto a second row")
-    for (a, b) in zip(m360.highlightChips, m360.highlightChips.dropFirst()) {
+    let mNarrow = MUMapMetrics(chipComp, width: 300), mWide = MUMapMetrics(chipComp, width: 400)
+    check(Set(mWide.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 1, "three captions share one row once the card is wide enough")
+    check(Set(mNarrow.highlightChips.map { Int($0.frame.minY.rounded()) }).count >= 2, "a narrow card flows them onto a second row")
+    for (a, b) in zip(mWide.highlightChips, mWide.highlightChips.dropFirst()) {
         check(abs(b.frame.minX - (a.frame.maxX + MUMapChipStyle.columnGap)) < 1e-9, "6pt between chips in a row")
         check(abs(b.frame.minY - a.frame.minY) < 1e-9, "same row shares the top edge")
     }
