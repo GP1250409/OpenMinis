@@ -304,8 +304,8 @@ for pid in expectedPacks {
     check(v.ok, "Lang valid for pack \(pid)")
     if let root = v.root, let mapComp = root.children.first, let meta = store.metadata(for: pid) {
         let m = MUMapMetrics(mapComp, width: 320)
-        let expectedRatio = meta.manifest.canvas.height / meta.manifest.canvas.width
-        check(abs(m.plotHeight - 300.0 * expectedRatio) < 1e-6, "\(pid) plotHeight matches manifest canvas aspect ratio")
+        let expectedRatio = store.contentAspect(for: pid) ?? (meta.manifest.canvas.height / meta.manifest.canvas.width)
+        check(abs(m.plotHeight - 300.0 * expectedRatio) < 1e-6, "\(pid) plotHeight matches the ink aspect")
         check(MinisUIEngine.estimatedHeight(mapComp, width: 320) == m.height, "\(pid) estimatedHeight exact")
     }
 }

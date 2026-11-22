@@ -310,6 +310,15 @@ final class MUMapDecodedGeometry {
         self.features = features
         self.overlays = overlays
         self.byteCost = byteCost
+        // Ink bounds from the raw points, so UIKit and the Foundation test
+        // runner frame a pack identically.
+        var ink = CGRect.null
+        for rings in features {
+            for ring in rings {
+                for pt in ring { ink = ink.union(CGRect(x: pt.x, y: pt.y, width: 0, height: 0)) }
+            }
+        }
+        self.contentBounds = ink.isNull ? .zero : ink
         #if canImport(CoreGraphics)
         self.featurePaths = features.map { rings in
             let p = CGMutablePath()
@@ -321,9 +330,6 @@ final class MUMapDecodedGeometry {
             }
             return p
         }
-        var ink = CGRect.null
-        for p in self.featurePaths where !p.isEmpty { ink = ink.union(p.boundingBox) }
-        self.contentBounds = ink.isNull ? .zero : ink
         self.overlayPaths = overlays.map { ov in
             let p = CGMutablePath()
             if let first = ov.points.first {
@@ -333,8 +339,6 @@ final class MUMapDecodedGeometry {
             }
             return (ov.kind, p)
         }
-        #else
-        self.contentBounds = .zero
         #endif
     }
 }
