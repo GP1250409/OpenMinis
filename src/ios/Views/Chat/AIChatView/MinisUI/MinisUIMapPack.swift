@@ -593,7 +593,7 @@ final class MUMapPackStore {
         }
 
         guard let geom = decoded else { return nil }
-        let ink = geom.contentBounds
+        let ink = MUMapFraming.padded(geom.contentBounds)
         if ink.width > 1, ink.height > 1 { inkAspect[pid] = Double(ink.height / ink.width) }
         insertCacheLocked(pid, geom: geom)
         return geom

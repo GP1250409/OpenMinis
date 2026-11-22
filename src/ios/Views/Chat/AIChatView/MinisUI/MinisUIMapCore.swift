@@ -327,6 +327,18 @@ enum MUMapChipLayout {
         return result
     }
 }
+/// Shared framing rules for GeoMap: the plot is sized to the pack's ink plus a
+/// hair of margin, so the map fills the card without land touching the border.
+enum MUMapFraming {
+    /// Margin around the ink, as a fraction of the frame's longer side.
+    static let paddingRatio = 0.015
+    static func padded(_ ink: CGRect) -> CGRect {
+        guard ink.width > 1, ink.height > 1 else { return ink }
+        let pad = max(ink.width, ink.height) * paddingRatio
+        return ink.insetBy(dx: -pad, dy: -pad)
+    }
+}
+
 struct MUMapMetrics {
     let width: Double
     let columns: Int

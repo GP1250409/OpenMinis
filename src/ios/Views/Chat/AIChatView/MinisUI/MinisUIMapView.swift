@@ -273,7 +273,7 @@ struct MUMapView: View {
         // Frame the ink, not the canvas: the pack canvas carries empty ocean
         // margins, which made the world map sit small inside its own card.
         var frame=CGRect(x:0,y:0,width:cw,height:ch)
-        let ink=packGeom.contentBounds
+        let ink=MUMapFraming.padded(packGeom.contentBounds)
         if ink.width>1, ink.height>1 { frame=ink }
         let viewScale=min(rect.width/frame.width,rect.height/frame.height)
         let tx=rect.midX-frame.midX*viewScale, ty=rect.midY-frame.midY*viewScale
