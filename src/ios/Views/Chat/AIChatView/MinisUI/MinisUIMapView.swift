@@ -269,12 +269,9 @@ struct MUMapView: View {
         let location=(comp.str("mode") ?? "location") == "location"
         if location { context.fill(Path(rect),with:.color(theme.sea.color)) }
 
-        let cw=max(1.0,packMeta.manifest.canvas.width), ch=max(1.0,packMeta.manifest.canvas.height)
-        // Frame the ink, not the canvas: the pack canvas carries empty ocean
-        // margins, which made the world map sit small inside its own card.
-        var frame=CGRect(x:0,y:0,width:cw,height:ch)
-        let ink=MUMapFraming.padded(packGeom.contentBounds)
-        if ink.width>1, ink.height>1 { frame=ink }
+        // Frame the full ink (features + overlays + inset boxes/labels) using
+        // the exact helper MUMapPackStore uses for aspect sizing.
+        let frame=MUMapFraming.frame(geometry:packGeom,manifest:packMeta.manifest)
         let viewScale=min(rect.width/frame.width,rect.height/frame.height)
         let tx=rect.midX-frame.midX*viewScale, ty=rect.midY-frame.midY*viewScale
         var xform=CGAffineTransform(translationX:tx,y:ty).scaledBy(x:viewScale,y:viewScale)

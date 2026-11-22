@@ -63,12 +63,12 @@ GeoMap(region, codes, values, scale?, title?, subtitle?, source?, unit?, highlig
 | 距地图底边 | `8pt`（`footerY = plotY + plotHeight + 8`） |
 | chip 块到来源/说明 | `6pt`（`contentY`） |
 | 最大宽度 | 卡片可用宽度（`width − 20`），超长尾部省略号截断，不换行、不缩字 |
-| 上限 | 5 个 code；多余的按顺序丢弃，不报错 |
+| 上限 | 5 个唯一 code（重复或别名按首次出现保序去重后再截断，多余的静默丢弃） |
 
-- 布局：1–3 枚放得下就占一行；**4 枚以上一律均衡分行**（4 → 2+2，5 → 3+2，窄卡再退 2+2+1），不会出现「3+1」这种落单。整行左对齐在 `x = 10`，行距 4pt。
-- **地图取景**：GeoMap 的绘图矩形按 pack 的 *内容边界*（所有 feature 的 boundingBox 并集）而不是清单里的画布尺寸来计算和缩放，playground 画布四周的空白海域不会再被算进去——世界地图因此放大约 1.2–1.3 倍并铺满卡片宽度；点/标签走同一个仿射变换，不会漂移。纯 canvas 尺寸仅在 pack 尚未解码时兜底。
+- 布局：1–3 枚放得下就占一行；**4 枚以上一律均衡分行**（4 → 2+2，5 → 3+2，宽窄悬殊时选择同样均衡且行宽差更小的保序切分如 2+3，避免无谓退化为 3 行）。整行左对齐在 `x = 10`，行距 4pt。
+- **地图取景**：GeoMap 的绘图矩形由 `MUMapFraming.frame(geometry:manifest:)` 统一按 pack 的**完整内容边界**（`features` 顶点 + `overlays` 顶点 + `manifest.zones` 的 `insetBox` / `insetLabel` 并集，四周再留 `1.5%` 呼吸边距）计算与缩放，避免裁切或溢出南海诸岛插图框与 AK/HI 插图标注；世界地图因此裁去上下约 9% 空白海域并铺满宽度，左右留白较大的地区按比例放大，且 `plotHeight` 设最大纵横比上限 `1.05`（`MUMapFraming.maxPlotAspect`），让英国/德国/意大利/韩国等竖长地区在可读卡片内居中适配而不撑爆聊天视口。点/标签走同一个仿射变换，不会漂移。
 - 宽度公式：`chipWidth = ceil(textWidth) + 2 × 4pt`（多留 1pt 抵消 NSString/`Text` 两套测量取整差）；卡片 320 → 430pt 时 chip 宽度不变（除非触到上限）。
 - 颜色沿用回调前的规则：所有标注与地图轮廓统一使用主题强调色 `theme.accent`（按承载表面 `readable` 适配），chip 文字用 `theme.accent.ink`，对比度恒定 ≥ 4.5:1。不逐项分色。
-- 文字由 `label + "  " + 数值 + 单位` 组成；数值沿用 `%.4g`，无数据时显示「无数据」，单位为空时不追加空格。
+- 文字由 `label + "  " + formatValue(数值, unit)` 组成；数值沿用 `%.4g`，无数据时显示「无数据」；`%` 与汉字/非 ASCII 单位（如 `亿`、`万亿`、`℃`、`百分点`）紧贴数值无多余空格，ASCII 词单位（如 `USD`、`km`）保留单个空格，空白单位不追加空格。
 - `bins` / `cutout` / `mode` / `points` 行为不变。
-- 回归：`scripts/map-tests/main.swift` 覆盖宽度随文本、320→430 不变、单行优先、6pt/4pt 间距、5 个合法且两行、第 6 个静默丢弃、超宽截断、无 highlight 不留空、`estimatedHeight` 精确一致，以及强调色可见性与文字 ≥4.5:1。
+- 回归：`scripts/map-tests/main.swift` 覆盖全部 15 包取景边界（含 `overlays`/`insetBox`/`insetLabel`）与 `1.05` 纵横比上限、宽度随文本、320→430 不变、单行优先、6pt/4pt 间距、紧凑单位格式、别名去重、5 枚最优均衡分行、第 6 枚静默丢弃、超宽截断、无 highlight 不留空、`estimatedHeight` 精确一致，以及强调色可见性与文字 ≥4.5:1；`scripts/map-tests/MapRenderFixture.swift` 增加 `cn`、`gb` 与 5 枚高亮（`world-chips5`）真实位图用例并校验 chip 边界与绘制对比度。

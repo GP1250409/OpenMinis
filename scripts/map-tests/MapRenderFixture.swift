@@ -230,9 +230,14 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
             ("jp", "root = GeoMap(\"jp\", [\"JP-13\",\"JP-27\",\"JP-01\",\"JP-47\"], [95,60,40,20], \"red\", \"日本都道府县\", \"含冲绳插图测试\", \"内置测试\", null, [\"JP-47\"], null, \"location\", [[139.69,35.69,1],[127.68,26.21,0]], [\"东京\",\"那霸\"])"),
             ("au", "root = GeoMap(\"au\", [\"AU-NSW\",\"AU-VIC\",\"AU-QLD\",\"AU-WA\"], [80,65,50,35], \"greenPurple\", \"澳大利亚州与领地\", \"南半球 Albers 投影验证\", \"内置测试\", null, [\"AU-NSW\"])"),
             ("us-county", "root = GeoMap(\"us-county\", [\"06037\",\"36061\",\"17031\",\"48201\",\"02016\",\"15003\"], [-25,-32,12,8,-5,28], \"diverging\", \"美国县级测试（3,143 县）\", \"含 50 州界叠加层与阿拉斯加/夏威夷插图\", \"US Census 2020 示意\", \"百分点\", [\"06037\",\"48201\"], [-30,-15,0,15,30])"),
+            ("cn", "root = GeoMap(\"cn\", [\"BJ\",\"SH\",\"GD\",\"SC\",\"ZJ\",\"JS\"], [44,47,135,60,82,128], \"red\", \"中国省级示例\", \"含南海诸岛插图与 4 枚均衡高亮标签\", \"内置测试\", \"万亿\", [\"BJ\",\"SH\",\"GD\",\"SC\"], null, \"location\", [[116.4,39.9,1],[121.47,31.23,0]], [\"北京\",\"上海\"])"),
+            ("gb", "root = GeoMap(\"gb\", [\"GB-ENG\",\"GB-SCT\",\"GB-WLS\",\"GB-NIR\"], [84,8.2,4.7,2.8], \"blue\", \"英国四个构成国\", \"竖长地图纵横比上限与居中验证\", \"内置测试\", \"%\", [\"GB-ENG\",\"GB-SCT\",\"GB-WLS\",\"GB-NIR\"])"),
+            ("world-chips5", "root = GeoMap(\"world\", [\"CN\",\"US\",\"DE\",\"AE\",\"JP\",\"BR\"], [80,5,86,78,89,55], \"blue\", \"全球五项高亮示例\", \"3+2 均衡分行与紧凑百分比单位验证\", \"内置测试\", \"%\", [\"CN\",\"China\",\"US\",\"DE\",\"AE\",\"JP\"], [40,70], \"cutout\")"),
         ]
         var packChecks = 0, packPNGs = 0
         ChatThemeStore.select("")
+        let packDefaults = UserDefaults(suiteName: "map-fixture-pack")!
+        packDefaults.set("", forKey: MUChartStyle.key)
         for (tag, prog) in packCases {
             for dark in [false, true] {
                 autoreleasepool {
@@ -240,10 +245,25 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                     guard v.ok, let comp = v.root else { fatalError("pack fixture invalid: \(tag) \(MinisUIEngine.feedback(v))") }
                     let width = 390.0
                     let m = MUMapMetrics(comp, width: width)
+                    guard m.plotHeight <= (width - 20.0) * MUMapFraming.maxPlotAspect + 0.5 else {
+                        fatalError("pack plotHeight exceeded maxPlotAspect \(tag): \(m.plotHeight)")
+                    }
+                    if tag == "cn" || tag == "gb" {
+                        let rowCounts = Dictionary(grouping: m.highlightChips) { Int($0.frame.minY.rounded()) }.values.map(\.count).sorted()
+                        guard rowCounts == [2, 2] else { fatalError("pack 4-chip layout not 2+2 \(tag): \(rowCounts)") }
+                    }
+                    if tag == "world-chips5" {
+                        guard m.highlightChips.count == 5,
+                              Set(m.highlightChips.map { Int($0.frame.minY.rounded()) }).count == 2 else {
+                            fatalError("pack 5-chip dedup/row layout error: \(m.highlightChips.count)")
+                        }
+                    }
                     let scheme: ColorScheme = dark ? .dark : .light
                     let parent = MUSurface.rgb(ChatColors.background, over: MUMapRGB(hex: "#FFFFFF"), scheme: scheme)
                     let surface = MUSurface.rgb(ChatColors.secondaryBg, over: parent, scheme: scheme)
-                    let content = MUMapView(comp: comp)
+                    let mapTheme = MUMapTheme.resolve("").adapted(to: surface)
+                    guard mapTheme.accent.ink.contrast(on: mapTheme.accent) >= 4.5 else { fatalError("pack chip math contrast \(tag)") }
+                    let content = MUMapView(comp: comp).defaultAppStorage(packDefaults)
                         .modifier(MUCardSurface(fill: ChatColors.secondaryBg))
                         .modifier(MURootSurface())
                         .background(ChatColors.background)
@@ -262,13 +282,26 @@ enum MUChartStyle { static let key = "genuiChartPalette" }
                     guard elapsed < 5.0 else { fatalError("pack render budget exceeded for \(tag): \(elapsed)s") }
                     guard maxPixelContrast(image, box: CGRect(x: 10, y: 16, width: width - 20, height: m.titleHeight), surface: surface) >= 4.5 else { fatalError("pack title contrast \(tag)") }
                     guard maxPixelContrast(image, box: CGRect(x: 10, y: 8, width: width - 20, height: 4), surface: surface) >= 3.0 else { fatalError("pack top rule contrast \(tag)") }
+                    for chip in m.highlightChips {
+                        guard chip.frame.minX >= 10.0 - 0.1, chip.frame.maxX <= width - 10.0 + 0.1,
+                              chip.frame.minY >= m.plotY + m.plotHeight - 0.1, chip.frame.maxY <= m.contentY + 0.1 else {
+                            fatalError("pack chip out of bounds \(tag): \(chip.frame)")
+                        }
+                        let chipInterior = chip.frame.insetBy(dx: 3, dy: 2)
+                        if chipInterior.width > 2, chipInterior.height > 2 {
+                            guard maxPixelContrast(image, box: chipInterior, surface: mapTheme.accent, minimum: 4.0) >= 4.0 else {
+                                fatalError("pack chip painted ink contrast \(tag): \(chip.text)")
+                            }
+                        }
+                        packChecks += 2
+                    }
                     let stats = MUMapPackStore.shared.cacheStats()
                     guard stats.packCount <= MUMapPackStore.maxCachedPacks, stats.byteCount <= MUMapPackStore.maxCachedBytes else {
                         fatalError("pack cache budget exceeded: \(stats)")
                     }
                     try! png.write(to: out.appendingPathComponent("pack-\(tag)-\(dark ? "dark" : "light").png"))
                     packPNGs += 1
-                    packChecks += 5
+                    packChecks += 6
                 }
             }
         }

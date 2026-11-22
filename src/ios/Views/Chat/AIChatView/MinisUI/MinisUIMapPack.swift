@@ -302,21 +302,25 @@ final class MUMapDecodedGeometry {
     let featurePaths: [CGPath]
     let overlayPaths: [(kind: UInt16, path: CGPath)]
     #endif
-    /// Union of every feature's bounding box: the map's ink, without the empty
-    /// margins the pack canvas carries around the continents.
+    /// Union of every feature and overlay point: the map's ink (including inset
+    /// boxes and coastlines), without the empty margins the pack canvas carries.
     let contentBounds: CGRect
 
     init(features: [[[CGPoint]]], overlays: [MUMapOverlay], byteCost: Int) {
         self.features = features
         self.overlays = overlays
         self.byteCost = byteCost
-        // Ink bounds from the raw points, so UIKit and the Foundation test
-        // runner frame a pack identically.
+        // Ink bounds from the raw points (features + overlays), so UIKit and
+        // the Foundation test runner frame a pack identically without clipping
+        // inset frames such as cn-admin1's South China Sea box.
         var ink = CGRect.null
         for rings in features {
             for ring in rings {
                 for pt in ring { ink = ink.union(CGRect(x: pt.x, y: pt.y, width: 0, height: 0)) }
             }
+        }
+        for ov in overlays {
+            for pt in ov.points { ink = ink.union(CGRect(x: pt.x, y: pt.y, width: 0, height: 0)) }
         }
         self.contentBounds = ink.isNull ? .zero : ink
         #if canImport(CoreGraphics)
@@ -593,8 +597,8 @@ final class MUMapPackStore {
         }
 
         guard let geom = decoded else { return nil }
-        let ink = MUMapFraming.padded(geom.contentBounds)
-        if ink.width > 1, ink.height > 1 { inkAspect[pid] = Double(ink.height / ink.width) }
+        let frame = MUMapFraming.frame(geometry: geom, manifest: meta.manifest)
+        if frame.width > 1, frame.height > 1 { inkAspect[pid] = MUMapFraming.plotAspect(for: frame) }
         insertCacheLocked(pid, geom: geom)
         return geom
     }

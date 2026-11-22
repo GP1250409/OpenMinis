@@ -297,17 +297,36 @@ let countyV = MinisUIEngine.validate("root = GeoMap(\"us-county\", [\"06037\", \
 check(countyV.ok, "GeoMap us-county validates LA and +174E Aleutian point")
 check(!MinisUIEngine.validate("root = GeoMap(\"de\", [\"DE-BE\"], [10], null, null, null, null, null, null, null, \"location\", [[-77.0, 38.9, 1]], [\"DC\"])").ok, "GeoMap de rejects outside US point")
 
-// Aspect ratio & estimatedHeight exactness across all 14 packs
+// Aspect ratio, ink framing coverage & estimatedHeight exactness across all 15 packs
 for pid in expectedPacks {
     let prog = "root = Card([GeoMap(\"\(pid)\", [], [], null, \"标题 \(pid)\", \"多行说明文字测试自动换行完整性\", \"来源说明\", null, null, null, \"location\")])"
     let v = MinisUIEngine.validate(prog)
     check(v.ok, "Lang valid for pack \(pid)")
-    if let root = v.root, let mapComp = root.children.first, let meta = store.metadata(for: pid) {
+    if let root = v.root, let mapComp = root.children.first, let meta = store.metadata(for: pid), let geom = store.geometry(for: pid) {
         let m = MUMapMetrics(mapComp, width: 320)
-        let expectedRatio = store.contentAspect(for: pid) ?? (meta.manifest.canvas.height / meta.manifest.canvas.width)
-        check(abs(m.plotHeight - 300.0 * expectedRatio) < 1e-6, "\(pid) plotHeight matches the ink aspect")
+        let expectedRatio = store.contentAspect(for: pid) ?? min(MUMapFraming.maxPlotAspect, meta.manifest.canvas.height / meta.manifest.canvas.width)
+        check(abs(m.plotHeight - 300.0 * expectedRatio) < 1e-6, "\(pid) plotHeight matches the framed ink aspect")
+        check(expectedRatio <= MUMapFraming.maxPlotAspect + 1e-9, "\(pid) plot aspect stays within maxPlotAspect")
+        let frame = MUMapFraming.frame(geometry: geom, manifest: meta.manifest)
+        for ov in geom.overlays {
+            check(ov.points.allSatisfy { frame.contains($0) }, "\(pid) overlay fits inside framed ink")
+        }
+        for zone in meta.manifest.zones {
+            if let box = zone.insetBox, box.count == 4 {
+                check(frame.contains(CGRect(x: box[0], y: box[1], width: box[2], height: box[3])), "\(pid) zone \(zone.id) insetBox fits inside framed ink")
+            }
+            if let lbl = zone.insetLabel {
+                check(frame.contains(CGPoint(x: lbl.x, y: lbl.y)), "\(pid) zone \(zone.id) insetLabel fits inside framed ink")
+            }
+        }
         check(MinisUIEngine.estimatedHeight(mapComp, width: 320) == m.height, "\(pid) estimatedHeight exact")
     }
+}
+for tallId in ["gb-admin1", "de-admin1", "it-admin1", "kr-admin1"] {
+    check(abs((store.contentAspect(for: tallId) ?? 0) - MUMapFraming.maxPlotAspect) < 1e-9, "\(tallId) aspect is capped at \(MUMapFraming.maxPlotAspect)")
+}
+for wideId in ["world-admin0", "cn-admin1", "us-admin1"] {
+    check((store.contentAspect(for: wideId) ?? 99) < MUMapFraming.maxPlotAspect, "\(wideId) keeps its natural wide aspect")
 }
 
 // 5. Shipped China GeoMap + synthetic cn-admin1 protocol test
@@ -375,9 +394,10 @@ check((store.geometry(for: "cn")?.overlays.count ?? 0) == 1, "synthetic cn-admin
 store.resetToDefaultSearchPaths()
 try? FileManager.default.removeItem(at: synthRoot)
 
-// [T-showui-map-chips] Highlight captions: one flowing legend row under the
-// map (11pt + 2×6pt per chip, 6pt column gap), wrapping only when the row is
-// full, one accent per slot, map outline in the same colour.
+// [T-showui-map-chips] Highlight captions: content-sized chips under the map
+// (8pt + 4×2pt padding, 6pt column gap, 4pt row gap), single row for 1–3 when
+// they fit, balanced multi-row split for 4–5, unified theme accent, map outline
+// in the same colour.
 let chipProgram = "root = GeoMap(\"world\", [\"CN\", \"US\", \"DE\", \"AE\", \"JP\", \"BR\"], [80, 5, 86, 78, 89, 55], \"blue\", \"示例指数\", \"示意数据\", \"示意数据\", \"指数\", [\"CN\", \"US\", \"AE\"], [40, 70], \"cutout\")"
 let chipV = MinisUIEngine.validate(chipProgram)
 check(chipV.ok, "highlight chip fixture validates")
@@ -466,6 +486,37 @@ if let chipComp = chipV.root {
     let plainMetrics = MUMapMetrics(component(region: "us", codes: ["CA"], values: [1]), width: 390)
     check(plainMetrics.highlightChips.isEmpty, "no highlight leaves no chip block")
     check(abs(plainMetrics.contentY - plainMetrics.footerY) < 1e-9, "no chip block leaves no extra gap")
+
+    // Compact unit formatting: % and non-ASCII/CJK suffixes attach directly;
+    // ASCII word units keep a single space.
+    check(MUMapChipLayout.formatValue(25, unit: "%") == "25%", "percent attaches without space")
+    check(MUMapChipLayout.formatValue(11, unit: "亿") == "11亿", "CJK unit attaches without space")
+    check(MUMapChipLayout.formatValue(25, unit: "万亿") == "25万亿", "multi-char CJK unit attaches without space")
+    check(MUMapChipLayout.formatValue(25, unit: "°C") == "25°C", "degree unit attaches without space")
+    check(MUMapChipLayout.formatValue(25, unit: "USD") == "25 USD", "ASCII word unit keeps one space")
+    check(MUMapChipLayout.formatValue(10, unit: "km") == "10 km", "ASCII metric unit keeps one space")
+    check(MUMapChipLayout.formatValue(25, unit: "   ") == "25", "whitespace-only unit produces no trailing space")
+    check(m320.highlightChips.first?.text == "中国  80指数", "chip caption omits space before CJK unit")
+
+    // Duplicate/alias highlight codes are deduplicated in first-seen order before
+    // applying the 5-caption limit, so aliases never render twice or evict later entries.
+    let dedup = MinisUIEngine.validate("root = GeoMap(\"world\", [\"CN\", \"US\", \"DE\", \"AE\", \"JP\"], [80, 5, 86, 78, 89], null, \"去重\", null, null, \"%\", [\"CN\", \"China\", \"US\", \"DE\", \"AE\", \"JP\"], null)")
+    check(dedup.ok, "duplicate highlight aliases validate")
+    if let dedupComp = dedup.root {
+        let dm = MUMapMetrics(dedupComp, width: 320)
+        check(dm.highlightChips.count == 5, "deduplicated aliases keep all five distinct highlights")
+        check(Set(dm.highlightChips.map(\.text)).count == 5, "no duplicate chip caption rendered")
+        check(dm.highlightChips.first?.text == "中国  80%", "first chip formats compact percent unit")
+        check(dm.highlightChips.last?.text == "日本  89%", "fifth unique highlight is not evicted by earlier alias")
+    }
+
+    // Optimal order-preserving balancedRows: uneven widths pick the narrowest-spread
+    // feasible split instead of needlessly spilling onto an extra orphan row.
+    check(MUMapChipLayout.balancedRows([140, 140, 60, 60, 60], usable: 300) == [[0, 1], [2, 3, 4]], "uneven five chips choose 2+3 over 3-row 2+2+1")
+    check(MUMapChipLayout.balancedRows([180, 150, 100], usable: 300) == [[0], [1, 2]], "uneven three chips choose 1+2 over 3-row 1+1+1")
+    check(MUMapChipLayout.balancedRows([50, 50, 50, 50, 50], usable: 300) == [[0, 1, 2], [3, 4]], "equal five chips keep top-heavy 3+2")
+    check(MUMapChipLayout.balancedRows([50, 50, 50, 50], usable: 380) == [[0, 1], [2, 3]], "equal four chips stay 2+2")
+    check(MUMapChipLayout.balancedRows([200, 60, 60, 60], usable: 250) == [[0], [1, 2, 3]], "wide-lead four chips fit in 2 balanced rows")
 }
 // One accent for every highlight (the theme accent, as before), and the chip
 // ink keeps >=4.5:1 against that accent in both schemes.

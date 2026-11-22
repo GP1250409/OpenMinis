@@ -299,10 +299,23 @@ enum MUMapChipStyle {
     static var lineHeight: Double { MUMapTypography.lineHeight(size: fontSize, bold: true) }
 }
 enum MUMapChipLayout {
+    /// Format a numeric value with an optional unit for chip captions.
+    /// Compact suffixes (`%` and non-ASCII/CJK units such as `亿`, `万亿`, `℃`,
+    /// `‰`, `百分点`) attach directly without an extra space; ASCII word units
+    /// (`USD`, `km`, `pts`) keep a single separating space.
+    static func formatValue(_ number: Double, unit: String) -> String {
+        let num = String(format: "%.4g", number)
+        let trimmed = unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let first = trimmed.unicodeScalars.first else { return num }
+        let compact = !first.isASCII || first == "%"
+        return compact ? (num + trimmed) : (num + " " + trimmed)
+    }
+
     /// Even rows: the fewest rows that fit, split as evenly as possible while
     /// keeping data order — four captions become 2+2 rather than 3+1, five
-    /// become 3+2. Each chip hugs its own text and clamps to the usable width
-    /// (the Canvas then ends it with an ellipsis).
+    /// become 3+2 (or 2+3 when widths make 2+3 fit or balance better). Each
+    /// chip hugs its own text and clamps to the usable width (the Canvas then
+    /// ends it with an ellipsis).
     static func chips(_ c: MUComp, values: [String: Double], region: String, width: Double) -> [MUMapChip] {
         let usable = max(1.0, width - MUMapChipStyle.margin * 2)
         let unit = c.str("unit") ?? ""
@@ -311,7 +324,7 @@ enum MUMapChipLayout {
             let label = c.name == "BlockMap"
                 ? (MUMapRegion.tiles(region).first { $0.code == code }?.label ?? code)
                 : MUMapPackStore.shared.displayName(for: code, region: region)
-            let value = values[code].map { String(format:"%.4g",$0) + (unit.isEmpty ? "" : " " + unit) } ?? MUMapL10n.noData
+            let value = values[code].map { formatValue($0, unit: unit) } ?? MUMapL10n.noData
             let text = label + "  " + value
             let natural = Double(MUMapTypography.measure(text, width: 1_000_000, size: MUMapChipStyle.fontSize, bold: true).width)
             entries.append((text, min(usable, max(1.0, natural + MUMapChipStyle.horizontalPadding * 2 + 1.0))))
@@ -330,36 +343,93 @@ enum MUMapChipLayout {
         return result
     }
 
-    private static func balancedRows(_ widths: [Double], usable: Double) -> [[Int]] {
-        guard !widths.isEmpty else { return [] }
+    static func balancedRows(_ widths: [Double], usable: Double) -> [[Int]] {
+        let count = widths.count
+        guard count > 0 else { return [] }
         func rowWidth(_ idx: [Int]) -> Double {
             idx.reduce(0.0) { $0 + widths[$1] } + Double(max(0, idx.count - 1)) * MUMapChipStyle.columnGap
         }
-        // Four or more captions always split into balanced rows (2+2, 3+2): a
-        // lone caption stranded under a full row reads as a mistake.
-        for rows in (widths.count >= 4 ? 2 : 1)...widths.count {
-            var groups: [[Int]] = [], start = 0
-            for k in 0..<rows {
-                let n = widths.count / rows + (k < widths.count % rows ? 1 : 0)
-                groups.append(Array(start..<(start + n)))
-                start += n
+        func partitions(start: Int, rows: Int) -> [[[Int]]] {
+            if rows == 1 { return [[Array(start..<count)]] }
+            var out: [[[Int]]] = []
+            // Larger leading rows first so equal-width ties stay top-heavy (3+2 over 2+3).
+            let maxSize = count - start - (rows - 1)
+            guard maxSize >= 1 else { return [] }
+            for size in stride(from: maxSize, through: 1, by: -1) {
+                let head = Array(start..<(start + size))
+                for tail in partitions(start: start + size, rows: rows - 1) {
+                    out.append([head] + tail)
+                }
             }
-            if groups.allSatisfy({ rowWidth($0) <= usable + 0.001 }) { return groups }
+            return out
+        }
+        // Four or more captions always split into balanced rows (2+2, 3+2/2+3):
+        // a lone caption stranded under a full row reads as a mistake.
+        let minRows = count >= 4 ? 2 : 1
+        for rows in minRows...count {
+            var best: [[Int]]? = nil
+            var bestCountSpread = Int.max
+            var bestWidthSpread = Double.infinity
+            for groups in partitions(start: 0, rows: rows) {
+                let rws = groups.map(rowWidth)
+                guard rws.allSatisfy({ $0 <= usable + 0.001 }) else { continue }
+                let counts = groups.map(\.count)
+                let countSpread = (counts.max() ?? 0) - (counts.min() ?? 0)
+                let widthSpread = (rws.max() ?? 0) - (rws.min() ?? 0)
+                let better = best == nil
+                    || countSpread < bestCountSpread
+                    || (countSpread == bestCountSpread && widthSpread + 1e-4 < bestWidthSpread)
+                if better {
+                    best = groups
+                    bestCountSpread = countSpread
+                    bestWidthSpread = widthSpread
+                }
+            }
+            if let best { return best }
         }
         // A caption wider than the card still gets its own row (Canvas ellipsizes).
         return widths.indices.map { [$0] }
     }
 }
 
-/// Shared framing rules for GeoMap: the plot is sized to the pack's ink plus a
-/// hair of margin, so the map fills the card without land touching the border.
+/// Shared framing rules for GeoMap: the plot is sized to the pack's full ink
+/// (features + overlays + manifest inset boxes/labels) plus a hair of margin,
+/// so the map fills the card without land or inset overlays touching the border,
+/// while capping tall countries so a single card never exceeds the chat viewport.
 enum MUMapFraming {
     /// Margin around the ink, as a fraction of the frame's longer side.
     static let paddingRatio = 0.015
+    /// Upper bound on GeoMap's plot height/width ratio (keeps tall packs such
+    /// as GB/DE/IT/KR centered inside a readable card).
+    static let maxPlotAspect = 1.05
+
     static func padded(_ ink: CGRect) -> CGRect {
         guard ink.width > 1, ink.height > 1 else { return ink }
         let pad = max(ink.width, ink.height) * paddingRatio
         return ink.insetBy(dx: -pad, dy: -pad)
+    }
+
+    static func frame(geometry: MUMapDecodedGeometry, manifest: MUMapPackManifest) -> CGRect {
+        var ink = (geometry.contentBounds.width > 0 || geometry.contentBounds.height > 0)
+            ? geometry.contentBounds
+            : CGRect.null
+        for zone in manifest.zones {
+            if let box = zone.insetBox, box.count == 4, box[2] > 0, box[3] > 0 {
+                ink = ink.union(CGRect(x: box[0], y: box[1], width: box[2], height: box[3]))
+            }
+            if let lbl = zone.insetLabel {
+                ink = ink.union(CGRect(x: lbl.x, y: lbl.y, width: 0, height: 0))
+            }
+        }
+        if !ink.isNull, ink.width > 1, ink.height > 1 {
+            return padded(ink)
+        }
+        return CGRect(x: 0, y: 0, width: max(1.0, manifest.canvas.width), height: max(1.0, manifest.canvas.height))
+    }
+
+    static func plotAspect(for frame: CGRect) -> Double {
+        guard frame.width > 1, frame.height > 1 else { return 0.64 }
+        return min(maxPlotAspect, Double(frame.height / frame.width))
     }
 }
 
@@ -535,9 +605,10 @@ struct MUMapMetrics {
         if c.name == "GeoMap" {
             let cw = max(1.0, packMeta?.manifest.canvas.width ?? 1000.0)
             let ch = max(1.0, packMeta?.manifest.canvas.height ?? 640.0)
-            // Size the slot to the ink, not the canvas: packs keep empty ocean
-            // margins, and matching the canvas left the world map looking small.
-            let aspect = MUMapPackStore.shared.contentAspect(for: regionArg) ?? (ch / cw)
+            // Size the slot to the full framed ink (features + overlays + insets),
+            // capped at maxPlotAspect so tall countries stay centered in a readable card.
+            let fallbackAspect = min(MUMapFraming.maxPlotAspect, ch / cw)
+            let aspect = MUMapPackStore.shared.contentAspect(for: regionArg) ?? fallbackAspect
             plotHeight = max(1, usable * aspect)
         } else {
             plotHeight = Double(rows)*cell+Double(rows-1)*2
@@ -593,7 +664,14 @@ enum MUMapCore {
     }
     static func highlights(_ c: MUComp) -> [String] {
         let region = c.str("region") ?? "us"
-        return c.strings("highlight").compactMap { canonical($0, componentName: c.name, region: region) }
+        var seen: Set<String> = []
+        var out: [String] = []
+        for raw in c.strings("highlight") {
+            if let code = canonical(raw, componentName: c.name, region: region), seen.insert(code).inserted {
+                out.append(code)
+            }
+        }
+        return out
     }
     static func checks(_ c: MUComp) -> [MUError] {
         var errors: [MUError] = []
