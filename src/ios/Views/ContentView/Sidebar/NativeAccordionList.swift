@@ -108,7 +108,10 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var restored = false
     private var link: CADisplayLink?
     private var animationStart: CFTimeInterval = 0
-    private let duration: CFTimeInterval = 0.32
+    // [T-sidebar-reveal-pacing] Set per motion from the rows the reveal
+    // actually travels (AccordionMotion.revealDuration); a five-row group keeps
+    // the calibrated 0.32s, longer runs get proportionally more time.
+    private var duration: CFTimeInterval = AccordionMotion.revealBaseDuration
     private var from: [CGFloat] = []
     private var to: [CGFloat] = []
     private var anchorSection = 0
@@ -264,6 +267,17 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private func beginMotion(from old: [CGFloat], to target: [CGFloat]) {
         guard old.count == target.count, !target.isEmpty else { return }
         from = old; to = target
+        // [T-sidebar-reveal-pacing] Pace by the rows the reveal travels, not by
+        // a single constant: with 20+ sessions 0.32s reads as an instant swap.
+        // An interrupted toggle only travels part of a section, so scale by the
+        // reveal delta; with several sections moving, the longest one decides.
+        var rowsInFlight: CGFloat = 0
+        for i in target.indices where i < old.count && i < sections.count {
+            let delta = abs(target[i] - old[i])
+            guard delta > 0 else { continue }
+            rowsInFlight = max(rowsInFlight, CGFloat(sections[i].geometry.count) * delta)
+        }
+        duration = AccordionMotion.revealDuration(rows: rowsInFlight)
         accordionLayout.prepare()
         anchorSection = target.indices.first(where: { target[$0] > old[$0] })
             ?? target.indices.first(where: { target[$0] != old[$0] }) ?? 0

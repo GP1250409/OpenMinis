@@ -103,6 +103,15 @@ ALLOWED_INCREMENTAL_PREFIXES = (
     # coordinator and the UIKit entry stage); a change here must re-run the
     # toolfold suite.
     'src/ios/Agent/MessageList/CollectionViewMessageListV3/Support/ToolGroupOriginalToggle.swift',
+    # [T-sidebar-reveal-pacing] 2026-11-23. The session-group reveal duration
+    # is paced by the rows it travels. No skippable module (map / chart /
+    # theme / card_dark) compiles this sidebar controller or its layout, so
+    # letting an incremental dispatch inherit those baselines is safe; the
+    # mandatory toolfold step's static contract reads the same two files.
+    'src/ios/Views/ContentView/Sidebar/NativeAccordionList.swift',
+    'src/ios/Views/ContentView/Sidebar/AccordionCollectionLayout.swift',
+    'scripts/accordion-tests/AccordionTestApp.swift',
+    'scripts/minismod_accordion_regression.py',
     'scripts/statusbar_scroll_regression.py',
     'scripts/statusbar-scroll-tests/',
     # [T-user-ask-border-inset] The answered / pending user_ask card chrome is

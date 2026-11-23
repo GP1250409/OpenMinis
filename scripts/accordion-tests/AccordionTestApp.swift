@@ -84,6 +84,22 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         }
         check(true, "1001 anchor samples remain stationary without changing contentOffset")
         check(AccordionMotion.ease(0) == 0 && AccordionMotion.ease(1) == 1, "motion endpoints exact")
+        // [T-sidebar-reveal-pacing] A short run keeps the old feel; a long one
+        // must not cross several screenfuls in the same 0.32s.
+        check(AccordionMotion.revealDuration(rows: 1) == AccordionMotion.revealBaseDuration,
+              "one-session group keeps the calibrated 0.32s")
+        check(AccordionMotion.revealDuration(rows: 5) == AccordionMotion.revealBaseDuration,
+              "five-session group keeps the calibrated 0.32s")
+        check(abs(AccordionMotion.revealDuration(rows: 10) - 0.50) < 1e-9,
+              "ten sessions get three frames per row (0.50s)")
+        check(abs(AccordionMotion.revealDuration(rows: 16) - AccordionMotion.revealMaxDuration) < 1e-9,
+              "sixteen sessions reach the 0.80s cap")
+        check(abs(AccordionMotion.revealDuration(rows: 20) - AccordionMotion.revealMaxDuration) < 1e-9,
+              "twenty sessions stay at the cap")
+        check(abs(AccordionMotion.revealDuration(rows: 4700) - AccordionMotion.revealMaxDuration) < 1e-9,
+              "a huge folder stays at the cap, never unbounded")
+        check(AccordionMotion.revealDuration(rows: 30) > AccordionMotion.revealDuration(rows: 6),
+              "pacing grows with the session count")
         check(AccordionMotion.clampedOffset(-100, contentHeight: 20, viewportHeight: 800, inset: .zero) == 0,
               "short-content boundary clamp")
 
@@ -102,12 +118,15 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(progress > 0 && progress < 1, "real CADisplayLink drives intermediate reveal")
         controller.receive(sections(1), render: render)
         controller.receive(sections(nil), render: render)
-        pump(0.85)
+        // [T-sidebar-reveal-pacing] Two chained motions now: the running one
+        // (12 rows, 0.60s) then the pending collapse (0.60s).
+        pump(1.4)
         check(controller.accordionLayout.reveal == [1, 0, 0, 0], "rapid taps converge to latest intent")
         check(controller.accordionLayout.translation == 0, "transition translation removed after commit")
         check(controller.accordionLayout.minimumContentHeight == 0, "no residual artificial scroll range")
         controller.receive(sections(1), render: render)
-        pump(0.5)
+        // 4700 rows reveal at the 0.80s cap; settle before measuring the anchor.
+        pump(0.95)
         let sc = controller.collection
         let bY = controller.accordionLayout.headerY(section: 2)
         sc.setContentOffset(CGPoint(x: 0, y: bY - 250), animated: false)
@@ -124,7 +143,8 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         }
         check(maxError < 1, "long A to B preserves tapped title within one point")
         check((offsets.max()! - offsets.min()!) < 0.1, "no per-frame contentOffset correction loop")
-        pump(0.5)
+        // A→B collapses 4700 rows at the 0.80s cap; 0.20s already elapsed.
+        pump(0.85)
         let finalY = controller.accordionLayout.headerY(section: 2) - sc.contentOffset.y
         check(abs(finalY - initialY) < 1, "atomic final offset commit has no anchor jump")
         check(controller.collection.visibleCells.count < 35, "long switch retains bounded cell count")

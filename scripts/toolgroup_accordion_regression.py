@@ -296,7 +296,15 @@ def static_checks():
 
     # 1. the shared numbers are the sidebar's (one animation, two places)
     c.present(math, 'static let duration: Double = 0.32', 'accordion duration constant')
-    c.present(sidebar_list, 'private let duration: CFTimeInterval = 0.32', 'sidebar duration unchanged')
+    # [T-sidebar-reveal-pacing] 2026-11-23. The sidebar no longer runs on one
+    # constant: the reveal is paced by the rows it travels, with 0.32s as the
+    # base for five or fewer. The chat accordion keeps its own frozen 0.32
+    # (dead production code); parity is now about the base and the curve.
+    c.present(sidebar, 'static let revealBaseDuration: CFTimeInterval = 0.32', 'sidebar pacing base is 0.32s')
+    c.present(sidebar, 'static func revealDuration(rows: CGFloat) -> CFTimeInterval', 'sidebar pacing joins rows to duration')
+    c.present(sidebar, 'min(revealMaxDuration, paced)', 'sidebar pacing is rows x per-row budget, capped')
+    c.present(sidebar_list, 'duration = AccordionMotion.revealDuration(rows: rowsInFlight)', 'sidebar uses the paced duration')
+    c.present(sidebar_list, 'CGFloat(sections[i].geometry.count) * delta', 'pacing counts the rows the reveal travels')
     c.present(sidebar, 'return x * x * (3 - 2 * x)', 'sidebar smoothstep body')
     c.present(math, 'return x * x * (3 - 2 * x)', 'accordion smoothstep body (same curve)')
     c.absent(math, 'import UIKit', 'math file stays UIKit-free (Linux-compilable)')
