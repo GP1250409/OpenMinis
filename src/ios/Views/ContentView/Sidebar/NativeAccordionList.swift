@@ -46,6 +46,7 @@ final class AccordionRowHostingController: UIHostingController<AnyView> {
 final class AccordionHostingCell: UICollectionViewCell {
     private var host: AccordionRowHostingController?
     private var fullHeight: CGFloat = 0
+    private var slidesFromBottom = false
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -53,12 +54,13 @@ final class AccordionHostingCell: UICollectionViewCell {
         clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func set(_ content: AnyView, height: CGFloat, overflow: CGFloat = 0, owner: UIViewController) {
+    func set(_ content: AnyView, height: CGFloat, overflow: CGFloat = 0, slidesFromBottom: Bool = false, owner: UIViewController) {
         // `overflow` lets a collapsed folder card own its 4pt bottom gap (the
         // empty footer slot below it) so the context-menu preview can have
         // equal margins on all four sides. Nothing else lives in that slot.
         let height = height + overflow
         fullHeight = height
+        self.slidesFromBottom = slidesFromBottom
         contentView.clipsToBounds = overflow == 0
         clipsToBounds = overflow == 0
         // The collection owns screen safe areas. A row host is only a local
@@ -90,8 +92,11 @@ final class AccordionHostingCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         // The host never sees the partially-revealed cell height. Text is NOT
-        // scaled, squeezed, or measured again during the animation.
-        host?.view.frame = CGRect(x: 0, y: 0, width: bounds.width, height: fullHeight)
+        // scaled, squeezed, or measured again during the animation. Member rows
+        // glide from behind the row/header above (`y = bounds.height - fullHeight`)
+        // so content and the last row's bottom corners move coherently with the drawer.
+        let y: CGFloat = (slidesFromBottom && bounds.height < fullHeight) ? (bounds.height - fullHeight) : 0
+        host?.view.frame = CGRect(x: 0, y: y, width: bounds.width, height: fullHeight)
     }
 }
 
@@ -108,7 +113,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private var restored = false
     private var link: CADisplayLink?
     private var animationStart: CFTimeInterval = 0
-    private let duration: CFTimeInterval = 0.32
+    private var duration: CFTimeInterval = 0.32
     private var from: [CGFloat] = []
     private var to: [CGFloat] = []
     private var anchorSection = 0
@@ -235,9 +240,34 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
 
     func receive(_ next: [AccordionRenderSection], render: @escaping Renderer, allowAnimation: Bool = true) {
         loadViewIfNeeded()
-        if link != nil { pending = (next, render); return } // latest intent wins
         let sameMembers = sections.count == next.count && zip(sections, next).allSatisfy { pair in
             pair.0.group.id == pair.1.group.id && pair.0.members == pair.1.members && pair.0.geometry == pair.1.geometry
+        }
+        let target: [CGFloat] = next.map { $0.expanded ? 1 : 0 }
+        let canAnimate = allowAnimation && sameMembers && view.window != nil && !UIAccessibility.isReduceMotionEnabled
+            && !collection.isTracking && !collection.isDragging && !collection.isDecelerating
+        if link != nil {
+            guard pending == nil, canAnimate else {
+                pending = (next, render)
+                return // latest intent wins for structural or non-animatable updates
+            }
+            renderer = render
+            sections = next.map { item in
+                var copy = item
+                if copy.group.ids != copy.members { copy.group.ids = copy.members }
+                return copy
+            }
+            accordionLayout.sections = next.map(\.geometry)
+            if target == to { return } // duplicate SwiftUI update mid-flight: preserve curve
+            let current = accordionLayout.reveal
+            let currentShift = accordionLayout.translation
+            if current == target && abs(currentShift) < 0.01 {
+                to = target
+                finishMotion()
+                return
+            }
+            beginMotion(from: current, to: target, startTranslation: currentShift)
+            return
         }
         let old = accordionLayout.reveal
         renderer = render
@@ -247,10 +277,8 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             return copy
         }
         accordionLayout.sections = next.map(\.geometry)
-        let target: [CGFloat] = next.map { $0.expanded ? 1 : 0 }
-        if allowAnimation, sameMembers, old != target, view.window != nil, !UIAccessibility.isReduceMotionEnabled,
-           !collection.isTracking, !collection.isDragging, !collection.isDecelerating {
-            beginMotion(from: old, to: target)
+        if canAnimate, old != target {
+            beginMotion(from: old, to: target, startTranslation: 0)
         } else {
             accordionLayout.reveal = target
             accordionLayout.invalidateLayout()
@@ -261,13 +289,14 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         }
     }
 
-    private func beginMotion(from old: [CGFloat], to target: [CGFloat]) {
+    private func beginMotion(from old: [CGFloat], to target: [CGFloat], startTranslation: CGFloat = 0) {
         guard old.count == target.count, !target.isEmpty else { return }
         from = old; to = target
+        accordionLayout.reveal = old
         accordionLayout.prepare()
-        anchorSection = target.indices.first(where: { target[$0] > old[$0] })
-            ?? target.indices.first(where: { target[$0] != old[$0] }) ?? 0
-        anchorStartY = accordionLayout.headerY(section: anchorSection)
+        anchorSection = target.indices.first(where: { target[$0] > old[$0] + 0.0001 })
+            ?? target.indices.first(where: { abs(target[$0] - old[$0]) > 0.0001 }) ?? 0
+        anchorStartY = accordionLayout.headerY(section: anchorSection) + startTranslation
         startOffset = collection.contentOffset.y
         motionWidth = collection.bounds.width
         let oldHeight = accordionLayout.naturalHeight
@@ -280,26 +309,35 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         let desired = headerVisible ? startOffset + anchorEndY - anchorStartY : anchorEndY - inset.top - 8
         endOffset = AccordionMotion.clampedOffset(desired,
             contentHeight: accordionLayout.naturalHeight, viewportHeight: collection.bounds.height, inset: inset)
-        reservedHeight = max(oldHeight, accordionLayout.naturalHeight + max(0, startOffset - endOffset),
+        reservedHeight = max(accordionLayout.minimumContentHeight,
+                             oldHeight + max(0, startTranslation),
+                             accordionLayout.naturalHeight + max(0, startOffset - endOffset),
                              startOffset + collection.bounds.height - inset.bottom)
         accordionLayout.reveal = old
+        accordionLayout.translation = startTranslation
         accordionLayout.minimumContentHeight = reservedHeight
         accordionLayout.prepare()
+        duration = AccordionMotion.duration(from: old, to: target, sections: accordionLayout.sections,
+                                            viewportHeight: collection.bounds.height)
         animationStart = CACurrentMediaTime()
-        let proxy = AccordionDisplayTarget(owner: self)
-        tickTarget = proxy
-        let displayLink = CADisplayLink(target: proxy, selector: #selector(AccordionDisplayTarget.tick(_:)))
-        displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
-        link = displayLink
+        var newDisplayLink: CADisplayLink?
+        if link == nil {
+            let proxy = AccordionDisplayTarget(owner: self)
+            tickTarget = proxy
+            let displayLink = CADisplayLink(target: proxy, selector: #selector(AccordionDisplayTarget.tick(_:)))
+            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link = displayLink
+            newDisplayLink = displayLink
+        }
         // Refresh only once per state transition; not on every animation frame.
         refreshVisible()
         miniBar.isHidden = true
-        displayLink.add(to: .main, forMode: .common)
+        newDisplayLink?.add(to: .main, forMode: .common)
     }
 
     fileprivate func advance(_ timestamp: CFTimeInterval) {
         guard link != nil else { return }
-        let elapsed = timestamp - animationStart
+        let elapsed = max(0, timestamp - animationStart)
         if elapsed >= duration { finishMotion(allowPendingAnimation: true); return }
         let p = AccordionMotion.ease(CGFloat(elapsed / duration))
         accordionLayout.reveal = zip(from, to).map { pair in pair.0 + (pair.1 - pair.0) * p }
@@ -352,9 +390,13 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         let s = sections[path.section]
         var group = s.group
         // Membership was normalized ONCE in receive(), not for every cell.
-        // Keep the card connected throughout the closing interval.
-        if link != nil && from.indices.contains(path.section) {
+        // Keep the card welded throughout the closing interval, while letting
+        // the chevron begin rotating toward the destination immediately on tap.
+        if link != nil && from.indices.contains(path.section) && to.indices.contains(path.section) {
+            group.chevronCollapsed = to[path.section] <= 0
             group.isCollapsed = max(from[path.section], to[path.section]) <= 0
+        } else {
+            group.chevronCollapsed = group.isCollapsed
         }
         let role: AccordionCellRole
         let height: CGFloat
@@ -368,8 +410,10 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             role = .member(index); height = s.geometry.rowHeight
         }
         var overflow: CGFloat = 0
+        var isMember = false
         if case .folder = role, group.isCollapsed || group.ids.isEmpty { overflow = s.geometry.footerHeight }
-        cell.set(renderer(group, path.section, role), height: height, overflow: overflow, owner: self)
+        if case .member = role { isMember = true }
+        cell.set(renderer(group, path.section, role), height: height, overflow: overflow, slidesFromBottom: isMember, owner: self)
         // Prevent navigation through a partially clipped row. Header taps stay
         // active so a new request can replace the pending intent.
         if case .member = role {
@@ -429,7 +473,8 @@ private final class AccordionDisplayTarget: NSObject {
         // annotating the class @MainActor (whose deinit was implicated in a
         // flaky test teardown after gesture interruption).
         MainActor.assumeIsolated {
-            owner?.advance(link.timestamp)
+            let presentationTime = link.targetTimestamp > 0 ? link.targetTimestamp : link.timestamp
+            owner?.advance(presentationTime)
         }
     }
 }

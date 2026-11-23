@@ -82,6 +82,11 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
         a.frame = CGRect(x: 0, y: y + s.headerHeight + CGFloat(row) * s.rowHeight,
                          width: width, height: height)
         a.isHidden = height <= 0
+        if s.rowHeight > 0 && height < s.rowHeight {
+            a.alpha = AccordionMotion.rowAlpha(fraction: height / s.rowHeight)
+        } else {
+            a.alpha = 1
+        }
         return a
     }
 
@@ -113,8 +118,44 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
 
 /// Shared by production and simulator regression tests.
 enum AccordionMotion {
+    /// Critically-damped spring curve (monotonic, zero overshoot) normalized to
+    /// exact [0, 1] endpoints: responsive initial launch with a gentle iOS-like
+    /// deceleration tail instead of symmetric smoothstep.
     static func ease(_ t: CGFloat) -> CGFloat {
-        let x = min(1, max(0, t)); return x * x * (3 - 2 * x)
+        let x = min(1, max(0, t))
+        if x <= 0 { return 0 }
+        if x >= 1 { return 1 }
+        let w = 6.2
+        let xd = Double(x)
+        let norm = 1.0 - (1.0 + w) * exp(-w)
+        return CGFloat((1.0 - (1.0 + w * xd) * exp(-w * xd)) / norm)
+    }
+    /// Soft alpha ramp for a partially revealed member row so glyphs and edges
+    /// feather in/out instead of popping across a hard clipping boundary.
+    static func rowAlpha(fraction: CGFloat) -> CGFloat {
+        let f = min(1, max(0, fraction))
+        if f >= 0.65 { return 1 }
+        let r = f / 0.65
+        return r * r * (3 - 2 * r)
+    }
+    /// Adaptive flight duration: compact 1–2 row folders settle crisply (~0.26s),
+    /// taller folders get up to ~0.36s for the gentle deceleration tail, and
+    /// short mid-flight reversals stay snappy (~0.22s+).
+    static func duration(from old: [CGFloat], to target: [CGFloat],
+                         sections: [AccordionSectionGeometry], viewportHeight: CGFloat) -> CFTimeInterval {
+        var maxVisualDelta: CGFloat = 0
+        var maxRevealDelta: CGFloat = 0
+        let cap = max(360, viewportHeight)
+        for i in sections.indices where i < old.count && i < target.count {
+            let dr = abs(target[i] - old[i])
+            if dr > maxRevealDelta { maxRevealDelta = dr }
+            let dh = min(sections[i].fullHeight, cap) * dr
+            if dh > maxVisualDelta { maxVisualDelta = dh }
+        }
+        let heightFactor = min(1, max(0, (maxVisualDelta - 68) / 480))
+        let base = 0.26 + 0.10 * Double(heightFactor)
+        let travelScale = 0.65 + 0.35 * Double(min(1, max(0, maxRevealDelta)))
+        return min(0.38, max(0.22, base * travelScale))
     }
     static func clampedOffset(_ desired: CGFloat, contentHeight: CGFloat,
                               viewportHeight: CGFloat, inset: UIEdgeInsets) -> CGFloat {

@@ -253,10 +253,13 @@ extension ContentView {
                         // [T-search-folder-expand] No fold chevron in a result
                         // set: folders stay open there, so it would do nothing.
                         if !searchResultsActive {
+                            let chevronCollapsed = group.chevronCollapsed ?? group.isCollapsed
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(Color(UIColor.tertiaryLabel))
-                                .rotationEffect(.degrees(group.isCollapsed ? -90 : 0))
+                                .id(group.id)
+                                .rotationEffect(.degrees(chevronCollapsed ? -90 : 0))
+                                .animation(.timingCurve(0.2, 0.9, 0.3, 1.0, duration: 0.28), value: chevronCollapsed)
                         }
                     }
                 }

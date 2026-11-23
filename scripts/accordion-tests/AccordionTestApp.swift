@@ -8,6 +8,7 @@ struct SidebarGroup {
     var ids: [String]
     var label: String
     var isCollapsed: Bool
+    var chevronCollapsed: Bool? = nil
     var glyphs: [FolderGlyph] = [FolderGlyph()]
     var anyActive = false
     var anyPaused = false
@@ -64,10 +65,13 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         layout.reveal = [1, 0.0001, 0]; layout.prepare()
         let partial = layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 1))!
         check(partial.frame.height > 0 && partial.frame.height < 68, "real partial-height member, not alpha or scale")
+        check(partial.alpha > 0 && partial.alpha < 1, "partially revealed row softens alpha during clip")
         check(layout.naturalHeight > closedHeight, "following groups move with growing member region")
         let hidden = layout.layoutAttributesForItem(at: IndexPath(item: 3, section: 1))!
         check(hidden.isHidden, "unrevealed rows stay hidden")
         layout.reveal = [1, 1, 0]; layout.prepare()
+        let fullRow = layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 1))!
+        check(abs(fullRow.alpha - 1) < 0.001, "fully revealed row renders at full opacity")
         let attributes = layout.layoutAttributesForElements(in: CGRect(x: 0, y: 100000, width: 390, height: 844)) ?? []
         check(attributes.count < 25, "deep scroll visits only viewport rows in huge group")
         let t0 = CACurrentMediaTime()
@@ -84,6 +88,18 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         }
         check(true, "1001 anchor samples remain stationary without changing contentOffset")
         check(AccordionMotion.ease(0) == 0 && AccordionMotion.ease(1) == 1, "motion endpoints exact")
+        check(AccordionMotion.ease(0.25) > 0.40 && AccordionMotion.ease(0.5) > 0.80, "critically-damped curve launches briskly and decelerates gently")
+        var prevEase: CGFloat = -1
+        var monotonicEase = true
+        for step in 0...100 {
+            let v = AccordionMotion.ease(CGFloat(step) / 100)
+            if v < prevEase || v < 0 || v > 1 { monotonicEase = false; break }
+            prevEase = v
+        }
+        check(monotonicEase, "ease curve is strictly monotonic with zero overshoot")
+        let shortDur = AccordionMotion.duration(from: [0], to: [1], sections: [spec("s", count: 1)], viewportHeight: 844)
+        let tallDur = AccordionMotion.duration(from: [0], to: [1], sections: [spec("t", count: 12)], viewportHeight: 844)
+        check(shortDur >= 0.22 && tallDur <= 0.38 && shortDur < tallDur, "adaptive duration scales with visible section height")
         check(AccordionMotion.clampedOffset(-100, contentHeight: 20, viewportHeight: 800, inset: .zero) == 0,
               "short-content boundary clamp")
 
@@ -97,9 +113,24 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(controller.collection.numberOfItems(inSection: 1) == 4702, "native data source retains stable membership")
         check(controller.collection.visibleCells.count < 35, "UIKit creates only visible cells")
         controller.receive(sections(2), render: render)
-        pump(0.12)
+        pump(0.10)
         let progress = controller.accordionLayout.reveal[2]
         check(progress > 0 && progress < 1, "real CADisplayLink drives intermediate reveal")
+        // Verify immediate mid-flight reversal + chevron target decoupling:
+        // tapping to collapse while expanding must reverse directly from the
+        // intermediate reveal without finishing expansion to 1.0 first, and
+        // signal chevronCollapsed=true while keeping isCollapsed=false (welded).
+        var sawWeldedHeaderWithClosingChevron = false
+        let probeRender: NativeAccordionController.Renderer = { group, sec, role in
+            if sec == 2, case .folder = role, !group.isCollapsed, group.chevronCollapsed == true {
+                sawWeldedHeaderWithClosingChevron = true
+            }
+            return render(group, sec, role)
+        }
+        controller.receive(sections(nil), render: probeRender)
+        check(sawWeldedHeaderWithClosingChevron, "closing accordion starts chevron rotation immediately while keeping card welded")
+        pump(0.08)
+        check(controller.accordionLayout.reveal[2] < progress, "mid-flight reverse interrupts immediately without overshooting to 1.0")
         controller.receive(sections(1), render: render)
         controller.receive(sections(nil), render: render)
         pump(0.85)

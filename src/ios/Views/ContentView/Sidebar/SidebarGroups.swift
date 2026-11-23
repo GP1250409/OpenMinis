@@ -117,6 +117,10 @@ struct SidebarGroup: Equatable, Identifiable {
     var anyActive = false
     var anyPaused = false
     var isCollapsed = false
+    /// Optional target collapse state for the folder header chevron, decoupled
+    /// from `isCollapsed` so a closing accordion keeps its welded card surface
+    /// while the chevron rotates immediately on tap.
+    var chevronCollapsed: Bool? = nil
     var isFolderPinned = false
     var latestDate: Date? = nil      // newest member updatedAt (nil = empty folder)
     var summaryTitle: String? = nil  // newest member's title, for the subtitle line
