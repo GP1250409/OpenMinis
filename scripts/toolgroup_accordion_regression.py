@@ -294,10 +294,11 @@ def static_checks():
     cfg = CFG_SRC.read_text()
     entry = ENTRY.read_text()
 
-    # 1. the shared numbers are the sidebar's (one animation, two places)
+    # 1. chat tool-group math keeps its frozen 0.32s smoothstep; sidebar now
+    #    uses its own adaptive critically-damped curve [T-home-accordion-motion].
     c.present(math, 'static let duration: Double = 0.32', 'accordion duration constant')
-    c.present(sidebar_list, 'private let duration: CFTimeInterval = 0.32', 'sidebar duration unchanged')
-    c.present(sidebar, 'return x * x * (3 - 2 * x)', 'sidebar smoothstep body')
+    c.present(sidebar_list, 'AccordionMotion.duration(from: old, to: target,', 'sidebar adaptive duration [T-home-accordion-motion]')
+    c.present(sidebar, 'let norm = 1.0 - (1.0 + w) * exp(-w)', 'sidebar critically-damped curve [T-home-accordion-motion]')
     c.present(math, 'return x * x * (3 - 2 * x)', 'accordion smoothstep body (same curve)')
     c.absent(math, 'import UIKit', 'math file stays UIKit-free (Linux-compilable)')
 
