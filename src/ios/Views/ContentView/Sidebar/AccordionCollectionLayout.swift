@@ -113,21 +113,6 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
 
 /// Shared by production and simulator regression tests.
 enum AccordionMotion {
-    // [T-sidebar-reveal-pacing] The reveal used to be one 0.32s constant. That
-    // reads well while a run is short, but the curtain reveals one row at a
-    // time: with 20 sessions 0.32s is one frame per row and the eye reads it
-    // as an instant swap. Pace by the rows actually travelling — 0.05s per row
-    // keeps three frames per row up to the 0.80s cap — while five rows or
-    // fewer keep the calibrated 0.32s.
-    static let revealBaseDuration: CFTimeInterval = 0.32
-    static let revealPerRow: CFTimeInterval = 0.05
-    static let revealMaxDuration: CFTimeInterval = 0.80
-
-    static func revealDuration(rows: CGFloat) -> CFTimeInterval {
-        let paced = revealPerRow * Double(max(0, rows))
-        return max(revealBaseDuration, min(revealMaxDuration, paced))
-    }
-
     static func ease(_ t: CGFloat) -> CGFloat {
         let x = min(1, max(0, t)); return x * x * (3 - 2 * x)
     }
