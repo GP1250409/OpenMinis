@@ -32,7 +32,7 @@ jobs:
           set -o pipefail
           MODE="${{ inputs.scope }}"
           BASE="${{ inputs.baseline_sha }}"
-          if [ "${{ github.event_name }}" = "push" ] && [ -z "$MODE" ]; then
+          if [ -z "$MODE" ]; then
             MODE="incremental"
             BASE="5dcd6f9572aa431a6c3f9dd14749305991f8d4f1"
           fi
