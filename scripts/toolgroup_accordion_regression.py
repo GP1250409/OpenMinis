@@ -296,7 +296,7 @@ def static_checks():
 
     # 1. the shared numbers are the sidebar's (one animation, two places)
     c.present(math, 'static let duration: Double = 0.32', 'accordion duration constant')
-    c.present(sidebar_list, 'private let duration: CFTimeInterval = 0.32', 'sidebar duration unchanged')
+    c.present(sidebar_list, 'private let duration: CFTimeInterval = 0.25', 'sidebar duration updated to 0.25s')
     c.present(sidebar, 'return x * x * (3 - 2 * x)', 'sidebar smoothstep body')
     c.present(math, 'return x * x * (3 - 2 * x)', 'accordion smoothstep body (same curve)')
     c.absent(math, 'import UIKit', 'math file stays UIKit-free (Linux-compilable)')
