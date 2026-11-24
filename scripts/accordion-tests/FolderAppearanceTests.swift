@@ -253,11 +253,15 @@ extension AccordionTestApp {
                 let curBg = rgb(img, CGPoint(x: 2, y: curR.midY))
                 let tl = rgb(img, CGPoint(x: 7.5, y: curR.minY + 4 + 1.5))
                 let tr = rgb(img, CGPoint(x: w - 7.5, y: curR.minY + 4 + 1.5))
-                print("LIST_EXPAND \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) bg=\(curBg)")
+                let weldSeam = rgb(img, CGPoint(x: w / 2, y: curR.maxY - 0.5))
+                let bodyMid = rgb(img, CGPoint(x: w / 2, y: curR.midY))
+                print("LIST_EXPAND \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) seam=\(weldSeam) body=\(bodyMid) bg=\(curBg)")
                 check(zip(tl, curBg).allSatisfy { abs($0 - $1) <= 2 },
                       "expand frame \(stepIndex) top-left corner clean (\(tag)) got=\(tl) bg=\(curBg)")
                 check(zip(tr, curBg).allSatisfy { abs($0 - $1) <= 2 },
                       "expand frame \(stepIndex) top-right corner clean (\(tag)) got=\(tr) bg=\(curBg)")
+                check(zip(weldSeam, bodyMid).allSatisfy { abs($0 - $1) <= 3 },
+                      "expand frame \(stepIndex) welds immediately with zero bottom gap (\(tag)) seam=\(weldSeam) body=\(bodyMid)")
                 // Right-gutter separator probe across the header/member boundary (catches full-bleed List separators).
                 for yOff in stride(from: curR.maxY - 2, through: curR.maxY + 2, by: 0.5) {
                     let g = rgb(img, CGPoint(x: w - 2, y: yOff))
@@ -293,11 +297,17 @@ extension AccordionTestApp {
                 let curBg = rgb(img, CGPoint(x: 2, y: curR.midY))
                 let tl = rgb(img, CGPoint(x: 7.5, y: curR.minY + 4 + 1.5))
                 let tr = rgb(img, CGPoint(x: w - 7.5, y: curR.minY + 4 + 1.5))
-                print("LIST_COLLAPSE \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) bg=\(curBg)")
+                let bl = rgb(img, CGPoint(x: 7.5, y: curR.maxY - 4 - 1.5))
+                let br = rgb(img, CGPoint(x: w - 7.5, y: curR.maxY - 4 - 1.5))
+                print("LIST_COLLAPSE \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) bl=\(bl) br=\(br) bg=\(curBg)")
                 check(zip(tl, curBg).allSatisfy { abs($0 - $1) <= 2 },
                       "collapse frame \(stepIndex) top-left corner clean (\(tag)) got=\(tl) bg=\(curBg)")
                 check(zip(tr, curBg).allSatisfy { abs($0 - $1) <= 2 },
                       "collapse frame \(stepIndex) top-right corner clean (\(tag)) got=\(tr) bg=\(curBg)")
+                check(zip(bl, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "collapse frame \(stepIndex) bottom-left corner clean (\(tag)) got=\(bl) bg=\(curBg)")
+                check(zip(br, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "collapse frame \(stepIndex) bottom-right corner clean (\(tag)) got=\(br) bg=\(curBg)")
                 // Probe right gutter across all visible folder section boundaries so single-frame
                 // end-of-collapse section separator flashes (frame_0108) are caught at every step.
                 for yScan in stride(from: curR.maxY - 3, through: min(host.view.bounds.height - 20, curR.maxY + 220), by: 1.0) {

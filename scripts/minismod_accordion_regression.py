@@ -53,7 +53,7 @@ header_source.write_text(
     ' let group: SidebarGroup\n let searchResultsActive = false\n let searchQuery = ""\n'
     ' var body: some View {\n' + header +
     ' .modifier(FolderCardBackground(isDropTarget: false, isExpanded: !group.isCollapsed && !group.ids.isEmpty))\n'
-    ' .padding(.horizontal, 6).padding(.top, 4).padding(.bottom, (group.isCollapsed || group.ids.isEmpty) ? 4 : 0)\n }\n}\n'
+    ' .modifier(FolderHeaderOuterPadding(hasBottomGap: group.isCollapsed || group.ids.isEmpty))\n }\n}\n'
 )
 
 # Verify stackList routes directly to SwiftUI List (`stackListBody`) with 0.25s toggle animation

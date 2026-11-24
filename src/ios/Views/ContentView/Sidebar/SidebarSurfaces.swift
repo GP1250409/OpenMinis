@@ -351,17 +351,20 @@ private struct FolderSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
         .background {
-            if usesModernGlass {
-                ZStack {
-                    Rectangle().fill(.regularMaterial)
-                        .opacity(kind == .lone ? 0 : 1)
-                    Rectangle().fill(Self.sampledGlassColor)
-                        .opacity(kind == .lone ? 1 : 0)
+            Group {
+                if usesModernGlass {
+                    ZStack {
+                        Rectangle().fill(.regularMaterial)
+                            .opacity(kind == .lone ? 0 : 1)
+                        Rectangle().fill(Self.sampledGlassColor)
+                            .opacity(kind == .lone ? 1 : 0)
+                    }
+                    .clipShape(shape)
+                } else {
+                    shape.fill(Color(UIColor.secondarySystemBackground))
                 }
-                .clipShape(shape)
-            } else {
-                shape.fill(Color(UIColor.secondarySystemBackground))
             }
+            .transaction { $0.animation = nil }
         }
         .overlay {
             ZStack {
@@ -373,6 +376,22 @@ private struct FolderSurface: ViewModifier {
                         .opacity(kind == .lone ? 1 : 0)
                 }
             }
+            .transaction { $0.animation = nil }
+        }
+    }
+}
+
+struct FolderHeaderOuterPadding: ViewModifier {
+    let hasBottomGap: Bool
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            content
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+            Color.clear
+                .frame(height: hasBottomGap ? 4 : 0)
+                .transaction { $0.animation = nil }
         }
     }
 }

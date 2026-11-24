@@ -293,11 +293,9 @@ extension ContentView {
             // 6pt matches the splitList selection highlight's horizontal
             // inset, so the folder container and a selected member row share
             // the same left/right edges instead of the container overhanging.
-            .padding(.horizontal, 6)
-            .padding(.top, 4)
             // Expanded: no bottom gap — the card welds onto the first member
-            // row's container segment.
-            .padding(.bottom, (group.isCollapsed || group.ids.isEmpty) ? 4 : 0)
+            // row's container segment without an animated slit gap.
+            .modifier(FolderHeaderOuterPadding(hasBottomGap: group.isCollapsed || group.ids.isEmpty))
         .onTapGesture {
             if let fid = group.folderId { toggleFolderCollapsed(fid, scrollProxy: scrollProxy) }
         }
