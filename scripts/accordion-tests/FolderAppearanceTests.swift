@@ -241,10 +241,11 @@ extension AccordionTestApp {
                       "settled collapsed corner \(ci) clean (\(tag)) got=\(c) bg=\(bg)")
             }
 
-            // 2. Animated EXPAND (0.25s): sample frames across 0.02s..0.34s.
+            // 2. Animated EXPAND (0.25s): sample frames across 0.04s..0.36s.
             model.toggle("f0")
+            CATransaction.flush()
             var stepIndex = 0
-            for dt in [0.02, 0.04, 0.06, 0.06, 0.06, 0.04, 0.08] {
+            for dt in [0.04, 0.04, 0.05, 0.05, 0.05, 0.05, 0.08] {
                 pump(dt)
                 stepIndex += 1
                 let img = snapLive()
@@ -285,10 +286,11 @@ extension AccordionTestApp {
                       "expanded header-to-member seam has no separator line at y=\(yOff) (\(tag)) seam=\(seam) fill=\(cardFill)")
             }
 
-            // 3. Animated COLLAPSE (0.25s): sample frames across 0.02s..0.34s.
+            // 3. Animated COLLAPSE (0.25s): sample frames across 0.04s..0.36s.
             model.toggle("f0")
+            CATransaction.flush()
             stepIndex = 0
-            for dt in [0.02, 0.04, 0.06, 0.06, 0.06, 0.04, 0.08] {
+            for dt in [0.04, 0.04, 0.05, 0.05, 0.05, 0.05, 0.08] {
                 pump(dt)
                 stepIndex += 1
                 let img = snapLive()
