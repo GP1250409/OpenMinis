@@ -82,13 +82,15 @@ struct FolderHeaderVisibilityProbe: View {
 /// they form one continuous rounded-rect highlight, with no horizontal lines
 /// at the row boundaries (which a per-segment full stroke would create).
 private struct FolderSegmentBorder: Shape {
-    enum Kind { case top, middle, bottom }
+    enum Kind { case lone, top, middle, bottom }
     let kind: Kind
     var radius: CGFloat = 16
 
     func path(in rect: CGRect) -> Path {
         var p = Path()
         switch kind {
+        case .lone:
+            return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
         case .top:
             p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
             p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
@@ -218,20 +220,33 @@ private struct FolderSurface: ViewModifier {
             : UIColor(red: 252/255.0, green: 252/255.0, blue: 252/255.0, alpha: 1)
     })
 
-    private var shape: AnyShape {
+    private var shape: UnevenRoundedRectangle {
         switch kind {
         case .lone:
-            return AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            return UnevenRoundedRectangle(
+                topLeadingRadius: 16, bottomLeadingRadius: 16,
+                bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous)
         case .top:
-            return AnyShape(UnevenRoundedRectangle(
+            return UnevenRoundedRectangle(
                 topLeadingRadius: 16, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous))
+                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous)
         case .middle:
-            return AnyShape(Rectangle())
+            return UnevenRoundedRectangle(
+                topLeadingRadius: 0, bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous)
         case .bottom:
-            return AnyShape(UnevenRoundedRectangle(
+            return UnevenRoundedRectangle(
                 topLeadingRadius: 0, bottomLeadingRadius: 16,
-                bottomTrailingRadius: 16, topTrailingRadius: 0, style: .continuous))
+                bottomTrailingRadius: 16, topTrailingRadius: 0, style: .continuous)
+        }
+    }
+
+    private var borderKind: FolderSegmentBorder.Kind {
+        switch kind {
+        case .lone: return .lone
+        case .top: return .top
+        case .middle: return .middle
+        case .bottom: return .bottom
         }
     }
 
@@ -252,32 +267,10 @@ private struct FolderSurface: ViewModifier {
             }
         }
         .overlay {
-            // Border: full hairline on the lone card (its existing look, sub-26
-            // only — glass carries its own edge); tiled outer-perimeter
-            // segments on expanded rows so the pieces read as one outline
-            // without horizontal lines at the row boundaries.
-            switch kind {
-            case .lone:
-                // With glass gone the card needs an explicit edge for
-                // definition — the same highlight the expanded segments tile,
-                // as a full perimeter here.
-                if #available(iOS 26.0, *) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(edgeColor, lineWidth: edgeWidth)
-                } else {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(UIColor.separator).opacity(0.5), lineWidth: 0.5)
-                }
-            case .top:
-                FolderSegmentBorder(kind: .top)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            case .middle:
-                FolderSegmentBorder(kind: .middle)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            case .bottom:
-                FolderSegmentBorder(kind: .bottom)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            }
+            // Single structural border shape across lone and tiled expanded
+            // segments so folding never cross-fades two distinct overlay types.
+            FolderSegmentBorder(kind: borderKind)
+                .stroke(edgeColor, lineWidth: edgeWidth)
         }
         .overlay(alignment: .bottom) {
             if kind == .top {
@@ -299,20 +292,25 @@ struct FolderCardBackground: ViewModifier {
     /// folderSectionHeader), so the segment is never hidden with the source.
     var paintsSurface = true
 
-    private var dropShape: AnyShape {
+    private var dropShape: UnevenRoundedRectangle {
         isExpanded
-            ? AnyShape(UnevenRoundedRectangle(
+            ? UnevenRoundedRectangle(
                 topLeadingRadius: 16, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous))
-            : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous)
+            : UnevenRoundedRectangle(
+                topLeadingRadius: 16, bottomLeadingRadius: 16,
+                bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous)
     }
 
     func body(content: Content) -> some View {
         content
             .background {
-                if paintsSurface {
-                    Color.clear.modifier(FolderSurface(kind: isExpanded ? .top : .lone))
+                Group {
+                    if paintsSurface {
+                        Color.clear.modifier(FolderSurface(kind: isExpanded ? .top : .lone))
+                    }
                 }
+                .transaction { $0.animation = nil }
             }
             .overlay {
                 if isDropTarget {

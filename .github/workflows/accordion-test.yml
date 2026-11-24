@@ -1,7 +1,7 @@
 name: Accordion UIKit regression
 on:
   push:
-    branches: [mod-native-accordion-20261029, mod-usage-weekday]
+    branches: [mod-native-accordion-20261029, mod-usage-weekday, mod-folder-corner-fix-20261124]
   workflow_dispatch:
 jobs:
   test:

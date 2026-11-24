@@ -75,6 +75,7 @@ extension AccordionTestApp {
         // After the loop: the preview test replaces the window's root.
         for (style, lone) in lones { memberPreviewTest(style: style, loneCard: lone) }
         headerPreviewMaskTest()
+        folderCollapseCornersCleanTest()
     }
 
     /// Folder member long-press preview. Two things are asserted:
@@ -254,5 +255,75 @@ extension AccordionTestApp {
             try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file))
             try? list.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file.replacingOccurrences(of: "preview", with: "list")))
         }
+    }
+
+    /// Regression: during folder collapse/expand in NativeAccordionController,
+    /// all four rounded corners of the live folder container must stay free of
+    /// rectangular spandrel residue (both mid-flight across .middle rows and
+    /// near-closed across the .top header's bottom 16pt).
+    func folderCollapseCornersCleanTest() {
+        let controller = NativeAccordionController(viewport: AccordionViewportState(), bottomInset: 0)
+        window!.rootViewController = controller
+        let render: NativeAccordionController.Renderer = { group, _, role in
+            switch role {
+            case .label:
+                return AnyView(Text("Groups").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(UIColor.systemBackground)))
+            case .folder:
+                return AnyView(
+                    ProductionFolderHeaderFixture(group: group)
+                        .background {
+                            Group {
+                                if !group.isCollapsed && !group.ids.isEmpty {
+                                    Color.clear
+                                        .modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                                        .padding(.horizontal, 6)
+                                        .padding(.top, 4)
+                                }
+                            }
+                            .transaction { $0.animation = nil }
+                        }
+                )
+            case .member(let row):
+                return wrappedDiagnosticRow(row, folder: true)
+            }
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            controller.overrideUserInterfaceStyle = style
+            controller.receive(sections(1, count: 6), render: render, allowAnimation: false)
+            controller.view.layoutIfNeeded(); pump(0.15)
+            // Trigger animated collapse of section 1 (6 members -> 0).
+            controller.receive(sections(nil, count: 6), render: render, allowAnimation: true)
+            for sample in [0.10, 0.16] {
+                pump(sample)
+                let p = controller.accordionLayout.reveal[1]
+                guard p > 0.005 && p < 0.995 else { continue }
+                let s = controller.accordionLayout.sections[1]
+                let headerY = controller.accordionLayout.starts[1] + controller.accordionLayout.translation + s.labelHeight - controller.collection.contentOffset.y
+                let cardTopY = headerY + 4
+                let cardBottomY = headerY + s.headerHeight + max(0, min(s.fullHeight * p, s.fullHeight - 4))
+                let w = controller.collection.bounds.width
+                let img = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+                    controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+                }
+                let bg = rgb(img, CGPoint(x: 2, y: cardTopY + 30))
+                // 1.5pt inside the bounding rect corners (well outside the 16pt arc):
+                // distance from arc centre is ~20.5pt > 16pt, so must be pure page background.
+                let corners = [
+                    CGPoint(x: 7.5, y: cardTopY + 1.5),
+                    CGPoint(x: w - 7.5, y: cardTopY + 1.5),
+                    CGPoint(x: 7.5, y: cardBottomY - 1.5),
+                    CGPoint(x: w - 7.5, y: cardBottomY - 1.5),
+                ]
+                for (ci, pt) in corners.enumerated() {
+                    let c = rgb(img, pt)
+                    print("COLLAPSE_CORNER style=\(style.rawValue) p=\(String(format: "%.3f", p)) corner=\(ci) rgb=\(c) bg=\(bg)")
+                    check(zip(c, bg).allSatisfy { abs($0 - $1) <= 2 },
+                          "collapse frame has no corner residue at corner \(ci) (style=\(style.rawValue), p=\(String(format: "%.2f", p)))")
+                }
+            }
+            pump(0.25)
+        }
+        controller.stop()
     }
 }

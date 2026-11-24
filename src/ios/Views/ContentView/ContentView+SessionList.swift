@@ -167,6 +167,7 @@ extension ContentView {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
         .listRowBackground(FolderMemberRowBackground(isLast: true))
         .modifier(SelectionDisabledIfAvailable())
     }
@@ -194,6 +195,7 @@ extension ContentView {
             folderSectionHeader(group, scrollProxy: scrollProxy)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
+                .listRowSeparatorTint(.clear)
                 .listRowBackground(Color.clear)
                 .modifier(SelectionDisabledIfAvailable())
         )
@@ -303,6 +305,8 @@ extension ContentView {
                             .textCase(nil)
                     }
                 }
+                .listSectionSeparator(.hidden)
+                .listSectionSeparatorTint(.clear)
             }
 
         }
@@ -368,6 +372,7 @@ extension ContentView {
                         folderSectionHeader(group, scrollProxy: scrollProxy)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
+                            .listRowSeparatorTint(.clear)
                             .listRowBackground(Color.clear)
                             .modifier(SelectionDisabledIfAvailable())
                     }
@@ -401,6 +406,8 @@ extension ContentView {
                             .textCase(nil)
                     }
                 }
+                .listSectionSeparator(.hidden)
+                .listSectionSeparatorTint(.clear)
             }
 
         }

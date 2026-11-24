@@ -46,6 +46,7 @@ final class AccordionRowHostingController: UIHostingController<AnyView> {
 final class AccordionHostingCell: UICollectionViewCell {
     private var host: AccordionRowHostingController?
     private var fullHeight: CGFloat = 0
+    private var cardClipMask: CAShapeLayer?
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -53,6 +54,53 @@ final class AccordionHostingCell: UICollectionViewCell {
         clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        applyCardClip(nil)
+    }
+    static func liveCardClipPath(for card: CGRect, radius r: CGFloat = 16, bleed: CGFloat = 1.0) -> CGPath {
+        let cr = min(r, card.width / 2, card.height / 2)
+        let tr = cr + bleed
+        // Top + upper side walls bleed outward by `bleed` with concentric top
+        // arcs (cr + bleed) so the outer half of the 0.75pt top/side border
+        // stroke survives unclipped while any rectangular spandrel outside the
+        // top corners is still masked off; the bottom corners follow `card` at
+        // exact `cr` so .top/.middle fills never leave residue while folding.
+        let topArcEndY = card.minY + cr
+        let bottomArcStartY = max(topArcEndY, card.maxY - cr)
+        let p = UIBezierPath()
+        p.move(to: CGPoint(x: card.minX - bleed, y: topArcEndY))
+        p.addArc(withCenter: CGPoint(x: card.minX + cr, y: topArcEndY),
+                 radius: tr, startAngle: .pi, endAngle: 1.5 * .pi, clockwise: true)
+        p.addLine(to: CGPoint(x: card.maxX - cr, y: card.minY - bleed))
+        p.addArc(withCenter: CGPoint(x: card.maxX - cr, y: topArcEndY),
+                 radius: tr, startAngle: 1.5 * .pi, endAngle: 2 * .pi, clockwise: true)
+        p.addLine(to: CGPoint(x: card.maxX + bleed, y: bottomArcStartY))
+        p.addLine(to: CGPoint(x: card.maxX, y: bottomArcStartY))
+        p.addArc(withCenter: CGPoint(x: card.maxX - cr, y: bottomArcStartY),
+                 radius: cr, startAngle: 0, endAngle: .pi / 2, clockwise: true)
+        p.addLine(to: CGPoint(x: card.minX + cr, y: card.maxY))
+        p.addArc(withCenter: CGPoint(x: card.minX + cr, y: bottomArcStartY),
+                 radius: cr, startAngle: .pi / 2, endAngle: .pi, clockwise: true)
+        p.addLine(to: CGPoint(x: card.minX - bleed, y: bottomArcStartY))
+        p.close()
+        return p.cgPath
+    }
+    func applyCardClip(_ localCardRect: CGRect?) {
+        guard let localCardRect, localCardRect.width > 0, localCardRect.height > 0 else {
+            if contentView.layer.mask != nil { contentView.layer.mask = nil }
+            return
+        }
+        let mask = cardClipMask ?? {
+            let m = CAShapeLayer()
+            cardClipMask = m
+            return m
+        }()
+        mask.path = Self.liveCardClipPath(for: localCardRect)
+        if contentView.layer.mask !== mask {
+            contentView.layer.mask = mask
+        }
+    }
     func set(_ content: AnyView, height: CGFloat, overflow: CGFloat = 0, owner: UIViewController) {
         // `overflow` lets a collapsed folder card own its 4pt bottom gap (the
         // empty footer slot below it) so the context-menu preview can have
@@ -86,7 +134,7 @@ final class AccordionHostingCell: UICollectionViewCell {
         }
         setNeedsLayout()
     }
-    func clear() { host?.rootView = AnyView(EmptyView()) }
+    func clear() { applyCardClip(nil); host?.rootView = AnyView(EmptyView()) }
     override func layoutSubviews() {
         super.layoutSubviews()
         // The host never sees the partially-revealed cell height. Text is NOT
@@ -122,6 +170,8 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private let miniBar = UIView()
     private let miniTitle = UIButton(type: .system)
     private let miniCollapse = UIButton(type: .system)
+    private let liveBottomCapView = UIView()
+    private let liveBottomCapLayer = CAShapeLayer()
     private var tickTarget: AccordionDisplayTarget?
     private var observers: [NSObjectProtocol] = []
     private(set) var configuredCellCount = 0 // simulator performance assertions
@@ -138,6 +188,13 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         collection.keyboardDismissMode = .onDrag
         collection.contentInsetAdjustmentBehavior = .never
         collection.register(AccordionHostingCell.self, forCellWithReuseIdentifier: "row")
+        liveBottomCapView.isUserInteractionEnabled = false
+        liveBottomCapView.backgroundColor = .clear
+        liveBottomCapView.isHidden = true
+        liveBottomCapLayer.fillColor = nil
+        liveBottomCapLayer.lineWidth = 0.75
+        liveBottomCapView.layer.addSublayer(liveBottomCapLayer)
+        collection.addSubview(liveBottomCapView)
         view.addSubview(collection)
         miniBar.backgroundColor = .secondarySystemBackground
         miniBar.layer.cornerRadius = 24
@@ -293,6 +350,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         link = displayLink
         // Refresh only once per state transition; not on every animation frame.
         refreshVisible()
+        updateLiveCardClips()
         miniBar.isHidden = true
         displayLink.add(to: .main, forMode: .common)
     }
@@ -310,6 +368,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         UIView.performWithoutAnimation {
             accordionLayout.invalidateLayout()
             collection.layoutIfNeeded()
+            updateLiveCardClips()
         }
     }
 
@@ -325,11 +384,90 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             accordionLayout.invalidateLayout()
             collection.setContentOffset(CGPoint(x: 0, y: endOffset), animated: false)
             collection.layoutIfNeeded()
+            clearLiveCardClips()
         }
         refreshVisible(); updateMiniBar()
         if let latest = pending {
             pending = nil
             receive(latest.0, render: latest.1, allowAnimation: allowPendingAnimation)
+        }
+    }
+
+    private func clearLiveCardClips() {
+        liveBottomCapView.isHidden = true
+        liveBottomCapLayer.path = nil
+        for cell in collection.visibleCells {
+            (cell as? AccordionHostingCell)?.applyCardClip(nil)
+        }
+    }
+
+    private func updateLiveCardClips() {
+        guard link != nil else { clearLiveCardClips(); return }
+        let width = collection.bounds.width
+        let cardWidth = max(0, width - 12)
+        guard cardWidth > 32, accordionLayout.starts.count == sections.count else {
+            clearLiveCardClips()
+            return
+        }
+        var activeCards: [Int: CGRect] = [:]
+        let capPath = UIBezierPath()
+        let r: CGFloat = 16
+        for i in sections.indices {
+            let s = sections[i]
+            guard s.group.folderId != nil, !s.members.isEmpty, s.geometry.headerHeight > 0,
+                  i < accordionLayout.reveal.count else { continue }
+            let p = min(1, max(0, accordionLayout.reveal[i]))
+            let changing = i < from.count && i < to.count && from[i] != to[i]
+            guard changing || (p > 0 && p < 1) else { continue }
+            let headerY = accordionLayout.starts[i] + accordionLayout.translation + s.geometry.labelHeight
+            let cardTopY = headerY + 4
+            let cardBottomY = headerY + s.geometry.headerHeight
+                + max(0, min(s.geometry.fullHeight * p, s.geometry.fullHeight - 4))
+            let cardRect = CGRect(x: 6, y: cardTopY, width: cardWidth, height: max(32, cardBottomY - cardTopY))
+            activeCards[i] = cardRect
+            if p < 0.999 {
+                let yArc = cardRect.maxY - r
+                capPath.move(to: CGPoint(x: cardRect.minX, y: yArc))
+                capPath.addArc(withCenter: CGPoint(x: cardRect.minX + r, y: yArc),
+                               radius: r, startAngle: .pi, endAngle: .pi / 2, clockwise: false)
+                capPath.addLine(to: CGPoint(x: cardRect.maxX - r, y: cardRect.maxY))
+                capPath.addArc(withCenter: CGPoint(x: cardRect.maxX - r, y: yArc),
+                               radius: r, startAngle: .pi / 2, endAngle: 0, clockwise: false)
+            }
+        }
+        for cell in collection.visibleCells {
+            guard let hosting = cell as? AccordionHostingCell else { continue }
+            guard let path = collection.indexPath(for: hosting),
+                  let cardRect = activeCards[path.section] else {
+                hosting.applyCardClip(nil)
+                continue
+            }
+            let s = sections[path.section]
+            let isLabel = s.geometry.labelHeight > 0 && path.item == 0
+            let isHeader = s.geometry.headerHeight > 0 && path.item == s.geometry.prefixCount - 1
+            if isLabel || (!isHeader && hosting.frame.maxY < cardRect.maxY - 20) {
+                hosting.applyCardClip(nil)
+            } else {
+                hosting.applyCardClip(cardRect.offsetBy(dx: -hosting.frame.minX, dy: -hosting.frame.minY))
+            }
+        }
+        if !capPath.isEmpty {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            liveBottomCapView.frame = CGRect(x: 0, y: 0, width: width, height: max(collection.bounds.height, accordionLayout.collectionViewContentSize.height))
+            let stroke = UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(white: 1, alpha: 0.30)
+                    : UIColor(white: 0, alpha: 0.08)
+            }.resolvedColor(with: collection.traitCollection)
+            liveBottomCapLayer.strokeColor = stroke.cgColor
+            liveBottomCapLayer.path = capPath.cgPath
+            liveBottomCapView.isHidden = false
+            collection.bringSubviewToFront(liveBottomCapView)
+            CATransaction.commit()
+        } else {
+            liveBottomCapView.isHidden = true
+            liveBottomCapLayer.path = nil
         }
     }
 
@@ -379,6 +517,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             cell.isUserInteractionEnabled = true
             cell.accessibilityElementsHidden = false
         }
+        if link == nil { cell.applyCardClip(nil) }
         configuredCellCount += 1
     }
     private func refreshVisible() {
@@ -388,6 +527,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if link == nil { updateMiniBar() }
+        else { updateLiveCardClips() }
     }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // A real gesture owns the scroll position. Finish once, then never

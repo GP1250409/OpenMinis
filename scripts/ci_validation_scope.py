@@ -89,7 +89,13 @@ ALLOWED_RESUME_EXACT_FILES = frozenset({
 ALLOWED_INCREMENTAL_PREFIXES = (
     'scripts/streaming-resume-tests/',
     '.github/workflows/build-ios.yml',
+    '.github/workflows/accordion-test.yml',
     'scripts/ci_validation_scope.py',
+    'scripts/minismod_accordion_regression.py',
+    'scripts/accordion-tests/',
+    'src/ios/Views/ContentView/Sidebar/',
+    'src/ios/Views/ContentView/ContentView+SectionHeaders.swift',
+    'src/ios/Views/ContentView/ContentView+SessionList.swift',
     'scripts/toolfold',
     # [T-toolgroup-accordion] 2026-11-19. The chat tool-group accordion adds
     # two Support files (shipping math + the frame driver) compiled by the

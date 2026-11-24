@@ -81,6 +81,7 @@ struct SessionStackRow: View {
         }
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
         .listRowBackground(Color.clear)
         .modifier(SessionRowContextMenu(
             key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled),
@@ -186,6 +187,7 @@ struct SessionSplitRow: View {
         .tag(session.id)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
         .listRowBackground(
             ZStack {
                 if inFolder {

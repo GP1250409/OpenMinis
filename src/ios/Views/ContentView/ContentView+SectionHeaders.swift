@@ -31,6 +31,8 @@ extension ContentView {
             .padding(.leading, 16)
         }
         .buttonStyle(.plain)
+        .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
     }
 
     // MARK: - Section Header
@@ -280,11 +282,14 @@ extension ContentView {
             // fill so the group still reads as one continuous card, and while
             // the menu hides the source the group is not carved open.
             .background {
-                if !group.isCollapsed && !group.ids.isEmpty {
-                    FolderCardFill()
-                        .padding(.bottom, FolderCardPreviewShape.gap)
-                        .allowsHitTesting(false)
+                Group {
+                    if !group.isCollapsed && !group.ids.isEmpty {
+                        FolderCardFill()
+                            .padding(.bottom, FolderCardPreviewShape.gap)
+                            .allowsHitTesting(false)
+                    }
                 }
+                .transaction { $0.animation = nil }
             }
             // Mini-bar trigger: only an EXPANDED, populated group needs its
             // header tracked (a collapsed card scrolling away is just a card).
@@ -425,27 +430,40 @@ extension ContentView {
         // source on purpose: the menu hides its source while the platter is
         // up and during dismissal, and this keeps the group continuous then.
         .background {
-            if !group.isCollapsed && !group.ids.isEmpty {
-                Color.clear
-                    .modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
-                    .mask {
-                        // iOS 26 segments are a translucent material: cut the
-                        // card body out so it is not stacked twice. Earlier
-                        // systems use one opaque colour, where stacking is
-                        // invisible and a cut would only add an AA seam.
-                        if #available(iOS 26.0, *) {
-                            FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap)
-                                .fill(style: FillStyle(eoFill: true))
-                        } else {
-                            // Bleed past the frame so the outer half of the
-                            // edge hairline survives (see FolderWeldStrip).
-                            Rectangle().padding(-FolderWeldStrip.edgeBleed)
+            Group {
+                if !group.isCollapsed && !group.ids.isEmpty {
+                    Color.clear
+                        .modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
+                        .mask {
+                            // iOS 26 segments are a translucent material: cut the
+                            // card body out so it is not stacked twice. Earlier
+                            // systems use one opaque colour, where stacking is
+                            // invisible and a cut would only add an AA seam.
+                            if #available(iOS 26.0, *) {
+                                FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap)
+                                    .fill(style: FillStyle(eoFill: true))
+                            } else {
+                                // Bleed past the frame so the outer half of the
+                                // edge hairline survives (see FolderWeldStrip),
+                                // while keeping concentric top corners so no
+                                // rectangular mask bounds can bleed outside the
+                                // 16pt top arcs during collapse/expand.
+                                UnevenRoundedRectangle(
+                                    topLeadingRadius: 16 + FolderWeldStrip.edgeBleed,
+                                    bottomLeadingRadius: 0,
+                                    bottomTrailingRadius: 0,
+                                    topTrailingRadius: 16 + FolderWeldStrip.edgeBleed,
+                                    style: .continuous
+                                )
+                                .padding(-FolderWeldStrip.edgeBleed)
+                            }
                         }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.top, 4)
-                    .allowsHitTesting(false)
+                        .padding(.horizontal, 6)
+                        .padding(.top, 4)
+                        .allowsHitTesting(false)
+                }
             }
+            .transaction { $0.animation = nil }
         }
     }
 
