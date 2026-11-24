@@ -61,10 +61,10 @@ struct SwiftUIListFolderFixture: View {
         let allIds = (0..<count).map { "\(id)-m\($0)" }
         return SidebarGroup(
             id: "folder-\(id)",
+            folderId: id,
             ids: isCollapsed ? [] : allIds,
             label: name,
             isCollapsed: isCollapsed,
-            folderId: id,
             totalCount: count,
             summaryTitle: "邮件往来"
         )
