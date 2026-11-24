@@ -167,6 +167,7 @@ extension ContentView {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
         .listRowBackground(FolderMemberRowBackground(isLast: true))
         .modifier(SelectionDisabledIfAvailable())
     }
@@ -186,27 +187,25 @@ extension ContentView {
     }
     // END searchFolderPage
 
-    /// The folder card row, erased — four modifiers plus a custom modifier that
-    /// would otherwise ride along in the same nest as everything else.
+    /// The folder card row, erased inside `AnyView` while keeping list-row
+    /// traits (`listRowInsets` / `listRowSeparator` / `listRowBackground`)
+    /// OUTSIDE `AnyView` so iOS 16 `List(.plain)` never drops separator-hiding
+    /// traits across dynamic row insertion/deletion.
     private func erasedFolderSectionHeader(_ group: SidebarGroup,
-                                           scrollProxy: ScrollViewProxy?) -> AnyView {
+                                           scrollProxy: ScrollViewProxy?) -> some View {
         AnyView(
             folderSectionHeader(group, scrollProxy: scrollProxy)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
                 .modifier(SelectionDisabledIfAvailable())
         )
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
+        .listRowBackground(Color(UIColor.systemBackground))
     }
 
-    @ViewBuilder
     private var stackList: some View {
-        if !isSelecting && !isSearching {
-            nativeAccordionSidebar
-        } else {
-            ScrollViewReader { scrollProxy in
-                stackListBody(scrollProxy: scrollProxy)
-            }
+        ScrollViewReader { scrollProxy in
+            stackListBody(scrollProxy: scrollProxy)
         }
     }
 
@@ -222,9 +221,6 @@ extension ContentView {
             // for the row lookups that follow; see HomeListPerf.
             let perfStart = HomeListPerf.passBegin()
             let groups = groupedSessionIDs(filteredSessions)
-            let _ = stablePinnedTitle.configure(
-                ids: groups.first(where: { $0.label == "Pinned" && $0.folderId == nil })?.ids ?? [],
-                enabled: !isSelecting && !isSearching)
             let _ = HomeListPerf.passEnd(site: "sidebar", start: perfStart, groups: groups, sessions: sessions.count,
                                         inputs: homeListPassInputs)
             // [T-ios-foreach-lazyedits-dup-guard] Record the identity sequence
@@ -265,18 +261,6 @@ extension ContentView {
                     } else {
                         ForEach(group.ids, id: \.self) { sessionId in
                             stackRow(sessionId, group: group)
-                                .background {
-                                    if group.label == "Pinned", group.folderId == nil, !isSearching {
-                                        ZStack {
-                                            if sessionId == group.ids.first {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
-                                            }
-                                            if sessionId == group.ids.last {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
-                                            }
-                                        }.allowsHitTesting(false)
-                                    }
-                                }
                         }
                     }
                     if group.hiddenMatchCount > 0, !isSelecting {
@@ -288,14 +272,7 @@ extension ContentView {
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
                     if group.folderId == nil || isSelecting {
-                        if group.label == "Pinned", !isSelecting, !isSearching {
-                            sectionHeader(index: index, group: group)
-                                .opacity(0.001)
-                                .accessibilityHidden(true)
-                                .background(PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .header))
-                        } else {
-                            sectionHeader(index: index, group: group)
-                        }
+                        sectionHeader(index: index, group: group)
                     } else if group.showsGroupsHeader {
                         Text("Groups")
                             .font(.subheadline.weight(.semibold))
@@ -303,16 +280,12 @@ extension ContentView {
                             .textCase(nil)
                     }
                 }
+                .listSectionSeparator(.hidden)
+                .listSectionSeparatorTint(.clear)
             }
 
         }
         .listStyle(.plain)
-        .onAppear {
-            stablePinnedTitle.configure(
-                ids: groupedSessionIDs(filteredSessions).first(where: { $0.label == "Pinned" && $0.folderId == nil })?.ids ?? [],
-                enabled: !isSelecting && !isSearching)
-        }
-        .onDisappear { stablePinnedTitle.stop() }
         #if DEBUG
         // TEMPORARY scroll-phase markers to bracket the jitter window in the
         // log. Pair with the [ROWH] probe: a [ROWH] line appearing during
@@ -368,6 +341,7 @@ extension ContentView {
                         folderSectionHeader(group, scrollProxy: scrollProxy)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
+                            .listRowSeparatorTint(.clear)
                             .listRowBackground(Color.clear)
                             .modifier(SelectionDisabledIfAvailable())
                     }
@@ -401,6 +375,8 @@ extension ContentView {
                             .textCase(nil)
                     }
                 }
+                .listSectionSeparator(.hidden)
+                .listSectionSeparatorTint(.clear)
             }
 
         }

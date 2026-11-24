@@ -368,12 +368,20 @@ extension ContentView {
         // out from under the finger for no reason).
         let willExpand = collapsedFolderIds.contains(folderId)
 
-        // MOD: structural row swaps must not overlap the scroll correction below.
-        if willExpand {
-            collapsedFolderIds = Set(folders.map(\.id))
-            collapsedFolderIds.remove(folderId)
-        } else {
-            collapsedFolderIds.insert(folderId)
+        // Animated again by request — with the jitter history baked into the
+        // parameters. The original shaking had two ingredients: per-row glass
+        // segments re-rendering every animation frame (that structure is gone;
+        // the group is now ONE card, one glass shape), and a springy curve
+        // whose oscillation read as continuous wobble. Hence a short plain
+        // easeInOut: monotonic (no overshoot to re-measure), brief enough
+        // that the List's per-frame self-size pass stays cheap.
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if collapsedFolderIds.contains(folderId) {
+                collapsedFolderIds = Set(folders.map(\.id))
+                collapsedFolderIds.remove(folderId)
+            } else {
+                collapsedFolderIds.insert(folderId)
+            }
         }
         UserDefaults.standard.set(Array(collapsedFolderIds), forKey: "collapsedFolderIds")
 

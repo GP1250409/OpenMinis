@@ -31,6 +31,8 @@ extension ContentView {
             .padding(.leading, 16)
         }
         .buttonStyle(.plain)
+        .listRowSeparator(.hidden)
+        .listRowSeparatorTint(.clear)
     }
 
     // MARK: - Section Header
@@ -269,23 +271,6 @@ extension ContentView {
             .padding(.vertical, 10)
             .textCase(nil)
             .contentShape(Rectangle())
-            // MOD: an EXPANDED header splits its welded card in two. The part
-            // inside the context-menu source is the card body only — rounded
-            // on all four corners and stopping 4pt above the row's bottom —
-            // so the platter snapshot has the same 4pt band on every side as
-            // a collapsed card (no flat cut, no card running into the bottom
-            // edge: photo_968D96E1 / photo_EEB36A68). The welded top segment
-            // that joins the first member row is painted OUTSIDE the source
-            // (below, after .contextMenu): in the list both layers share one
-            // fill so the group still reads as one continuous card, and while
-            // the menu hides the source the group is not carved open.
-            .background {
-                if !group.isCollapsed && !group.ids.isEmpty {
-                    FolderCardFill()
-                        .padding(.bottom, FolderCardPreviewShape.gap)
-                        .allowsHitTesting(false)
-                }
-            }
             // Mini-bar trigger: only an EXPANDED, populated group needs its
             // header tracked (a collapsed card scrolling away is just a card).
             .background {
@@ -298,10 +283,7 @@ extension ContentView {
             }
             .modifier(FolderCardBackground(
                 isDropTarget: dropTargetFolderId == group.folderId,
-                isExpanded: !group.isCollapsed && !group.ids.isEmpty,
-                // Expanded: the welded segment is painted outside the menu
-                // source (after .contextMenu below).
-                paintsSurface: group.isCollapsed || group.ids.isEmpty))
+                isExpanded: !group.isCollapsed && !group.ids.isEmpty))
             // Outer insets float the rounded card inside the list width —
             // the inset frame is what separates it from the full-bleed
             // session rows at a glance. (The glass/pre-26 card is what the
@@ -358,15 +340,6 @@ extension ContentView {
                 dropTargetFolderId = nil
             }
         }
-        // The native row host is a fixed 68pt: 6pt side and 4pt top insets
-        // but no bottom inset (the 4pt footer gap is layout-only), so the
-        // default preview (= host bounds) hugged the card unevenly. Make the
-        // preview exactly the card: same insets, card corner shape — and, for
-        // an expanded header whose card is welded to its first member row, a
-        // 4pt bottom gap with rounded corners instead of the flat cut the
-        // mask used to leave there (FolderCardPreviewShape).
-        .contentShape(.contextMenuPreview, FolderCardPreviewShape(
-            expanded: !group.isCollapsed && !group.ids.isEmpty))
         .contextMenu {
             if let fid = group.folderId, let folder = folders.first(where: { $0.id == fid }) {
                 Button {
@@ -418,33 +391,6 @@ extension ContentView {
                 } label: {
                     Label("Delete Group & \(group.totalCount) Sessions", systemImage: "trash")
                 }
-            }
-        }
-        // MOD: the welded top segment of an EXPANDED folder (6pt sides, 4pt
-        // top, flush to the first member row). Outside the context-menu
-        // source on purpose: the menu hides its source while the platter is
-        // up and during dismissal, and this keeps the group continuous then.
-        .background {
-            if !group.isCollapsed && !group.ids.isEmpty {
-                Color.clear
-                    .modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
-                    .mask {
-                        // iOS 26 segments are a translucent material: cut the
-                        // card body out so it is not stacked twice. Earlier
-                        // systems use one opaque colour, where stacking is
-                        // invisible and a cut would only add an AA seam.
-                        if #available(iOS 26.0, *) {
-                            FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap)
-                                .fill(style: FillStyle(eoFill: true))
-                        } else {
-                            // Bleed past the frame so the outer half of the
-                            // edge hairline survives (see FolderWeldStrip).
-                            Rectangle().padding(-FolderWeldStrip.edgeBleed)
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.top, 4)
-                    .allowsHitTesting(false)
             }
         }
     }
@@ -501,37 +447,5 @@ extension ContentView {
             deleteInfo = info
             isComputingDelete = false
         }
-    }
-}
-
-
-/// Context-menu preview mask of a folder header card inside its padded row.
-///
-/// `.contentShape(.contextMenuPreview, _)` MASKS the platter's snapshot, so
-/// this path is the shape the user actually sees while the header is held.
-///
-/// Collapsed: the card sits 6pt from the row sides and 4pt from top and
-/// bottom, so the mask is the card plus the uniform 4pt gap (radius 16 + gap,
-/// concentric with the card).
-///
-/// Expanded: inside the menu source the header only paints its card BODY
-/// (FolderCardFill: 4pt above the row's bottom, all corners rounded); the
-/// welded segment is painted outside the source. So the expanded mask is the
-/// same full-row path as the collapsed one — 4pt band on all four sides,
-/// concentric corners — instead of the earlier flat cut (photo_968D96E1) or
-/// card-touching-the-bottom (photo_EEB36A68) shapes.
-struct FolderCardPreviewShape: Shape {
-    let expanded: Bool
-    /// Uniform gap between card and preview mask; mask radius = card radius +
-    /// gap, so both outlines share the same circle centres.
-    static let gap: CGFloat = 4
-    static let cornerRadius: CGFloat = 16
-
-    func path(in rect: CGRect) -> Path {
-        let g = Self.gap
-        let r = CGRect(x: rect.minX + 6 - g, y: rect.minY + 4 - g,
-                       width: max(0, rect.width - 12 + 2 * g),
-                       height: max(0, rect.height - 2 * (4 - g)))
-        return RoundedRectangle(cornerRadius: Self.cornerRadius + g, style: .continuous).path(in: r)
     }
 }

@@ -22,24 +22,142 @@ struct FolderAppearanceFixture: View {
     }
 }
 
+final class SwiftUIListFolderModel: ObservableObject {
+    @Published var collapsedIds: Set<String> = ["f0", "f1", "f2"]
+    weak var f0HeaderView: UIView?
+    weak var f1HeaderView: UIView?
+
+    func toggle(_ fid: String) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if collapsedIds.contains(fid) {
+                collapsedIds = ["f0", "f1", "f2"]
+                collapsedIds.remove(fid)
+            } else {
+                collapsedIds.insert(fid)
+            }
+        }
+    }
+}
+
+struct HeaderUIViewProbe: UIViewRepresentable {
+    let assign: (UIView) -> Void
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        v.backgroundColor = .clear
+        return v
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        assign(uiView)
+    }
+}
+
+struct SwiftUIListFolderFixture: View {
+    @ObservedObject var model: SwiftUIListFolderModel
+    let actions = SessionMenuActionChannel()
+
+    private func makeGroup(id: String, name: String, count: Int) -> SidebarGroup {
+        let isCollapsed = model.collapsedIds.contains(id)
+        let allIds = (0..<count).map { "\(id)-m\($0)" }
+        return SidebarGroup(
+            id: "folder-\(id)",
+            ids: isCollapsed ? [] : allIds,
+            label: name,
+            isCollapsed: isCollapsed,
+            folderId: id,
+            totalCount: count,
+            summaryTitle: "邮件往来"
+        )
+    }
+
+    private func makeSession(_ sid: String, title: String) -> ChatSession {
+        var s = ChatSession()
+        s.id = sid
+        s.title = title
+        return s
+    }
+
+    var body: some View {
+        let groups = [
+            makeGroup(id: "f0", name: "商务邮件", count: 6),
+            makeGroup(id: "f1", name: "朗文词典改造", count: 4),
+            makeGroup(id: "f2", name: "网站开发", count: 3),
+        ]
+        List {
+            Section {
+                ForEach(["pin-0", "pin-1"], id: \.self) { sid in
+                    SessionStackRow(
+                        session: makeSession(sid, title: sid == "pin-0" ? "Herd 连接 RN" : "查看 Codex 用量"),
+                        isActive: false, isSuspended: false, highlightQuery: nil, matchSnippet: nil,
+                        isRegeneratingTitle: false, inFolder: false, isLastInFolder: false, menuActions: actions
+                    )
+                }
+            } header: {
+                Text("Pinned").font(.subheadline.weight(.semibold)).foregroundStyle(Color(UIColor.secondaryLabel))
+            }
+            .listSectionSeparator(.hidden)
+            .listSectionSeparatorTint(.clear)
+
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                Section {
+                    AnyView(
+                        ProductionFolderHeaderFixture(group: group)
+                            .background(
+                                HeaderUIViewProbe { v in
+                                    if group.folderId == "f0" { model.f0HeaderView = v }
+                                    if group.folderId == "f1" { model.f1HeaderView = v }
+                                }
+                            )
+                            .id("folderHeader-\(group.folderId ?? "")")
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowSeparatorTint(.clear)
+                    .listRowBackground(Color(UIColor.systemBackground))
+
+                    ForEach(Array(group.ids.enumerated()), id: \.element) { idx, sid in
+                        SessionStackRow(
+                            session: makeSession(sid, title: idx == 0 ? "邮件往来" : "Ivan电源适配器 \(idx)"),
+                            isActive: false, isSuspended: false, highlightQuery: nil, matchSnippet: nil,
+                            isRegeneratingTitle: false, inFolder: true,
+                            isLastInFolder: idx == group.ids.count - 1,
+                            menuActions: actions
+                        )
+                    }
+                } header: {
+                    if index == 0 {
+                        Text("Groups")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                            .textCase(nil)
+                    }
+                }
+                .listSectionSeparator(.hidden)
+                .listSectionSeparatorTint(.clear)
+            }
+        }
+        .listStyle(.plain)
+    }
+}
+
 extension AccordionTestApp {
     func rgb(_ image: UIImage, _ point: CGPoint) -> [Int] {
         guard let cg = image.cgImage,
-              let crop = cg.cropping(to: CGRect(x: Int(point.x * image.scale), y: Int(point.y * image.scale), width: 1, height: 1)) else { return [0,0,0] }
-        var bytes: [UInt8] = [0,0,0,0]
+              let crop = cg.cropping(to: CGRect(x: Int(point.x * image.scale), y: Int(point.y * image.scale), width: 1, height: 1)) else { return [0, 0, 0] }
+        var bytes: [UInt8] = [0, 0, 0, 0]
         bytes.withUnsafeMutableBytes { raw in
             let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1,
-                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
             ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         }
         return bytes.prefix(3).map(Int.init)
     }
+
     func folderAppearanceTest() {
         let box = FloatingBarGeometryBox()
         let host = UIHostingController(rootView: FolderAppearanceFixture(box: box))
         window!.rootViewController = host
-        var lones: [(UIUserInterfaceStyle, [Int])] = []
         for style in [UIUserInterfaceStyle.light, .dark] {
             host.overrideUserInterfaceStyle = style
             host.view.backgroundColor = .systemBackground
@@ -52,207 +170,175 @@ extension AccordionTestApp {
             let title = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 126))
             let member = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 194))
             print("FOLDER_COLORS style=\(style.rawValue) title=\(title) member=\(member)")
-            check(zip(title, member).allSatisfy { abs($0 - $1) <= 2 }, "expanded menu shares member background without extra tint")
-            let divider = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 160 - 0.25))
-            check(zip(divider, title).contains { abs($0 - $1) >= 3 }, "only header-to-member boundary has a visible fine rule")
+            check(zip(title, member).allSatisfy { abs($0 - $1) <= 2 }, "expanded header shares member background without extra tint")
+            // Upstream seamless weld: no horizontal separator rule inside an expanded folder card.
+            let boundary = rgb(image, CGPoint(x: rect.midX, y: rect.minY + 160 - 0.25))
+            check(zip(boundary, title).allSatisfy { abs($0 - $1) <= 2 }, "expanded header welds seamlessly to first member without internal rule")
             let scale = image.scale
             func edgeStrength(_ y: CGFloat) -> Int {
                 let base = rgb(image, CGPoint(x: rect.midX, y: rect.minY + y))
                 return (-2...8).reduce(0) { sum, step in
-                    let color = rgb(image, CGPoint(x: rect.minX + 6 + CGFloat(step)/scale, y: rect.minY + y))
+                    let color = rgb(image, CGPoint(x: rect.minX + 6 + CGFloat(step) / scale, y: rect.minY + y))
                     return sum + zip(color, base).reduce(0) { $0 + abs($1.0 - $1.1) }
                 }
             }
             let collapsed = edgeStrength(34), expanded = edgeStrength(194)
             print("FOLDER_EDGE style=\(style.rawValue) collapsed=\(collapsed) expanded=\(expanded)")
-            // Upstream uses the same 0.75pt highlight on expanded segments;
-            // a stronger-than-collapsed edge is no longer the requested style.
-            check(expanded > 0, "upstream-style expanded outer edge remains visible")
+            check(collapsed > 0 && expanded > 0, "both collapsed and expanded outer edges remain visible")
             let filename = style == .light ? "folder-light.png" : "folder-dark.png"
             try? image.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
-            lones.append((style, rgb(image, CGPoint(x: rect.midX, y: rect.minY + 34))))
         }
-        // After the loop: the preview test replaces the window's root.
-        for (style, lone) in lones { memberPreviewTest(style: style, loneCard: lone) }
-        headerPreviewMaskTest()
+        swiftUIListExpandCollapseTest(legacyOpaque: true)
+        swiftUIListExpandCollapseTest(legacyOpaque: false)
     }
 
-    /// Folder member long-press preview. Two things are asserted:
-    ///
-    /// 1. The platter's mask (FolderLiftPreviewShape) is exactly the lone card
-    ///    FolderLiftedCard draws — 6pt sides, 4pt top/bottom, radius 16 — so
-    ///    the lift keeps the accepted uniform 4pt gap and card colour.
-    /// 2. The row keeps its welded segment UNDER that card while it is held
-    ///    (production: ZStack of FolderMemberRowBackground + FolderLiftedCard).
-    ///    The old pressed branch replaced the segment, leaving a hole in the
-    ///    group around the platter; on cancel the returning platter crossed it
-    ///    and read as a stray rounded card (video_B6D9D356.mp4, 3.4-4.0 s).
-    func memberPreviewTest(style: UIUserInterfaceStyle, loneCard: [Int]) {
-        let w: CGFloat = 398, h: CGFloat = 76
-        let mask = FolderLiftPreviewShape()
-        let path = mask.path(in: CGRect(x: 0, y: 0, width: w, height: h))
-        let bounds = path.boundingRect
-        print("MEMBER_PREVIEW_MASK \(bounds.minX),\(bounds.minY),\(bounds.width),\(bounds.height)")
-        check(abs(bounds.minX - 6) < 0.5 && abs(bounds.maxX - (w - 6)) < 0.5
-              && abs(bounds.minY - 4) < 0.5 && abs(bounds.maxY - (h - 4)) < 0.5,
-              "member preview mask is the lone card: 6pt sides, 4pt top/bottom")
-        check(!path.contains(CGPoint(x: 6.5, y: 4.5)), "member preview mask rounds its corners")
+    /// Real SwiftUI `List(.plain)` 0.25s expand + collapse pixel regression
+    /// covering both the exact iOS 16 opaque `secondarySystemBackground` path
+    /// (`legacyOpaque == true`) and the modern glass path (`legacyOpaque == false`).
+    func swiftUIListExpandCollapseTest(legacyOpaque: Bool) {
+        FolderSurfaceTesting.forceLegacyOpaqueCard = legacyOpaque
+        defer { FolderSurfaceTesting.forceLegacyOpaqueCard = false }
 
-        // What UIKit snapshots as the platter while the menu holds the row.
-        // Production: the source holds only the lifted card; the welded
-        // segment is painted outside the menu source.
-        let platter = render(Color.clear.frame(width: w, height: h).background {
-            FolderLiftedCard(bottomInset: 4)
-        }.clipShape(FolderLiftPreviewShape()), w: w, h: h, style: style)
-        // The same row once the menu is gone.
-        let settled = render(Color.clear.frame(width: w, height: h)
-            .background(FolderMemberRowBackground(isLast: false)), w: w, h: h, style: style)
-
-        // 1. Platter keeps the equal-gap card look.
-        check([CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2)].allSatisfy { alpha(platter, $0) == 0 },
-              "lifted member leaves a clear 4pt top and bottom gap")
-        check([CGPoint(x: 2, y: h/2), CGPoint(x: w - 2, y: h/2)].allSatisfy { alpha(platter, $0) == 0 },
-              "lifted member is inset 6pt from the row sides")
-        check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 8, y: h/2), CGPoint(x: w - 8, y: h/2)]
-              .allSatisfy { alpha(platter, $0) == 255 }, "lifted card surface starts at the inset")
-        let card = rgb(platter, CGPoint(x: w - 30, y: h - 8))
-        print("MEMBER_PREVIEW_COLOR style=\(style.rawValue) card=\(card) lone=\(loneCard)")
-        check(zip(card, loneCard).allSatisfy { abs($0 - $1) <= 2 }, "lifted card uses the folder card colour, no pressed tint")
-
-        // 2. The group is NOT carved: behind the card's 4pt bands the welded
-        //    segment is still painted, so a cancelled menu lands on a
-        //    continuous group instead of a hole with a card over it.
-        let held = render(Color.clear.frame(width: w, height: h).background {
-            ZStack {
-                FolderMemberRowBackground(isLast: false)
-                FolderLiftedCard(bottomInset: 4)
-            }
-        }, w: w, h: h, style: style)
-        // Compared against the settled row rather than a fixed alpha: the
-        // welded segment is a material on iOS 26, so its own alpha is not 255
-        // over a clear backdrop — what matters is that the surface the platter
-        // hides (its 4pt bands) is the SAME one the dismissal lands on.
-        let gapPoints = [CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 8, y: 2)]
-        check(gapPoints.allSatisfy { p in
-                zip(rgb(held, p), rgb(settled, p)).allSatisfy { abs($0 - $1) <= 2 }
-              },
-              "held row keeps the group surface in the card's gaps")
-        // (Colour parity with the SETTLED row is deliberately not sampled
-        // here: on iOS 26 a member segment is a material, which renders empty
-        // when drawn over a clear backdrop. The platter's solid card is the
-        // documented parity constant — FolderSurface.sampledGlassColor — and
-        // the appearance parity is covered by FOLDER_COLORS above.)
-        let filename = style == .light ? "folder-preview-light.png" : "folder-preview-dark.png"
-        try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename))
-    }
-
-    func render<V: View>(_ view: V, w: CGFloat, h: CGFloat, style: UIUserInterfaceStyle) -> UIImage {
-        let host = UIHostingController(rootView: view)
-        host.overrideUserInterfaceStyle = style
-        host.view.backgroundColor = .clear
-        let root = UIViewController(); root.view.backgroundColor = .clear
-        window!.rootViewController = root
-        root.addChild(host); root.view.addSubview(host.view); host.didMove(toParent: root)
-        host.view.frame = CGRect(origin: CGPoint(x: 0, y: 100), size: CGSize(width: w, height: h))
-        host.view.layoutIfNeeded(); pump(0.3)
-        return snapshot(host.view)
-    }
-
-    func snapshot(_ view: UIView) -> UIImage {
-        let format = UIGraphicsImageRendererFormat(); format.opaque = false
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
-        }
-    }
-
-    func alpha(_ image: UIImage, _ point: CGPoint) -> Int {
-        guard let cg = image.cgImage,
-              let crop = cg.cropping(to: CGRect(x: Int(point.x * image.scale), y: Int(point.y * image.scale), width: 1, height: 1)) else { return -1 }
-        var bytes: [UInt8] = [0,0,0,0]
-        bytes.withUnsafeMutableBytes { raw in
-            let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-        }
-        return Int(bytes[3])
-    }
-
-    /// Folder header preview: expanded and collapsed share ONE mask (4pt band
-    /// on all four sides, radius 20). An expanded header's menu source holds
-    /// only its card body (FolderCardFill, 4pt short of the row bottom, all
-    /// corners rounded); its welded segment is painted outside the source.
-    func headerPreviewMaskTest() {
-        let w: CGFloat = 390, h: CGFloat = 68
-        let rect = CGRect(x: 0, y: 0, width: w, height: h)
-        let expanded = FolderCardPreviewShape(expanded: true).path(in: rect)
-        let e = expanded.boundingRect
-        print("HEADER_PREVIEW_MASK expanded=\(e.minX),\(e.minY),\(e.width),\(e.height)")
-        check(abs(e.minX - 2) < 0.5 && abs(e.maxX - 388) < 0.5 && abs(e.minY) < 0.5 && abs(e.maxY - 68) < 0.5,
-              "expanded header preview mask = collapsed mask (4pt band on every side)")
-        check(FolderCardPreviewShape(expanded: false).path(in: rect).boundingRect == e,
-              "expanded and collapsed header masks are identical")
         for style in [UIUserInterfaceStyle.light, .dark] {
-            // What the platter shows: only the source (card body), masked.
-            let platter = render(Color.clear.frame(width: w, height: h).background {
-                FolderCardFill().padding(.bottom, FolderCardPreviewShape.gap)
-                    .padding(.horizontal, 6).padding(.top, 4)
-            }.clipShape(FolderCardPreviewShape(expanded: true)), w: w, h: h, style: style)
-            let bands = [CGPoint(x: w/2, y: 2), CGPoint(x: w/2, y: h - 2), CGPoint(x: 4, y: h/2), CGPoint(x: w - 4, y: h/2)]
-            print("HEADER_PLATTER_BANDS style=\(style.rawValue) \(bands.map { alpha(platter, $0) })")
-            check(bands.allSatisfy { alpha(platter, $0) == 0 }, "expanded header platter keeps a 4pt band on all four sides")
-            check([CGPoint(x: w/2, y: 6), CGPoint(x: w/2, y: h - 6), CGPoint(x: 8, y: h/2), CGPoint(x: w - 8, y: h/2)]
-                  .allSatisfy { alpha(platter, $0) > 0 }, "expanded header platter card reaches its inset on all sides")
-            check(alpha(platter, CGPoint(x: 7, y: h - 5)) == 0, "expanded header platter card has rounded bottom corners")
-            // What the list shows: segment strip (outside the source) + body.
-            let list = render(Color.clear.frame(width: w, height: h).background {
-                FolderCardFill().padding(.bottom, FolderCardPreviewShape.gap)
-                    .padding(.horizontal, 6).padding(.top, 4)
-            }.background {
-                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
-                    .mask { FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap).fill(style: FillStyle(eoFill: true)) }
-                    .padding(.horizontal, 6).padding(.top, 4)
-            }, w: w, h: h, style: style)
-            let mid = rgb(list, CGPoint(x: w/2, y: 30)), weld = rgb(list, CGPoint(x: w/2, y: h - 1.5))
-            let corner = rgb(list, CGPoint(x: 8, y: h - 2))
-            print("HEADER_LIST_WELD style=\(style.rawValue) body=\(mid) weld=\(weld) corner=\(corner) a=\(alpha(list, CGPoint(x: 8, y: h - 2)))")
-            // A material segment (iOS 26) renders empty over the clear test
-            // backdrop, so the weld paint is asserted on opaque systems only.
-            if #unavailable(iOS 26.0) {
-                check(alpha(list, CGPoint(x: w/2, y: h - 1.5)) > 0 && alpha(list, CGPoint(x: 8, y: h - 2)) > 0,
-                      "expanded header still welds to the member row in the list")
+            let model = SwiftUIListFolderModel()
+            let host = UIHostingController(rootView: SwiftUIListFolderFixture(model: model))
+            host.overrideUserInterfaceStyle = style
+            host.view.backgroundColor = .systemBackground
+            window!.rootViewController = host
+            host.view.frame = window!.bounds
+            host.view.layoutIfNeeded()
+            pump(0.35)
+
+            guard let f0View = model.f0HeaderView else {
+                check(false, "SwiftUI List folder header f0 mounted (legacy=\(legacyOpaque), style=\(style.rawValue))")
+                return
             }
-            // Edge parity (photo_AFC030AE): the welded header's top/side
-            // hairline must keep BOTH halves, i.e. match an unmasked segment
-            // pixel for pixel across the stroke, like the member rows' walls.
-            let mask26: Bool = { if #available(iOS 26.0, *) { return true } else { return false } }()
-            let ref = render(Color.clear.frame(width: w, height: h).background {
-                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
-                    .padding(.horizontal, 6).padding(.top, 4)
-            }, w: w, h: h, style: style)
-            let welded = render(Color.clear.frame(width: w, height: h).background {
-                Color.clear.modifier(FolderCardBackground(isDropTarget: false, isExpanded: true))
-                    .mask {
-                        if mask26 {
-                            FolderWeldStrip(bottomGap: FolderCardPreviewShape.gap).fill(style: FillStyle(eoFill: true))
-                        } else {
-                            Rectangle().padding(-FolderWeldStrip.edgeBleed)
-                        }
-                    }
-                    .padding(.horizontal, 6).padding(.top, 4)
-            }, w: w, h: h, style: style)
-            let px = 1 / ref.scale
-            // The OUTER half of the stroke (outside the 6pt side / 4pt top
-            // frame edge) is exactly what the old frame-sized mask removed.
-            let side = stride(from: 4.5, to: 6.0, by: px).map { CGPoint(x: $0, y: h/2) }
-            let right = stride(from: w - 6.0, to: w - 4.5, by: px).map { CGPoint(x: $0 + px/2, y: h/2) }
-            let top = stride(from: 2.5, to: 4.0, by: px).map { CGPoint(x: w/2, y: $0) }
-            let refA = (side + right + top).map { alpha(ref, $0) }, weldA = (side + right + top).map { alpha(welded, $0) }
-            print("HEADER_EDGE style=\(style.rawValue) ref=\(refA) welded=\(weldA)")
-            check(refA.contains { $0 > 0 } && zip(refA, weldA).allSatisfy { abs($0 - $1) <= 2 },
-                  "welded header top/side hairline is as thick as an unmasked segment edge")
-            let file = style == .light ? "folder-header-preview-light.png" : "folder-header-preview-dark.png"
-            try? platter.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file))
-            try? list.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(file.replacingOccurrences(of: "preview", with: "list")))
+
+            func snapLive() -> UIImage {
+                UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: false)
+                }
+            }
+
+            let tag = "\(legacyOpaque ? "ios16" : "modern")-\(style == .light ? "light" : "dark")"
+            let w = host.view.bounds.width
+
+            // 1. Settled collapsed check: all 4 outer corner spandrels + inter-folder gap clean.
+            let initialImg = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let r0 = f0View.convert(f0View.bounds, to: host.view)
+            let bg = rgb(initialImg, CGPoint(x: 2, y: r0.midY))
+            let collapsedCorners = [
+                CGPoint(x: 7.5, y: r0.minY + 4 + 1.5),
+                CGPoint(x: w - 7.5, y: r0.minY + 4 + 1.5),
+                CGPoint(x: 7.5, y: r0.maxY - 4 - 1.5),
+                CGPoint(x: w - 7.5, y: r0.maxY - 4 - 1.5),
+            ]
+            for (ci, pt) in collapsedCorners.enumerated() {
+                let c = rgb(initialImg, pt)
+                check(zip(c, bg).allSatisfy { abs($0 - $1) <= 2 },
+                      "settled collapsed corner \(ci) clean (\(tag)) got=\(c) bg=\(bg)")
+            }
+
+            // 2. Animated EXPAND (0.25s): sample frames across 0.02s..0.34s.
+            model.toggle("f0")
+            var stepIndex = 0
+            for dt in [0.02, 0.04, 0.06, 0.06, 0.06, 0.04, 0.08] {
+                pump(dt)
+                stepIndex += 1
+                let img = snapLive()
+                let curR = (f0View.layer.presentation()?.convert(f0View.bounds, to: host.view.layer))
+                    ?? f0View.convert(f0View.bounds, to: host.view)
+                let curBg = rgb(img, CGPoint(x: 2, y: curR.midY))
+                let tl = rgb(img, CGPoint(x: 7.5, y: curR.minY + 4 + 1.5))
+                let tr = rgb(img, CGPoint(x: w - 7.5, y: curR.minY + 4 + 1.5))
+                print("LIST_EXPAND \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) bg=\(curBg)")
+                check(zip(tl, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "expand frame \(stepIndex) top-left corner clean (\(tag)) got=\(tl) bg=\(curBg)")
+                check(zip(tr, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "expand frame \(stepIndex) top-right corner clean (\(tag)) got=\(tr) bg=\(curBg)")
+                // Right-gutter separator probe across the header/member boundary (catches full-bleed List separators).
+                for yOff in stride(from: curR.maxY - 2, through: curR.maxY + 2, by: 0.5) {
+                    let g = rgb(img, CGPoint(x: w - 2, y: yOff))
+                    check(zip(g, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                          "expand frame \(stepIndex) has no full-bleed separator at y=\(yOff) (\(tag)) got=\(g) bg=\(curBg)")
+                }
+                if stepIndex == 2 {
+                    try? img.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folder-list-expand-mid-\(tag).png"))
+                }
+            }
+
+            // Settled expanded check: seamless weld between header and first member row (no separator line).
+            let expandedImg = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let expR = f0View.convert(f0View.bounds, to: host.view)
+            let cardFill = rgb(expandedImg, CGPoint(x: w / 2, y: expR.midY))
+            for yOff in stride(from: expR.maxY - 1.5, through: expR.maxY + 1.5, by: 0.5) {
+                let seam = rgb(expandedImg, CGPoint(x: w / 2, y: yOff))
+                check(zip(seam, cardFill).allSatisfy { abs($0 - $1) <= 3 },
+                      "expanded header-to-member seam has no separator line at y=\(yOff) (\(tag)) seam=\(seam) fill=\(cardFill)")
+            }
+
+            // 3. Animated COLLAPSE (0.25s): sample frames across 0.02s..0.34s.
+            model.toggle("f0")
+            stepIndex = 0
+            for dt in [0.02, 0.04, 0.06, 0.06, 0.06, 0.04, 0.08] {
+                pump(dt)
+                stepIndex += 1
+                let img = snapLive()
+                let curR = (f0View.layer.presentation()?.convert(f0View.bounds, to: host.view.layer))
+                    ?? f0View.convert(f0View.bounds, to: host.view)
+                let curBg = rgb(img, CGPoint(x: 2, y: curR.midY))
+                let tl = rgb(img, CGPoint(x: 7.5, y: curR.minY + 4 + 1.5))
+                let tr = rgb(img, CGPoint(x: w - 7.5, y: curR.minY + 4 + 1.5))
+                print("LIST_COLLAPSE \(tag) step=\(stepIndex) tl=\(tl) tr=\(tr) bg=\(curBg)")
+                check(zip(tl, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "collapse frame \(stepIndex) top-left corner clean (\(tag)) got=\(tl) bg=\(curBg)")
+                check(zip(tr, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "collapse frame \(stepIndex) top-right corner clean (\(tag)) got=\(tr) bg=\(curBg)")
+                // Probe right gutter across all visible folder section boundaries so single-frame
+                // end-of-collapse section separator flashes (frame_0108) are caught at every step.
+                for yScan in stride(from: curR.maxY - 3, through: min(host.view.bounds.height - 20, curR.maxY + 220), by: 1.0) {
+                    let g = rgb(img, CGPoint(x: w - 2, y: yScan))
+                    check(zip(g, curBg).allSatisfy { abs($0 - $1) <= 2 },
+                          "collapse frame \(stepIndex) has no right-gutter separator flash at y=\(yScan) (\(tag)) got=\(g) bg=\(curBg)")
+                }
+                if stepIndex == 2 {
+                    try? img.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folder-list-collapse-mid-\(tag).png"))
+                }
+                if stepIndex == 6 {
+                    try? img.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("folder-list-collapse-settle-\(tag).png"))
+                }
+            }
+
+            // Final post-collapse check on all 4 corners + inter-folder 8pt gap between f0 and f1.
+            let postCollapseImg = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let finR0 = f0View.convert(f0View.bounds, to: host.view)
+            let finBg = rgb(postCollapseImg, CGPoint(x: 2, y: finR0.midY))
+            let finCorners = [
+                CGPoint(x: 7.5, y: finR0.minY + 4 + 1.5),
+                CGPoint(x: w - 7.5, y: finR0.minY + 4 + 1.5),
+                CGPoint(x: 7.5, y: finR0.maxY - 4 - 1.5),
+                CGPoint(x: w - 7.5, y: finR0.maxY - 4 - 1.5),
+            ]
+            for (ci, pt) in finCorners.enumerated() {
+                let c = rgb(postCollapseImg, pt)
+                print("LIST_POST_COLLAPSE \(tag) corner=\(ci) rgb=\(c) bg=\(finBg)")
+                check(zip(c, finBg).allSatisfy { abs($0 - $1) <= 2 },
+                      "post-collapse corner \(ci) clean (\(tag)) got=\(c) bg=\(finBg)")
+            }
+            if let f1View = model.f1HeaderView {
+                let finR1 = f1View.convert(f1View.bounds, to: host.view)
+                for yGap in stride(from: finR0.maxY - 3.0, through: finR1.minY + 3.0, by: 0.5) {
+                    let midGap = rgb(postCollapseImg, CGPoint(x: w / 2, y: yGap))
+                    check(zip(midGap, finBg).allSatisfy { abs($0 - $1) <= 2 },
+                          "inter-folder gap has no separator line at y=\(yGap) (\(tag)) got=\(midGap) bg=\(finBg)")
+                }
+            }
         }
     }
 }

@@ -82,39 +82,143 @@ struct FolderHeaderVisibilityProbe: View {
 /// they form one continuous rounded-rect highlight, with no horizontal lines
 /// at the row boundaries (which a per-segment full stroke would create).
 private struct FolderSegmentBorder: Shape {
-    enum Kind { case top, middle, bottom }
-    let kind: Kind
-    var radius: CGFloat = 16
+    enum Kind { case lone, top, middle, bottom }
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+    let isMiddle: Bool
+    let isBottom: Bool
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(topRadius, bottomRadius) }
+        set {
+            topRadius = newValue.first
+            bottomRadius = newValue.second
+        }
+    }
+
+    init(kind: Kind, radius: CGFloat = 16) {
+        switch kind {
+        case .lone:
+            self.topRadius = radius
+            self.bottomRadius = radius
+            self.isMiddle = false
+            self.isBottom = false
+        case .top:
+            self.topRadius = radius
+            self.bottomRadius = 0
+            self.isMiddle = false
+            self.isBottom = false
+        case .middle:
+            self.topRadius = 0
+            self.bottomRadius = 0
+            self.isMiddle = true
+            self.isBottom = false
+        case .bottom:
+            self.topRadius = 0
+            self.bottomRadius = radius
+            self.isMiddle = false
+            self.isBottom = true
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
+        let maxR = max(0, min(rect.width, rect.height) / 2)
+        let tr = max(0, min(topRadius, maxR))
+        let br = max(0, min(bottomRadius, maxR))
         var p = Path()
-        switch kind {
-        case .top:
-            p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-            p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
-            p.addArc(center: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
-                     radius: radius, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
-            p.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
-            p.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.minY + radius),
-                     radius: radius, startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        case .middle:
+        if isMiddle {
             p.move(to: CGPoint(x: rect.minX, y: rect.minY))
             p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
             p.move(to: CGPoint(x: rect.maxX, y: rect.minY))
             p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        case .bottom:
+            return p
+        }
+        if isBottom {
             p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
-            p.addArc(center: CGPoint(x: rect.minX + radius, y: rect.maxY - radius),
-                     radius: radius, startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-            p.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
-            p.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.maxY - radius),
-                     radius: radius, startAngle: .degrees(90), endAngle: .degrees(0), clockwise: true)
+            p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - br))
+            if br > 0 {
+                p.addArc(center: CGPoint(x: rect.minX + br, y: rect.maxY - br),
+                         radius: br, startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+            }
+            p.addLine(to: CGPoint(x: rect.maxX - br, y: rect.maxY))
+            if br > 0 {
+                p.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
+                         radius: br, startAngle: .degrees(90), endAngle: .degrees(0), clockwise: true)
+            }
             p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            return p
+        }
+        p.move(to: CGPoint(x: rect.minX + br, y: rect.maxY))
+        if br > 0 {
+            p.addArc(center: CGPoint(x: rect.minX + br, y: rect.maxY - br),
+                     radius: br, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        }
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tr))
+        if tr > 0 {
+            p.addArc(center: CGPoint(x: rect.minX + tr, y: rect.minY + tr),
+                     radius: tr, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        }
+        p.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        if tr > 0 {
+            p.addArc(center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr),
+                     radius: tr, startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
+        }
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        if br > 0 {
+            p.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
+                     radius: br, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
         }
         return p
     }
+}
+
+private struct FolderRoundedShape: Shape {
+    var topRadius: CGFloat
+    var bottomRadius: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(topRadius, bottomRadius) }
+        set {
+            topRadius = newValue.first
+            bottomRadius = newValue.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let maxR = max(0, min(rect.width, rect.height) / 2)
+        let tr = max(0, min(topRadius, maxR))
+        let br = max(0, min(bottomRadius, maxR))
+        return UnevenRoundedRectangle(
+            topLeadingRadius: tr,
+            bottomLeadingRadius: br,
+            bottomTrailingRadius: br,
+            topTrailingRadius: tr,
+            style: .continuous
+        ).path(in: rect)
+    }
+}
+
+private struct FolderBottomCapLine: Shape {
+    var bottomRadius: CGFloat
+
+    var animatableData: CGFloat {
+        get { bottomRadius }
+        set { bottomRadius = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let maxR = max(0, min(rect.width, rect.height) / 2)
+        let br = max(0, min(bottomRadius, maxR))
+        var p = Path()
+        guard rect.maxX - br > rect.minX + br else { return p }
+        p.move(to: CGPoint(x: rect.minX + br, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX - br, y: rect.maxY))
+        return p
+    }
+}
+
+enum FolderSurfaceTesting {
+    static var forceLegacyOpaqueCard = false
 }
 
 /// Edge highlight for the simulated glass: bright hairline in dark mode
@@ -180,17 +284,21 @@ struct FABGlassMorphID: ViewModifier {
 private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
+
+    private var usesModernGlass: Bool {
+        if FolderSurfaceTesting.forceLegacyOpaqueCard { return false }
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     private var edgeColor: Color {
-        // Match upstream: expanded segments use the adaptive glass highlight
-        // on every iOS version. Only legacy collapsed cards use separator.
         if kind != .lone { return folderEdgeHighlight }
-        if #available(iOS 26.0, *) { return folderEdgeHighlight }
+        if usesModernGlass { return folderEdgeHighlight }
         return Color(UIColor.separator).opacity(0.5)
     }
     private var edgeWidth: CGFloat {
-        // Upstream expanded outline is 0.75pt, not the MOD's former 1.5pt.
         if kind != .lone { return 0.75 }
-        if #available(iOS 26.0, *) { return 0.75 }
+        if usesModernGlass { return 0.75 }
         return 0.5
     }
 
@@ -218,74 +326,52 @@ private struct FolderSurface: ViewModifier {
             : UIColor(red: 252/255.0, green: 252/255.0, blue: 252/255.0, alpha: 1)
     })
 
-    private var shape: AnyShape {
+    private var shape: FolderRoundedShape {
         switch kind {
         case .lone:
-            return AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            return FolderRoundedShape(topRadius: 16, bottomRadius: 16)
         case .top:
-            return AnyShape(UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous))
+            return FolderRoundedShape(topRadius: 16, bottomRadius: 0)
         case .middle:
-            return AnyShape(Rectangle())
+            return FolderRoundedShape(topRadius: 0, bottomRadius: 0)
         case .bottom:
-            return AnyShape(UnevenRoundedRectangle(
-                topLeadingRadius: 0, bottomLeadingRadius: 16,
-                bottomTrailingRadius: 16, topTrailingRadius: 0, style: .continuous))
+            return FolderRoundedShape(topRadius: 0, bottomRadius: 16)
+        }
+    }
+
+    private var borderKind: FolderSegmentBorder.Kind {
+        switch kind {
+        case .lone: return .lone
+        case .top: return .top
+        case .middle: return .middle
+        case .bottom: return .bottom
         }
     }
 
     func body(content: Content) -> some View {
         content
         .background {
-            // Keep the content on one structural path. Only the paint varies.
-            ZStack {
-                if #available(iOS 26.0, *) {
-                    if kind == .lone {
-                        shape.fill(Self.sampledGlassColor)
-                    } else {
-                        shape.fill(.regularMaterial)
-                    }
-                } else {
-                    shape.fill(Color(UIColor.secondarySystemBackground))
+            if usesModernGlass {
+                ZStack {
+                    Rectangle().fill(.regularMaterial)
+                        .opacity(kind == .lone ? 0 : 1)
+                    Rectangle().fill(Self.sampledGlassColor)
+                        .opacity(kind == .lone ? 1 : 0)
                 }
+                .clipShape(shape)
+            } else {
+                shape.fill(Color(UIColor.secondarySystemBackground))
             }
         }
         .overlay {
-            // Border: full hairline on the lone card (its existing look, sub-26
-            // only — glass carries its own edge); tiled outer-perimeter
-            // segments on expanded rows so the pieces read as one outline
-            // without horizontal lines at the row boundaries.
-            switch kind {
-            case .lone:
-                // With glass gone the card needs an explicit edge for
-                // definition — the same highlight the expanded segments tile,
-                // as a full perimeter here.
-                if #available(iOS 26.0, *) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+            ZStack {
+                FolderSegmentBorder(kind: borderKind)
+                    .stroke(edgeColor, lineWidth: edgeWidth)
+                if kind == .lone || kind == .top {
+                    FolderBottomCapLine(bottomRadius: kind == .lone ? 16 : 0)
                         .stroke(edgeColor, lineWidth: edgeWidth)
-                } else {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(UIColor.separator).opacity(0.5), lineWidth: 0.5)
+                        .opacity(kind == .lone ? 1 : 0)
                 }
-            case .top:
-                FolderSegmentBorder(kind: .top)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            case .middle:
-                FolderSegmentBorder(kind: .middle)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            case .bottom:
-                FolderSegmentBorder(kind: .bottom)
-                    .stroke(edgeColor, lineWidth: edgeWidth)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if kind == .top {
-                Rectangle()
-                    .fill(Color(UIColor.separator).opacity(0.6))
-                    .frame(height: 0.5)
-                    .padding(.horizontal, 16)
-                    .allowsHitTesting(false)
             }
         }
     }
@@ -294,26 +380,16 @@ private struct FolderSurface: ViewModifier {
 struct FolderCardBackground: ViewModifier {
     let isDropTarget: Bool
     let isExpanded: Bool
-    /// MOD: false = drop-target overlay only. An expanded header paints its
-    /// welded segment outside the context-menu source instead (see
-    /// folderSectionHeader), so the segment is never hidden with the source.
-    var paintsSurface = true
 
-    private var dropShape: AnyShape {
+    private var dropShape: FolderRoundedShape {
         isExpanded
-            ? AnyShape(UnevenRoundedRectangle(
-                topLeadingRadius: 16, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 16, style: .continuous))
-            : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            ? FolderRoundedShape(topRadius: 16, bottomRadius: 0)
+            : FolderRoundedShape(topRadius: 16, bottomRadius: 16)
     }
 
     func body(content: Content) -> some View {
         content
-            .background {
-                if paintsSurface {
-                    Color.clear.modifier(FolderSurface(kind: isExpanded ? .top : .lone))
-                }
-            }
+            .modifier(FolderSurface(kind: isExpanded ? .top : .lone))
             .overlay {
                 if isDropTarget {
                     ZStack {
@@ -336,49 +412,6 @@ struct FolderMemberRowBackground: View {
             .modifier(FolderSurface(kind: isLast ? .bottom : .middle))
             .padding(.horizontal, 6)
             .padding(.bottom, isLast ? 4 : 0)
-    }
-}
-
-/// MOD: the card body an EXPANDED folder header keeps inside its context-menu
-/// source — all corners rounded, inset by the edge width so the welded
-/// segment's outline stays visible in the list. On iOS 26 the welded segment
-/// behind it is masked to the area OUTSIDE this body (FolderWeldStrip).
-struct FolderCardFill: View {
-    static let edgeInset: CGFloat = 0.5
-    var body: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                // Solid, like a collapsed card: the platter snapshot has a
-                // clear backdrop, where a material would lift washed out.
-                RoundedRectangle(cornerRadius: 16 - Self.edgeInset, style: .continuous)
-                    .fill(FolderSurface.sampledGlassColor)
-            } else {
-                RoundedRectangle(cornerRadius: 16 - Self.edgeInset, style: .continuous)
-                    .fill(Color(UIColor.secondarySystemBackground))
-            }
-        }
-        .padding(Self.edgeInset)
-    }
-}
-
-/// MOD: mask for an expanded header's welded segment painted outside the
-/// menu source: the whole segment EXCEPT the card body (FolderCardFill
-/// geometry, `bottomGap` short of the segment's bottom). Use with eoFill.
-///
-/// The outer boundary is pushed `edgeBleed` past the segment frame: the
-/// 0.75pt edge hairline is centred on the frame edge, so a mask clipped AT
-/// the frame kept only its inner half and the header's top/side walls read
-/// thinner than the member rows' unmasked walls (photo_AFC030AE).
-struct FolderWeldStrip: Shape {
-    static let edgeBleed: CGFloat = 2
-    let bottomGap: CGFloat
-    func path(in rect: CGRect) -> Path {
-        var p = Path(rect.insetBy(dx: -Self.edgeBleed, dy: -Self.edgeBleed))
-        let body = CGRect(x: rect.minX, y: rect.minY, width: rect.width,
-                          height: max(0, rect.height - bottomGap))
-            .insetBy(dx: FolderCardFill.edgeInset, dy: FolderCardFill.edgeInset)
-        p.addPath(RoundedRectangle(cornerRadius: 16 - FolderCardFill.edgeInset, style: .continuous).path(in: body))
-        return p
     }
 }
 

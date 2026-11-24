@@ -28,9 +28,15 @@ jobs:
         id: scope
         run: |
           set -o pipefail
+          MODE="${{ inputs.scope }}"
+          BASE="${{ inputs.baseline_sha }}"
+          if [ -z "$MODE" ]; then
+            MODE="incremental"
+            BASE="5dcd6f9572aa431a6c3f9dd14749305991f8d4f1"
+          fi
           python3 scripts/ci_validation_scope.py \
-            --mode "${{ inputs.scope || 'full' }}" \
-            --baseline "${{ inputs.baseline_sha }}" \
+            --mode "${MODE:-full}" \
+            --baseline "$BASE" \
             --out validation-scope.json 2>&1 | tee validation-scope.log
       - name: Bundle identity source gate
         run: |
@@ -104,6 +110,7 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
+          python3 scripts/minismod_accordion_regression.py 2>&1 | tee accordion-regression.log
           python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
       - name: Thinking & list transaction regression tests
         if: steps.scope.outputs.run_thinking_uikit == 'true'
