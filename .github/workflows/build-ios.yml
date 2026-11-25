@@ -5,23 +5,31 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: 'Validation regression scope (full or incremental)'
+        description: 'Validation regression scope (incremental by default; full when needed)'
         required: false
-        default: 'full'
+        default: 'incremental'
         type: choice
         options:
-          - full
           - incremental
+          - full
       baseline_sha:
-        description: 'Baseline commit SHA for changed-files verification in incremental mode'
+        description: 'Baseline commit SHA for incremental mode (auto-resolved when empty)'
         required: false
         default: ''
         type: string
+      runner:
+        description: 'macOS runner label (macos-latest allocates faster; macos-26 optional)'
+        required: false
+        default: 'macos-latest'
+        type: choice
+        options:
+          - macos-latest
+          - macos-26
 permissions:
   contents: write
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +42,17 @@ jobs:
           BASE="${{ inputs.baseline_sha }}"
           if [ -z "$MODE" ]; then
             MODE="incremental"
-            BASE="5dcd6f9572aa431a6c3f9dd14749305991f8d4f1"
+          fi
+          if [ "$MODE" = "incremental" ] && [ -z "$BASE" ]; then
+            DEFAULT_BASE="5dcd6f9572aa431a6c3f9dd14749305991f8d4f1"
+            if git merge-base --is-ancestor "$DEFAULT_BASE" HEAD 2>/dev/null; then
+              BASE="$DEFAULT_BASE"
+            else
+              BASE="$(git rev-parse HEAD~1 2>/dev/null || echo '')"
+            fi
           fi
           python3 scripts/ci_validation_scope.py \
-            --mode "${MODE:-full}" \
+            --mode "$MODE" \
             --baseline "$BASE" \
             --out validation-scope.json 2>&1 | tee validation-scope.log
       - name: Bundle identity source gate
