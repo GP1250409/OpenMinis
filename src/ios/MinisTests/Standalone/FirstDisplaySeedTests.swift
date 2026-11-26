@@ -53,8 +53,9 @@ check("prebuilt string only when it has no table (same rule as updateUIView)",
 check("tables otherwise rendered by the message's shared renderer",
       seed.contains("let renderer = sharedRenderer(for: messageId)")
       && view.contains("static func sharedRenderer(for messageId: UUID) -> MarkdownNSRenderer"))
-check("only tables and thematic breaks are allowed; any other attachment falls back to measuring",
+check("only tables, thematic breaks, and known-size images are allowed; any other attachment falls back to measuring",
       seed.contains("if value is TableAttachment || value is ThematicBreakAttachment {")
+      && seed.contains("else if let img = value as? ImageAttachment,")
       && seed.contains("guard !hasOtherAttachment else { return nil }"))
 let breakSrc = source("Views/Chat/Markdown/Attachments/ThematicBreakAttachment.swift")
 check("a thematic break is still a fixed-height line",

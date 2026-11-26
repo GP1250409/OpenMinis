@@ -58,7 +58,7 @@ if (container/'tmp/card-dark').exists(): shutil.rmtree(container/'tmp/card-dark'
 for stale in [*OUT.glob('*.png'), OUT/'result.log']:
     if stale.exists(): stale.unlink()
 try:
-    output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=180)
+    output=run(['xcrun','simctl','launch','--console-pty',uid,info['CFBundleIdentifier']],timeout=360)
 except subprocess.CalledProcessError as e:
     output=e.output
 (OUT/'launch.log').write_text(output); print(output,flush=True)

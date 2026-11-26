@@ -131,6 +131,7 @@ final class TableAttachment: NSTextAttachment {
         self.hasStreamingUpdates = true
         self.alignments = alignments
         self.rows = rows
+        self.cachedPreparedCells = nil
         let structureChanged = rows.count != oldRowCount || alignments.count != oldColCount
 
         // [T-ios-table-streaming-width] Check whether the cached column widths
@@ -241,6 +242,15 @@ final class TableAttachment: NSTextAttachment {
 
     /// Cached layout computed for a given width, reused by both attachmentBounds and makeView.
     private var cachedLayout: TableLayout?
+    /// Per-cell pre-rendered attributed string and link-detection result,
+    /// reused across cell-recycle `makeView` calls so scrolling over tables
+    /// skips repeated inline AST rendering and `NSDataDetector` scans.
+    private struct PreparedCell {
+        let attributed: NSAttributedString
+        let hasLinks: Bool
+        let mathAttachments: [MathAttachment]
+    }
+    private var cachedPreparedCells: [[PreparedCell]]?
     /// [T-table-layout-true-width] Layouts at the other widths this table was
     /// asked about (SwiftUI's inner/outer probes, rotation), so each width gets
     /// its own plan without re-planning on every alternation. `cachedLayout`
@@ -882,6 +892,56 @@ final class TableAttachment: NSTextAttachment {
         return false
     }
 
+    private func preparedCells() -> [[PreparedCell]] {
+        if let cached = cachedPreparedCells { return cached }
+        let colCount = alignments.count
+        let built: [[PreparedCell]] = rows.enumerated().map { rowIdx, row in
+            let baseFont: UIFont = rowIdx == 0
+                ? .systemFont(ofSize: theme.baseFontSize, weight: .semibold)
+                : .systemFont(ofSize: theme.baseFontSize)
+            return row.cells.prefix(colCount).enumerated().map { colIdx, cell in
+                let alignment: NSTextAlignment
+                switch alignments[colIdx] {
+                case .center: alignment = .center
+                case .right: alignment = .right
+                default: alignment = .left
+                }
+                let attrStr = NSMutableAttributedString(attributedString: renderCellInlines(cell.content, baseFont: baseFont))
+                let paraStyle = NSMutableParagraphStyle()
+                paraStyle.alignment = alignment
+                attrStr.addAttribute(.paragraphStyle, value: paraStyle, range: NSRange(location: 0, length: attrStr.length))
+
+                var hasLinks = Self.containsLinks(cell.content)
+                if !hasLinks {
+                    attrStr.enumerateAttribute(.link,
+                                                in: NSRange(location: 0, length: attrStr.length),
+                                                options: []) { value, _, stop in
+                        if value != nil { hasLinks = true; stop.pointee = true }
+                    }
+                }
+                if !hasLinks, let detector = Self.linkDataDetector {
+                    let plain = attrStr.string
+                    let fullRange = NSRange(location: 0, length: (plain as NSString).length)
+                    let matches = detector.matches(in: plain, options: [], range: fullRange)
+                    for m in matches {
+                        guard let url = m.url else { continue }
+                        if attrStr.attribute(.link, at: m.range.location, effectiveRange: nil) != nil {
+                            continue
+                        }
+                        attrStr.addAttribute(.link, value: url, range: m.range)
+                        attrStr.addAttribute(.foregroundColor, value: theme.linkColor, range: m.range)
+                        attrStr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: m.range)
+                        hasLinks = true
+                    }
+                }
+                let mathAttachments = Self.collectMathAttachments(in: attrStr)
+                return PreparedCell(attributed: attrStr, hasLinks: hasLinks, mathAttachments: mathAttachments)
+            }
+        }
+        cachedPreparedCells = built
+        return built
+    }
+
     func makeView(width: CGFloat) -> UIView {
         #if DEBUG
         // [T-scroll-cell-build-diag] Cost of building the table's view tree.
@@ -994,75 +1054,20 @@ final class TableAttachment: NSTextAttachment {
             MinisToast.show(AppLocalized("Table image copied"))
         }
 
+        let prepared = preparedCells()
         var yOffset: CGFloat = 0
-        for (rowIdx, row) in rows.enumerated() {
+        for (rowIdx, preparedRow) in prepared.enumerated() {
             let rowHeight = rowHeights[rowIdx]
             let rowView = UIView()
             rowView.translatesAutoresizingMaskIntoConstraints = false
 
             var x: CGFloat = 0
-            for (colIdx, cell) in row.cells.enumerated() where colIdx < colCount {
+            for (colIdx, prepCell) in preparedRow.enumerated() where colIdx < colCount {
                 let cellContentWidth = columnWidths[colIdx] - Self.cellPaddingH * 2
                 let cellFrame = CGRect(x: x + Self.cellPaddingH, y: 0, width: cellContentWidth, height: rowHeight)
-
-                let alignment: NSTextAlignment
-                switch alignments[colIdx] {
-                case .center: alignment = .center
-                case .right: alignment = .right
-                default: alignment = .left
-                }
-
-                let baseFont: UIFont = rowIdx == 0
-                    ? .systemFont(ofSize: theme.baseFontSize, weight: .semibold)
-                    : .systemFont(ofSize: theme.baseFontSize)
-
-                let attrStr = NSMutableAttributedString(attributedString: renderCellInlines(cell.content, baseFont: baseFont))
-                let paraStyle = NSMutableParagraphStyle()
-                paraStyle.alignment = alignment
-                attrStr.addAttribute(.paragraphStyle, value: paraStyle, range: NSRange(location: 0, length: attrStr.length))
-
-                // Detect tappable links and ensure they carry an `.link`
-                // attribute on the rendered string. cmark-gfm autolink
-                // usually upgrades bare URLs to `.link` nodes, but boundary
-                // cases (URL adjacent to CJK characters, full-width
-                // punctuation, table cell edges) can leave them as `.text`
-                // — in which case the AST-based `containsLinks` returns
-                // false AND there's no `.link` attribute in attrStr, so we
-                // fall through to TableCellLabel (link-inert) and taps die.
-                // Run NSDataDetector as a belt-and-suspenders pass to add
-                // `.link` attributes for any URL the parser missed, then
-                // route the cell to TableCellTextView so taps work.
-                // [T-table-cell-link-bug 2026-05-25]
-                var hasLinks = Self.containsLinks(cell.content)
-                if !hasLinks {
-                    attrStr.enumerateAttribute(.link,
-                                                in: NSRange(location: 0, length: attrStr.length),
-                                                options: []) { value, _, stop in
-                        if value != nil { hasLinks = true; stop.pointee = true }
-                    }
-                }
-                if !hasLinks, let detector = Self.linkDataDetector {
-                    let plain = attrStr.string
-                    let fullRange = NSRange(location: 0, length: (plain as NSString).length)
-                    let matches = detector.matches(in: plain, options: [], range: fullRange)
-                    for m in matches {
-                        guard let url = m.url else { continue }
-                        // Don't clobber an existing `.link` attribute (e.g.
-                        // from a `[text](url)` node that happened to match).
-                        if attrStr.attribute(.link, at: m.range.location, effectiveRange: nil) != nil {
-                            continue
-                        }
-                        attrStr.addAttribute(.link, value: url, range: m.range)
-                        attrStr.addAttribute(.foregroundColor, value: theme.linkColor, range: m.range)
-                        attrStr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: m.range)
-                        hasLinks = true
-                    }
-                }
-
-                // Collect math attachments so we can re-kick the cell's view
-                // when the async SwiftMath render finishes. Without this the
-                // cell shows a 1×1 transparent placeholder forever.
-                let mathAttachments = Self.collectMathAttachments(in: attrStr)
+                let attrStr = prepCell.attributed
+                let hasLinks = prepCell.hasLinks
+                let mathAttachments = prepCell.mathAttachments
 
                 if hasLinks {
                     let tv = TableCellTextView()

@@ -4,8 +4,11 @@ import Foundation
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
-// MARK: - Pure Swift SHA-256 (Linux & Darwin Foundation compatible)
+// MARK: - Pure Swift SHA-256 (Linux fallback; Darwin uses hardware CryptoKit)
 
 enum MUMapSHA256 {
     private static let k: [UInt32] = [
@@ -20,6 +23,17 @@ enum MUMapSHA256 {
     ]
 
     static func hex(_ data: Data) -> String {
+        #if canImport(CryptoKit)
+        let digest = SHA256.hash(data: data)
+        var out = String()
+        out.reserveCapacity(64)
+        let hexChars = Array("0123456789abcdef".utf8)
+        for byte in digest {
+            out.append(Character(UnicodeScalar(hexChars[Int(byte >> 4)])))
+            out.append(Character(UnicodeScalar(hexChars[Int(byte & 0x0F)])))
+        }
+        return out
+        #else
         var bytes = [UInt8](data)
         let bitLen = UInt64(bytes.count) &* 8
         bytes.append(0x80)
@@ -56,6 +70,7 @@ enum MUMapSHA256 {
             h[4] = h[4] &+ e; h[5] = h[5] &+ f; h[6] = h[6] &+ g; h[7] = h[7] &+ hh
         }
         return h.map { String(format: "%08x", $0) }.joined()
+        #endif
     }
 }
 
@@ -488,8 +503,8 @@ enum MUMapPackDecoder {
 final class MUMapPackStore {
     static let shared = MUMapPackStore()
 
-    static let maxCachedPacks = 4
-    static let maxCachedBytes = 4 * 1024 * 1024
+    static let maxCachedPacks = 8
+    static let maxCachedBytes = 12 * 1024 * 1024
 
     private let lock = NSLock()
     private var customSearchPaths: [URL]?
@@ -577,29 +592,41 @@ final class MUMapPackStore {
     }
 
     func geometry(for rawRegion: String) -> MUMapDecodedGeometry? {
-        lock.lock(); defer { lock.unlock() }
-        ensureCatalogLoadedLocked()
-        guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()],
-              let meta = packsById[pid] else { return nil }
+        let lookup: (pid: String, meta: MUMapPackMetadata, cached: MUMapDecodedGeometry?)? = {
+            lock.lock(); defer { lock.unlock() }
+            ensureCatalogLoadedLocked()
+            guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()],
+                  let meta = packsById[pid] else { return nil }
+            if let hit = geomCache[pid] {
+                touchLRULocked(pid)
+                return (pid, meta, hit)
+            }
+            return (pid, meta, nil)
+        }()
+        guard let lookup else { return nil }
+        if let hit = lookup.cached { return hit }
 
-        if let hit = geomCache[pid] {
-            touchLRULocked(pid)
-            return hit
-        }
-
+        // Decode off-lock so background or concurrent reads never block the main thread.
         let decoded: MUMapDecodedGeometry?
-        if let dir = meta.directoryURL {
-            decoded = loadGeometryFromDisk(dir: dir, manifest: meta.manifest)
-        } else if pid == "us-admin1" {
+        if let dir = lookup.meta.directoryURL {
+            decoded = loadGeometryFromDisk(dir: dir, manifest: lookup.meta.manifest)
+        } else if lookup.pid == "us-admin1" {
             decoded = buildBuiltinUSGeometry()
         } else {
             decoded = nil
         }
 
         guard let geom = decoded else { return nil }
-        let frame = MUMapFraming.frame(geometry: geom, manifest: meta.manifest)
-        if frame.width > 1, frame.height > 1 { inkAspect[pid] = MUMapFraming.plotAspect(for: frame) }
-        insertCacheLocked(pid, geom: geom)
+        let frame = MUMapFraming.frame(geometry: geom, manifest: lookup.meta.manifest)
+        let aspect: Double? = (frame.width > 1 && frame.height > 1) ? MUMapFraming.plotAspect(for: frame) : nil
+
+        lock.lock(); defer { lock.unlock() }
+        if let existing = geomCache[lookup.pid] {
+            touchLRULocked(lookup.pid)
+            return existing
+        }
+        if let aspect { inkAspect[lookup.pid] = aspect }
+        insertCacheLocked(lookup.pid, geom: geom)
         return geom
     }
 

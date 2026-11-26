@@ -47,8 +47,8 @@ enum MUSurface {
         let converted = resolved.cgColor.converted(to: space, intent: .defaultIntent, options: nil) ?? resolved.cgColor
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard UIColor(cgColor: converted).getRed(&r, green: &g, blue: &b, alpha: &a) else { return background }
-        func byte(_ x: CGFloat) -> Int { Int((min(1, max(0, x)) * 255).rounded()) }
-        let foreground = MUMapRGB(hex: String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b)))
+        func byte(_ x: CGFloat) -> UInt8 { UInt8(min(255, max(0, Int((min(1, max(0, x)) * 255).rounded())))) }
+        let foreground = MUMapRGB(r: byte(r), g: byte(g), b: byte(b))
         return foreground.composited(over: background, alpha: Double(a))
     }
     static func foreground(_ color: Color, on surface: MUMapRGB, scheme: ColorScheme, minimum: Double = 4.5, environment: EnvironmentValues? = nil) -> Color {
@@ -250,11 +250,12 @@ struct MUMapView: View {
 
     private func drawBlocks(_ context: GraphicsContext, _ m: MUMapMetrics, _ theme: MUMapTheme, _ values: [String:Double], _ highlight: [String], _ bins: MUMapBins, _ colors: [MUMapRGB]) {
         let tileBorder = surface.luminance < 0.179 ? theme.muted.color.opacity(0.55) : theme.text.color
+        let highlightSet = Set(highlight)
         for tile in MUMapRegion.tiles(comp.str("region") ?? "us") {
             let rect=m.rect(tile), fill=values[tile.code].map { colors[bins.index($0)] } ?? theme.missing
             context.fill(Path(rect),with:.color(fill.color))
             context.stroke(Path(rect.insetBy(dx:0.25,dy:0.25)),with:.color(tileBorder),lineWidth:0.5)
-            if highlight.contains(tile.code) {
+            if highlightSet.contains(tile.code) {
                 context.stroke(Path(rect.insetBy(dx:1,dy:1)),with:.color(theme.accent.color),lineWidth:2)
             }
             text(tile.label,rect.insetBy(dx:1,dy:1),context:context,color:fill.ink,size:min(12,max(5,m.cell*0.36)),bold:true,centered:true)
@@ -274,46 +275,56 @@ struct MUMapView: View {
         let frame=MUMapFraming.frame(geometry:packGeom,manifest:packMeta.manifest)
         let viewScale=min(rect.width/frame.width,rect.height/frame.height)
         let tx=rect.midX-frame.midX*viewScale, ty=rect.midY-frame.midY*viewScale
-        var xform=CGAffineTransform(translationX:tx,y:ty).scaledBy(x:viewScale,y:viewScale)
+        let xform=CGAffineTransform(translationX:tx,y:ty).scaledBy(x:viewScale,y:viewScale)
+        let invScale = 1.0 / max(1e-6, viewScale)
 
         var ctx=context
         if packMeta.manifest.styleHints.clipToCanvas { ctx.clip(to:Path(rect)) }
+        // Transform the GPU context once instead of copying 70k+ vertices per draw.
+        ctx.concatenate(xform)
 
         let strokeW=packMeta.manifest.styleHints.featureStrokeWidth
         let highlightSet=Set(highlight)
         var highlightedIndices:[Int]=[]
+        let darkStroke = MUMapRGB(r: 0x26, g: 0x26, b: 0x24).color
+        let minBorderContrast = strokeW >= 0.5 ? 3.0 : 2.2
+        var borderColorCache: [MUMapRGB: Color] = [:]
+        @inline(__always) func borderColor(for fill: MUMapRGB) -> Color {
+            if let hit = borderColorCache[fill] { return hit }
+            let c = theme.border.readable(on: fill, minimum: minBorderContrast).color
+            borderColorCache[fill] = c
+            return c
+        }
+        let scaledStrokeW = strokeW * invScale
+        let dashStyle = StrokeStyle(lineWidth: 0.5 * invScale, dash: [3.0 * invScale, 1.0 * invScale])
         for (idx,feat) in packMeta.features.enumerated() where idx < packGeom.featurePaths.count {
-            guard let transformed=packGeom.featurePaths[idx].copy(using:&xform) else { continue }
-            let path=Path(transformed)
+            let path=Path(packGeom.featurePaths[idx])
             let fill=values[feat.code].map { colors[bins.index($0)] }
                 ?? (highlightSet.contains(feat.code) ? theme.focus : (values.isEmpty ? theme.land : theme.missing))
             ctx.fill(path,with:.color(fill.color),style:FillStyle(eoFill:true))
             if strokeW >= 0.5 {
-                ctx.stroke(path,with:.color(MUMapRGB(hex:"#262624").color),lineWidth:strokeW)
-                ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:3).color),style:StrokeStyle(lineWidth:0.5,dash:[3,1]))
+                ctx.stroke(path,with:.color(darkStroke),lineWidth:scaledStrokeW)
+                ctx.stroke(path,with:.color(borderColor(for: fill)),style:dashStyle)
             } else {
-                ctx.stroke(path,with:.color(theme.border.readable(on:fill,minimum:2.2).color),lineWidth:strokeW)
+                ctx.stroke(path,with:.color(borderColor(for: fill)),lineWidth:scaledStrokeW)
             }
             if highlightSet.contains(feat.code) { highlightedIndices.append(idx) }
         }
         let ovWidth=packMeta.manifest.styleHints.overlayStrokeWidth
-        let ovInk=location ? MUMapRGB(hex:"#262624") : theme.text
-        let ovMuted=location ? MUMapRGB(hex:"#66808E") : theme.muted
+        let ovInk=location ? MUMapRGB(r: 0x26, g: 0x26, b: 0x24) : theme.text
+        let ovMuted=location ? MUMapRGB(r: 0x66, g: 0x80, b: 0x8E) : theme.muted
         for (kind,cgPath) in packGeom.overlayPaths {
-            guard let transformed=cgPath.copy(using:&xform) else { continue }
-            let path=Path(transformed)
+            let path=Path(cgPath)
             if kind == 1 {
-                ctx.stroke(path,with:.color(ovMuted.color.opacity(0.65)),lineWidth:0.75)
+                ctx.stroke(path,with:.color(ovMuted.color.opacity(0.65)),lineWidth:0.75 * invScale)
             } else if kind == 2 {
-                ctx.stroke(path,with:.color(ovInk.color),lineWidth:max(0.9,ovWidth))
+                ctx.stroke(path,with:.color(ovInk.color),lineWidth:max(0.9,ovWidth) * invScale)
             } else {
-                ctx.stroke(path,with:.color(ovInk.color.opacity(0.72)),lineWidth:ovWidth)
+                ctx.stroke(path,with:.color(ovInk.color.opacity(0.72)),lineWidth:ovWidth * invScale)
             }
         }
         for idx in highlightedIndices {
-            if let transformed=packGeom.featurePaths[idx].copy(using:&xform) {
-                ctx.stroke(Path(transformed),with:.color(theme.accent.color),lineWidth:1.25)
-            }
+            ctx.stroke(Path(packGeom.featurePaths[idx]),with:.color(theme.accent.color),lineWidth:1.25 * invScale)
         }
 
         for zone in packMeta.manifest.zones {

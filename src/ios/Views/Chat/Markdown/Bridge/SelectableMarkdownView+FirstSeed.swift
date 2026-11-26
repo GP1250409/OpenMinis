@@ -68,6 +68,10 @@ extension SelectableMarkdownView {
             guard let value else { return }
             if value is TableAttachment || value is ThematicBreakAttachment {
                 hasAttachment = true
+            } else if let img = value as? ImageAttachment,
+                      img.loadedImage != nil
+                        || NativeMediaImageCache.shared.size(forSource: ImageAttachment.canonicalizeMarkdownImageSource(img.source)) != nil {
+                hasAttachment = true
             } else {
                 hasOtherAttachment = true
                 stop.pointee = true
