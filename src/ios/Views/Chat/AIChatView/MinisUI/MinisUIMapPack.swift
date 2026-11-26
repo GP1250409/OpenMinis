@@ -592,44 +592,42 @@ final class MUMapPackStore {
     }
 
     func geometry(for rawRegion: String) -> MUMapDecodedGeometry? {
-        lock.lock(); defer { lock.unlock() }
-        ensureCatalogLoadedLocked()
-        guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()],
-              let meta = packsById[pid] else { return nil }
+        let lookup: (pid: String, meta: MUMapPackMetadata, cached: MUMapDecodedGeometry?)? = {
+            lock.lock(); defer { lock.unlock() }
+            ensureCatalogLoadedLocked()
+            guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()],
+                  let meta = packsById[pid] else { return nil }
+            if let hit = geomCache[pid] {
+                touchLRULocked(pid)
+                return (pid, meta, hit)
+            }
+            return (pid, meta, nil)
+        }()
+        guard let lookup else { return nil }
+        if let hit = lookup.cached { return hit }
 
-        if let hit = geomCache[pid] {
-            touchLRULocked(pid)
-            return hit
-        }
-
+        // Decode off-lock so background or concurrent reads never block the main thread.
         let decoded: MUMapDecodedGeometry?
-        if let dir = meta.directoryURL {
-            decoded = loadGeometryFromDisk(dir: dir, manifest: meta.manifest)
-        } else if pid == "us-admin1" {
+        if let dir = lookup.meta.directoryURL {
+            decoded = loadGeometryFromDisk(dir: dir, manifest: lookup.meta.manifest)
+        } else if lookup.pid == "us-admin1" {
             decoded = buildBuiltinUSGeometry()
         } else {
             decoded = nil
         }
 
         guard let geom = decoded else { return nil }
-        let frame = MUMapFraming.frame(geometry: geom, manifest: meta.manifest)
-        if frame.width > 1, frame.height > 1 { inkAspect[pid] = MUMapFraming.plotAspect(for: frame) }
-        insertCacheLocked(pid, geom: geom)
-        return geom
-    }
+        let frame = MUMapFraming.frame(geometry: geom, manifest: lookup.meta.manifest)
+        let aspect: Double? = (frame.width > 1 && frame.height > 1) ? MUMapFraming.plotAspect(for: frame) : nil
 
-    /// Pre-decode a pack's geometry off the main thread before a map cell scrolls in.
-    func prefetchGeometry(for rawRegion: String) {
-        let alreadyCached: Bool = {
-            lock.lock(); defer { lock.unlock() }
-            ensureCatalogLoadedLocked()
-            guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] else { return true }
-            return geomCache[pid] != nil
-        }()
-        guard !alreadyCached else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = self.geometry(for: rawRegion)
+        lock.lock(); defer { lock.unlock() }
+        if let existing = geomCache[lookup.pid] {
+            touchLRULocked(lookup.pid)
+            return existing
         }
+        if let aspect { inkAspect[lookup.pid] = aspect }
+        insertCacheLocked(lookup.pid, geom: geom)
+        return geom
     }
 
     /// Height/width of the pack's ink, or nil while the pack has never been

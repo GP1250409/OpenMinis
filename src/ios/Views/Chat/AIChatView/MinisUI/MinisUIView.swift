@@ -151,21 +151,6 @@ enum MinisUITool {
         return renderedRoot(src, stateJSON: nil, program: prog, state: defaults) != nil
     }
 
-    /// Pre-decode any GeoMap packs referenced by this block on a background queue.
-    static func prefetchMapPacksIfNeeded(_ block: AssistantBlock) {
-        guard case .success = block.toolStatus, let src = program(block), src.contains("GeoMap") else { return }
-        let (prog, defaults) = compiled(src)
-        let st = state(block, defaults: defaults)
-        guard let root = renderedRoot(src, stateJSON: block.genuiStateJSON, program: prog, state: st) else { return }
-        func walk(_ comp: MUComp) {
-            if comp.name == "GeoMap" {
-                MUMapPackStore.shared.prefetchGeometry(for: comp.str("region") ?? "us")
-            }
-            for child in comp.children { walk(child) }
-        }
-        walk(root)
-    }
-
     /// The message a button sends as the user's next turn: the visible text
     /// plus a machine-readable line the model can rely on.
     static func turnText(message: String, context: MUValue, state: [String: MUValue], order: [String]) -> String {

@@ -39,16 +39,10 @@ extension CollectionViewMessageListV3.Coordinator {
                 // can take hundreds of ms per cell and accumulate into a watchdog crash
                 // when the user scrolls back through long history. See 3a9fb98 for the
                 // matching configureCell guard.
-                guard index < previousSnapshotIds.count else { continue }
-                let item = previousSnapshotIds[index]
-                if case .assistantBlock(let mid, let bid) = item,
-                   let msgIdx = messageIndex[mid], msgIdx < messages.count,
-                   let blk = messages[msgIdx].blocks.first(where: { $0.id == bid }),
-                   blk.kind == .genuiTool {
-                    MinisUITool.prefetchMapPacksIfNeeded(blk)
-                }
                 guard layout.cachedHeight(at: index) == nil,
                       !layout.hasPrecalcHeight(at: index) else { continue }
+                guard index < previousSnapshotIds.count else { continue }
+                let item = previousSnapshotIds[index]
                 let est = Self.estimateItemHeight(item, messages: messages, width: width)
                 layout.setEstimatedHeight(est, at: index)
             }
