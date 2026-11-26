@@ -183,40 +183,20 @@ private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
     private var edgeColor: Color {
-        // Match upstream: expanded segments use the adaptive glass highlight
-        // on every iOS version. Only legacy collapsed cards use separator.
-        if kind != .lone { return folderEdgeHighlight }
-        if #available(iOS 26.0, *) { return folderEdgeHighlight }
-        return Color(UIColor.separator).opacity(0.5)
+        // Match official Minis: collapsed and expanded cards use the same
+        // adaptive edge highlight (white 0.30 dark / black 0.08 light) across
+        // all iOS versions.
+        folderEdgeHighlight
     }
     private var edgeWidth: CGFloat {
-        // Upstream expanded outline is 0.75pt, not the MOD's former 1.5pt.
-        if kind != .lone { return 0.75 }
-        if #available(iOS 26.0, *) { return 0.75 }
-        return 0.5
+        0.75
     }
 
-    /// The collapsed card's ACTUAL rendered color, eyedropper-sampled from
-    /// device screenshots. Dark: RGB 18/18/18 — re-sampled with a probe
-    /// build rendering REAL glass over a pure-black list with no pinned rows
-    /// behind it (24 points, zero variance). The earlier 57/57/60 was
-    /// contaminated: that screenshot's card had blurred colorful content
-    /// showing through the glass, and the too-light constant is what read as
-    /// a heavy solid slab against the black page. True glass sits nearly on
-    /// the background and lets the edge hairline do the lifting — that IS
-    /// the lightweight look. Light: RGB 252/252/252 (sampled over a clean
-    /// light background, unaffected).
-    /// Used for the expanded segments on iOS 26 instead of per-row
-    /// glassEffect: glass pieces cannot merge across List rows (edge lines
-    /// between every segment — twice rejected), and in THIS context glass
-    /// has nothing to blur behind it (the container sits on the flat list
-    /// background), so its rendered output IS effectively this constant
-    /// color. Sampling it gives pixel-level brightness parity with the
-    /// collapsed card, perfectly seamless tiling, and zero perf risk —
-    /// chosen by the user over a preference-propagation spike.
+    /// Collapsed card fill matching official Minis in dark mode (28/255/28/255/30/255,
+    /// i.e. secondarySystemBackground) and clean light surface (252/252/252).
     static let sampledGlassColor = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 18/255.0, green: 18/255.0, blue: 18/255.0, alpha: 1)
+            ? UIColor(red: 28/255.0, green: 28/255.0, blue: 30/255.0, alpha: 1)
             : UIColor(red: 252/255.0, green: 252/255.0, blue: 252/255.0, alpha: 1)
     })
 

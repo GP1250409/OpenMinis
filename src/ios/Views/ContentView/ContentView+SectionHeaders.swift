@@ -125,14 +125,11 @@ extension ContentView {
             activity[folder.id] = FolderPickerOrder.lastActive(
                 folderUpdatedAt: folder.updatedAt, folderCreatedAt: folder.createdAt,
                 newestMemberUpdatedAt: m.first?.updatedAt)
-            // Top-3 DISTINCT category glyphs by recency — same rule as
+            // Top-4 member category glyphs by recency — same rule as
             // groupedSessionIDs, so the picker icon matches the home card.
-            var glyphs: [FolderGlyph] = []
-            var seenCategories = Set<String>()
-            for s in m where seenCategories.insert(s.category ?? "").inserted {
-                let icon = sessionCategoryIcon(for: s.category)
-                glyphs.append(FolderGlyph(systemName: icon.systemName, color: icon.color))
-                if glyphs.count == 3 { break }
+            let glyphs = m.prefix(4).map {
+                let icon = sessionCategoryIcon(for: $0.category)
+                return FolderGlyph(systemName: icon.systemName, color: icon.color)
             }
             let desc = folder.desc?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return FolderPickerSheet.FolderItem(
@@ -179,8 +176,8 @@ extension ContentView {
                     // guessing which row it refers to.
                     .overlay {
                         if group.isCollapsed && group.anyActive {
-                            SpinningRing(color: group.glyphs.first?.color ?? .gray)
-                                .frame(width: 42, height: 42)
+                            FolderSpinningBorder(color: group.glyphs.first?.color ?? .gray)
+                                .frame(width: 44, height: 44)
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {

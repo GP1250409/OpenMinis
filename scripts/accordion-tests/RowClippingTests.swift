@@ -16,7 +16,10 @@ struct ChatSession {
     var isPinned: Bool { pinnedAt != nil }
     var isRemote: Bool { remoteDeviceId != nil }
 }
-struct FolderGlyph: Equatable { var color: Color = .orange }
+struct FolderGlyph: Equatable {
+    var systemName: String = "bubble.left.fill"
+    var color: Color = .orange
+}
 final class SessionActivityTracker: ObservableObject {
     static let shared = SessionActivityTracker()
     func isActive(_ id: String) -> Bool { false }

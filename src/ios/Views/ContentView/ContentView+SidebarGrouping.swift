@@ -272,14 +272,11 @@ extension ContentView {
             let displayOrdered = m.filter(\.isPinned) + m.filter { !$0.isPinned }
             var g = SidebarGroup(label: folder.name, ids: displayOrdered.map(\.id), folderId: fid)
             g.totalCount = m.count
-            // Top-3 DISTINCT category glyphs by recency (m is recency-sorted).
-            // Distinct because three code sessions rendering three identical
-            // terminal glyphs carries no information.
-            var seenCategories = Set<String>()
-            for s in m where seenCategories.insert(s.category ?? "").inserted {
-                let icon = sessionCategoryIcon(for: s.category)
-                g.glyphs.append(FolderGlyph(systemName: icon.systemName, color: icon.color))
-                if g.glyphs.count == 3 { break }
+            // Top-4 member category glyphs by recency (m is recency-sorted),
+            // matching the 2×2 folder icon grid without category deduplication.
+            g.glyphs = m.prefix(4).map {
+                let icon = sessionCategoryIcon(for: $0.category)
+                return FolderGlyph(systemName: icon.systemName, color: icon.color)
             }
             // Status passthrough as ONE early-exiting pass of hash lookups
             // (was three `contains` passes entering the observed stores per
