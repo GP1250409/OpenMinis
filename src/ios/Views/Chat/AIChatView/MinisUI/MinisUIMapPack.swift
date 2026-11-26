@@ -4,8 +4,11 @@ import Foundation
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
-// MARK: - Pure Swift SHA-256 (Linux & Darwin Foundation compatible)
+// MARK: - Pure Swift SHA-256 (Linux fallback; Darwin uses hardware CryptoKit)
 
 enum MUMapSHA256 {
     private static let k: [UInt32] = [
@@ -20,6 +23,17 @@ enum MUMapSHA256 {
     ]
 
     static func hex(_ data: Data) -> String {
+        #if canImport(CryptoKit)
+        let digest = SHA256.hash(data: data)
+        var out = String()
+        out.reserveCapacity(64)
+        let hexChars = Array("0123456789abcdef".utf8)
+        for byte in digest {
+            out.append(Character(UnicodeScalar(hexChars[Int(byte >> 4)])))
+            out.append(Character(UnicodeScalar(hexChars[Int(byte & 0x0F)])))
+        }
+        return out
+        #else
         var bytes = [UInt8](data)
         let bitLen = UInt64(bytes.count) &* 8
         bytes.append(0x80)
@@ -56,6 +70,7 @@ enum MUMapSHA256 {
             h[4] = h[4] &+ e; h[5] = h[5] &+ f; h[6] = h[6] &+ g; h[7] = h[7] &+ hh
         }
         return h.map { String(format: "%08x", $0) }.joined()
+        #endif
     }
 }
 
@@ -488,8 +503,8 @@ enum MUMapPackDecoder {
 final class MUMapPackStore {
     static let shared = MUMapPackStore()
 
-    static let maxCachedPacks = 4
-    static let maxCachedBytes = 4 * 1024 * 1024
+    static let maxCachedPacks = 8
+    static let maxCachedBytes = 12 * 1024 * 1024
 
     private let lock = NSLock()
     private var customSearchPaths: [URL]?
@@ -601,6 +616,20 @@ final class MUMapPackStore {
         if frame.width > 1, frame.height > 1 { inkAspect[pid] = MUMapFraming.plotAspect(for: frame) }
         insertCacheLocked(pid, geom: geom)
         return geom
+    }
+
+    /// Pre-decode a pack's geometry off the main thread before a map cell scrolls in.
+    func prefetchGeometry(for rawRegion: String) {
+        let alreadyCached: Bool = {
+            lock.lock(); defer { lock.unlock() }
+            ensureCatalogLoadedLocked()
+            guard let pid = aliasToId[rawRegion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] else { return true }
+            return geomCache[pid] != nil
+        }()
+        guard !alreadyCached else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = self.geometry(for: rawRegion)
+        }
     }
 
     /// Height/width of the pack's ink, or nil while the pack has never been

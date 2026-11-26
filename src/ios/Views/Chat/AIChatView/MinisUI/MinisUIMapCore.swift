@@ -73,20 +73,63 @@ enum MUMapRegion {
     }
 }
 
-struct MUMapRGB: Equatable {
-    let hex: String
+struct MUMapRGB: Equatable, Hashable {
+    let r: UInt8
+    let g: UInt8
+    let b: UInt8
+
+    private static let linearLUT: [Double] = (0..<256).map { i in
+        let c = Double(i) / 255.0
+        return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    init(r: UInt8, g: UInt8, b: UInt8) {
+        self.r = r
+        self.g = g
+        self.b = b
+    }
+
+    init(hex: String) {
+        var n: UInt32 = 0
+        for scalar in hex.unicodeScalars {
+            let v: UInt32
+            switch scalar.value {
+            case 48...57: v = scalar.value - 48
+            case 65...70: v = scalar.value - 55
+            case 97...102: v = scalar.value - 87
+            default: continue
+            }
+            n = (n << 4) | v
+        }
+        self.r = UInt8((n >> 16) & 255)
+        self.g = UInt8((n >> 8) & 255)
+        self.b = UInt8(n & 255)
+    }
+
+    var hex: String {
+        String(format: "#%02X%02X%02X", r, g, b)
+    }
+
     var rgb: (Double, Double, Double) {
-        let n = UInt32(hex.replacingOccurrences(of: "#", with: ""), radix: 16) ?? 0
-        return (Double((n >> 16) & 255) / 255, Double((n >> 8) & 255) / 255, Double(n & 255) / 255)
+        (Double(r) / 255.0, Double(g) / 255.0, Double(b) / 255.0)
     }
+
     var luminance: Double {
-        func f(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
-        let (r,g,b) = rgb; return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b)
+        0.2126 * Self.linearLUT[Int(r)] + 0.7152 * Self.linearLUT[Int(g)] + 0.0722 * Self.linearLUT[Int(b)]
     }
-    var ink: MUMapRGB { MUMapRGB(hex: luminance > 0.179 ? "#000000" : "#FFFFFF") }
+
+    var ink: MUMapRGB { luminance > 0.179 ? MUMapRGB(r: 0, g: 0, b: 0) : MUMapRGB(r: 255, g: 255, b: 255) }
+
     static func mix(_ a: MUMapRGB, _ b: MUMapRGB, _ t: Double) -> MUMapRGB {
-        let (r,g,bl) = a.rgb, (x,y,z) = b.rgb, p = min(1, max(0, t))
-        return MUMapRGB(hex: String(format: "#%02X%02X%02X", Int(((r+(x-r)*p)*255).rounded()), Int(((g+(y-g)*p)*255).rounded()), Int(((bl+(z-bl)*p)*255).rounded())))
+        let p = min(1.0, max(0.0, t))
+        let rr = (Double(a.r) + (Double(b.r) - Double(a.r)) * p).rounded()
+        let gg = (Double(a.g) + (Double(b.g) - Double(a.g)) * p).rounded()
+        let bb = (Double(a.b) + (Double(b.b) - Double(a.b)) * p).rounded()
+        return MUMapRGB(
+            r: UInt8(min(255, max(0, Int(rr)))),
+            g: UInt8(min(255, max(0, Int(gg)))),
+            b: UInt8(min(255, max(0, Int(bb))))
+        )
     }
 }
 
@@ -95,19 +138,22 @@ struct MUMapRGB: Equatable {
 // with black/white. Quantized output is rechecked before it is accepted.
 extension MUMapRGB {
     func contrast(on background: MUMapRGB) -> Double {
-        (max(luminance, background.luminance) + 0.05) / (min(luminance, background.luminance) + 0.05)
+        let l1 = luminance
+        let l2 = background.luminance
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
     }
     func composited(over background: MUMapRGB, alpha: Double) -> MUMapRGB {
         Self.mix(background, self, alpha)
     }
     func readable(on background: MUMapRGB, minimum: Double = 4.5) -> MUMapRGB {
         guard contrast(on: background) < minimum else { return self }
-        let black = Self(hex: "#000000"), white = Self(hex: "#FFFFFF")
+        let black = Self(r: 0, g: 0, b: 0), white = Self(r: 255, g: 255, b: 255)
         let target = black.contrast(on: background) >= white.contrast(on: background) ? black : white
+        let goal = min(minimum + 0.15, target.contrast(on: background))
         var lo = 0.0, hi = 1.0
         for _ in 0..<24 {
             let mid = (lo + hi) / 2
-            if Self.mix(self, target, mid).contrast(on: background) >= min(minimum + 0.15, target.contrast(on: background)) { hi = mid } else { lo = mid }
+            if Self.mix(self, target, mid).contrast(on: background) >= goal { hi = mid } else { lo = mid }
         }
         return Self.mix(self, target, hi)
     }

@@ -70,6 +70,11 @@ enum MinisUITool {
     /// the list's layout and the block view's body; parsing once per program
     /// keeps those paths cheap. Main-thread only (both callers are).
     private static var parsed: [String: (MUProgram, [String: MUValue])] = [:]
+    /// Extracted `"program"` string keyed by raw `toolInputArgs` JSON, avoiding
+    /// repeated `JSONSerialization` passes on scroll/layout.
+    private static var programTextCache: [String: String] = [:]
+    /// Cached `render(state)` root keyed by `src + "\u{1E}" + (stateJSON ?? "")`.
+    private static var renderedRootCache: [String: MUComp?] = [:]
 
     static func compiled(_ src: String) -> (MUProgram, [String: MUValue]) {
         if let hit = parsed[src] { return hit }
@@ -78,6 +83,16 @@ enum MinisUITool {
         if parsed.count > 64 { parsed.removeAll() }
         parsed[src] = entry
         return entry
+    }
+
+    /// Cached evaluation of `prog.render(state)` for a block's current state JSON.
+    static func renderedRoot(_ src: String, stateJSON: String?, program: MUProgram, state: [String: MUValue]) -> MUComp? {
+        let key = src + "\u{1E}" + (stateJSON ?? "")
+        if let hit = renderedRootCache[key] { return hit }
+        let root = program.render(state).0
+        if renderedRootCache.count > 64 { renderedRootCache.removeAll() }
+        renderedRootCache[key] = root
+        return root
     }
 
     /// Defaults with the block's saved values on top.
@@ -89,9 +104,14 @@ enum MinisUITool {
 
     /// The program from the tool input JSON.
     static func program(_ block: AssistantBlock) -> String? {
-        guard let json = block.toolInputArgs, let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return obj["program"] as? String
+        guard let json = block.toolInputArgs, !json.isEmpty else { return nil }
+        if let hit = programTextCache[json] { return hit }
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let src = obj["program"] as? String else { return nil }
+        if programTextCache.count > 64 { programTextCache.removeAll() }
+        programTextCache[json] = src
+        return src
     }
 
     static func loadState(_ block: AssistantBlock) -> [String: MUValue]? {
@@ -117,7 +137,8 @@ enum MinisUITool {
     static func estimatedHeight(_ block: AssistantBlock, width: CGFloat) -> CGFloat {
         guard let src = program(block) else { return 36 }
         let (prog, defaults) = compiled(src)
-        guard let root = prog.render(state(block, defaults: defaults)).0 else { return 64 }
+        let st = state(block, defaults: defaults)
+        guard let root = renderedRoot(src, stateJSON: block.genuiStateJSON, program: prog, state: st) else { return 64 }
         // 16pt list margins each side; 2pt card padding top and bottom.
         return MinisUIEngine.estimatedHeight(root, width: width - 32) + 4
     }
@@ -127,7 +148,22 @@ enum MinisUITool {
     static func renders(_ block: AssistantBlock) -> Bool {
         guard case .success = block.toolStatus, let src = program(block) else { return false }
         let (prog, defaults) = compiled(src)
-        return prog.render(defaults).0 != nil
+        return renderedRoot(src, stateJSON: nil, program: prog, state: defaults) != nil
+    }
+
+    /// Pre-decode any GeoMap packs referenced by this block on a background queue.
+    static func prefetchMapPacksIfNeeded(_ block: AssistantBlock) {
+        guard case .success = block.toolStatus, let src = program(block), src.contains("GeoMap") else { return }
+        let (prog, defaults) = compiled(src)
+        let st = state(block, defaults: defaults)
+        guard let root = renderedRoot(src, stateJSON: block.genuiStateJSON, program: prog, state: st) else { return }
+        func walk(_ comp: MUComp) {
+            if comp.name == "GeoMap" {
+                MUMapPackStore.shared.prefetchGeometry(for: comp.str("region") ?? "us")
+            }
+            for child in comp.children { walk(child) }
+        }
+        walk(root)
     }
 
     /// The message a button sends as the user's next turn: the visible text
@@ -156,9 +192,10 @@ struct MinisUICardView: View {
 
 
     var body: some View {
-        let compiled = compiledProgram()
+        let src = MinisUITool.program(block) ?? ""
+        let compiled = MinisUITool.compiled(src)
         let state = currentState(compiled.1)
-        let (root, _) = compiled.0.render(state)
+        let root = MinisUITool.renderedRoot(src, stateJSON: block.genuiStateJSON, program: compiled.0, state: state)
         Group {
             if let root {
                 MUNodeView(comp: root, ctx: MUContext(state: state, program: compiled.0, defaults: compiled.1,
@@ -175,11 +212,6 @@ struct MinisUICardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
         .modifier(MURootSurface())
-    }
-
-    /// Parsed once per program text (shared cache).
-    private func compiledProgram() -> (MUProgram, [String: MUValue]) {
-        MinisUITool.compiled(MinisUITool.program(block) ?? "")
     }
 
     private func currentState(_ defaults: [String: MUValue]) -> [String: MUValue] {
