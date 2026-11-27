@@ -456,14 +456,6 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         liveBottomCapLayer.path = nil
         for cell in collection.visibleCells {
             (cell as? AccordionHostingCell)?.applyCardClip(nil)
-            guard let path = collection.indexPath(for: cell),
-                  sections.indices.contains(path.section) else { continue }
-            let s = sections[path.section]
-            if s.group.folderId == nil, path.item >= s.geometry.prefixCount {
-                let p = path.section < accordionLayout.reveal.count ? min(1, max(0, accordionLayout.reveal[path.section])) : 1
-                cell.alpha = p * p
-                cell.layer.zPosition = p < 0.999 ? -1 : 0
-            }
         }
     }
 
@@ -503,21 +495,12 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         }
         for cell in collection.visibleCells {
             guard let hosting = cell as? AccordionHostingCell else { continue }
-            guard let path = collection.indexPath(for: hosting) else {
+            guard let path = collection.indexPath(for: hosting),
+                  let cardRect = activeCards[path.section] else {
                 hosting.applyCardClip(nil)
                 continue
             }
             let s = sections[path.section]
-            if s.group.folderId == nil, path.item >= s.geometry.prefixCount,
-               path.section < accordionLayout.reveal.count {
-                let p = min(1, max(0, accordionLayout.reveal[path.section]))
-                hosting.alpha = p * p
-                hosting.layer.zPosition = p < 0.999 ? -1 : 0
-            }
-            guard let cardRect = activeCards[path.section] else {
-                hosting.applyCardClip(nil)
-                continue
-            }
             let isLabel = s.geometry.labelHeight > 0 && path.item == 0
             let isHeader = s.geometry.headerHeight > 0 && path.item == s.geometry.prefixCount - 1
             if isLabel || (!isHeader && hosting.frame.maxY < cardRect.maxY - 20) {
@@ -593,14 +576,6 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             cell.accessibilityElementsHidden = false
         }
         if link == nil { cell.applyCardClip(nil) }
-        if group.folderId == nil, case .member = role, accordionLayout.reveal.indices.contains(path.section) {
-            let p = min(1, max(0, accordionLayout.reveal[path.section]))
-            cell.alpha = p * p
-            cell.layer.zPosition = p < 0.999 ? -1 : 0
-        } else {
-            cell.alpha = 1
-            if case .member = role { cell.layer.zPosition = 0 }
-        }
         configuredCellCount += 1
     }
     private func refreshVisible() {

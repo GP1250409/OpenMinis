@@ -497,14 +497,14 @@ final class StablePinnedTitle: ObservableObject {
         label.text = AppLocalized("Pinned")
         let fontSize = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
         label.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        pin.frame = CGRect(x: labelX, y: (headerHeight - 10) / 2, width: 10, height: 10)
-        label.frame = CGRect(x: labelX + 14, y: 0, width: max(0, surface.bounds.width - labelX - 30), height: headerHeight)
+        pin.isHidden = true
+        label.frame = CGRect(x: labelX, y: 0, width: max(0, surface.bounds.width - labelX - 16), height: headerHeight)
         // [T-pinned-section-collapse] Chevron right after the title, matching
         // the SwiftUI header's 4pt spacing and 11pt glyph.
         let titleWidth = min(label.intrinsicContentSize.width,
-                             max(0, surface.bounds.width - labelX - 44))
+                             max(0, surface.bounds.width - labelX - 30))
         let chevronSize: CGFloat = 11
-        chevron.frame = CGRect(x: labelX + 14 + titleWidth + 4,
+        chevron.frame = CGRect(x: labelX + titleWidth + 4,
                                y: (headerHeight - chevronSize) / 2,
                                width: chevronSize, height: chevronSize)
         chevron.transform = CGAffineTransform(rotationAngle: chevronAngle)
@@ -569,9 +569,6 @@ struct PinnedSectionHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "pin.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(Color(UIColor.secondaryLabel))
             // Bucket labels are English keys; localize at display only.
             Text(LocalizedStringKey(label))
                 .font(.subheadline.weight(.semibold))
