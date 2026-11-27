@@ -530,7 +530,9 @@ final class StablePinnedTitle: ObservableObject {
 @MainActor
 final class PinnedSectionState: ObservableObject {
     static let shared = PinnedSectionState()
-    static let defaultsKey = "pinnedSectionCollapsed"
+    /// Non-isolated because `isCollapsedNow` (below) reads it from code that
+    /// must stay callable off the SwiftUI actor path.
+    nonisolated static let defaultsKey = "pinnedSectionCollapsed"
     static let didChange = Notification.Name("PinnedSectionStateDidChange")
 
     @Published private(set) var isCollapsed: Bool
@@ -559,6 +561,10 @@ final class PinnedSectionState: ObservableObject {
 /// `ContentView` observing the flag.
 struct PinnedSectionHeaderRow: View {
     let label: String
+    /// False in a result set: the bucket there is the search result list, so
+    /// the chevron would fold away exactly what matched (same rule the folder
+    /// cards follow — no fold chevron in results).
+    var folds: Bool = true
     @ObservedObject private var state = PinnedSectionState.shared
 
     var body: some View {
@@ -570,19 +576,21 @@ struct PinnedSectionHeaderRow: View {
             Text(LocalizedStringKey(label))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(UIColor.secondaryLabel))
-            // Same chevron language as the folder cards: down while the chats
-            // are on screen, pointing right once they are folded away.
-            Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color(UIColor.tertiaryLabel))
-                .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+            if folds {
+                // Same chevron language as the folder cards: down while the
+                // chats are on screen, pointing right once they are folded.
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(UIColor.tertiaryLabel))
+                    .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture { state.toggle() }
+        .onTapGesture { if folds { state.toggle() } }
         .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
         .textCase(nil)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(folds ? .isButton : [])
     }
 }
 

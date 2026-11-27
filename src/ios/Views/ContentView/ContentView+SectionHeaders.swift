@@ -77,7 +77,7 @@ extension ContentView {
                     // Official Minis shows exactly this flat row, so the bucket
                     // stays a header — a card would put a container around
                     // something that is not a folder.
-                    PinnedSectionHeaderRow(label: group.label)
+                    PinnedSectionHeaderRow(label: group.label, folds: !isSearching)
                 } else {
                     HStack(spacing: 4) {
                         // group.label stays an English key for logic;

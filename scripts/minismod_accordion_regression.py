@@ -18,6 +18,11 @@ arch=subprocess.check_output(['uname','-m'],text=True).strip()
 surfaces=(ios/'SidebarSurfaces.swift').read_text()
 paint='import SwiftUI\nimport UIKit\n'+surfaces[surfaces.index('private struct FolderSegmentBorder:'):surfaces.index('/// Background for the expanded FAB search bar.')]
 paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('/// Rename + dissolve alerts')]
+# [T-pinned-section-collapse] NativeAccordionList reads PinnedSectionState for
+# the pinned bucket's fold, and PinnedSectionState sits past this slice's end
+# (in the stable pinned-title section of the file). Include the state and its
+# two leaf views explicitly so the shipped accordion still compiles verbatim.
+paint+=surfaces[surfaces.index('/// [T-pinned-section-collapse] Fold state'):surfaces.index('struct PinnedBoundaryProbe: UIViewRepresentable')]
 paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
 # Compile the complete production SessionRow, not a replacement Text fixture.
 # Only application services/models are doubled in RowClippingTests.swift.
