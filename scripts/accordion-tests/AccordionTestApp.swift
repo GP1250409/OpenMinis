@@ -174,18 +174,32 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
                                      labelHeight: 32, headerHeight: 68, footerHeight: 4),
         ]
 
+        // The group card behind them stays EXPANDED, exactly as a folder card
+        // ships (only the two date buckets toggle), so its own rows are part of
+        // every expectation below.
+        // NOTE: the slots are named CGFloat constants on purpose. Written as one
+        // literal chain inside `check`'s @autoclosure every literal becomes
+        // overloadable against CGFloat and the compiler gives up ("unable to
+        // type-check this expression in reasonable time"), which is what killed
+        // the first CI run of this fixture.
+        let labelSlot: CGFloat = 32
+        let rowSlot: CGFloat = 68
+        let groupChrome: CGFloat = 68 + 4               // group header + footer
+        let groupExpanded: CGFloat = groupChrome + 2 * rowSlot
+
         // Both date buckets folded: equal 32pt pitches, no reserved member rows.
-        layout.reveal = [0, 0, 0]
+        layout.reveal = [0, 0, 1]
         layout.prepare()
-        check(layout.starts[1] - layout.starts[0] == 32, "folded 最近→置顶 pitch is one 32pt label slot")
-        check(layout.starts[2] - layout.starts[1] == 32, "folded 置顶→分组 pitch is one 32pt label slot")
-        check(layout.naturalHeight == 32 * 3 + (68 + 4) + 68 * 2,
+        check(layout.starts[1] - layout.starts[0] == labelSlot, "folded 最近→置顶 pitch is one 32pt label slot")
+        check(layout.starts[2] - layout.starts[1] == labelSlot, "folded 置顶→分组 pitch is one 32pt label slot")
+        let foldedHeight: CGFloat = 3 * labelSlot + groupExpanded
+        check(layout.naturalHeight == foldedHeight,
               "a folded bucket reserves no member height")
         print("RECENT_BUCKET_SPACING_PASS folded_pitch=32 reserved_rows=0"); fflush(stdout)
 
         // 最近 expanded: label→row pitch is the label's own height, and the last
         // row sits flush on the 置顶 title.
-        layout.reveal = [1, 0, 0]
+        layout.reveal = [1, 0, 1]
         layout.prepare()
         let recentLabel = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!
         let recentFirst = layout.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))!
@@ -193,24 +207,27 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(recentLabel.frame.height == 32, "最近 keeps the shared 32pt label slot")
         check(recentFirst.frame.minY == recentLabel.frame.maxY, "最近 title→first row has no extra gap")
         check(recentLast.frame.maxY == layout.starts[1], "last 最近 row meets 置顶 title with no gap")
-        check(layout.naturalHeight == 32 + 5 * 68 + 32 + (32 + 68 + 2 * 68 + 4),
+        let recentExpandedHeight: CGFloat = labelSlot + 5 * rowSlot + labelSlot + groupExpanded
+        check(layout.naturalHeight == recentExpandedHeight,
               "expanded 最近 adds exactly its five real rows and nothing else")
 
         // 置顶 expanded between a folded Recent and the Groups divider.
-        layout.reveal = [0, 1, 0]
+        layout.reveal = [0, 1, 1]
         layout.prepare()
         let pinnedLabel = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))!
         let pinnedFirst = layout.layoutAttributesForItem(at: IndexPath(item: 1, section: 1))!
         let pinnedLast = layout.layoutAttributesForItem(at: IndexPath(item: 3, section: 1))!
         check(pinnedFirst.frame.minY == pinnedLabel.frame.maxY, "置顶 title→first row has no extra gap")
         check(pinnedLast.frame.maxY == layout.starts[2], "last pinned row meets 分组 with no gap")
-        check(layout.naturalHeight == 32 + 32 + 3 * 68 + (32 + 68 + 2 * 68 + 4),
+        let pinnedExpandedHeight: CGFloat = labelSlot + labelSlot + 3 * rowSlot + groupExpanded
+        check(layout.naturalHeight == pinnedExpandedHeight,
               "expanded 置顶 adds exactly its three real rows and nothing else")
 
         // Both expanded: the two buckets stack on the same rhythm.
-        layout.reveal = [1, 1, 0]
+        layout.reveal = [1, 1, 1]
         layout.prepare()
-        check(layout.starts[1] - layout.starts[0] == 32 + 5 * 68,
+        let recentOpenPitch: CGFloat = labelSlot + 5 * rowSlot
+        check(layout.starts[1] - layout.starts[0] == recentOpenPitch,
               "expanded 最近→置顶 pitch is its label plus its rows")
         print("RECENT_BUCKET_SPACING_PASS expanded_pitch=32 row=68 footer=0"); fflush(stdout)
     }
