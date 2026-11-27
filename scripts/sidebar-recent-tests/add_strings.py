@@ -34,6 +34,11 @@ ENTRIES = [
     (FOOTER_EN, [("en", FOOTER_EN),
                  ("zh-Hans", FOOTER_ZH_HANS),
                  ("zh-Hant", FOOTER_ZH_HANT)]),
+    # [T-sidebar-recent-unread-badge] The 最近 header's "全部已读" control.
+    # Official wording (zh-Hans) is verbatim from the reference screenshot.
+    ("Mark All as Read", [("en", "Mark All as Read"),
+                          ("zh-Hans", "全部已读"),
+                          ("zh-Hant", "全部已讀")]),
 ]
 
 

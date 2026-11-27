@@ -213,10 +213,11 @@ final class SidebarGroupsMemo {
 //
 // The official sidebar opens with a "最近" bucket above "置顶": unread,
 // running and recently active conversations in one place at the top, while
-// each of them STAYS in its own bucket below. This is the whole rule, kept as
-// a pure function over the fields the sidebar already publishes (pin flag,
-// unread badge, running set, `updatedAt`) — no new model field, no second
-// source of truth, and drivable from a test without the app.
+// each of them STAYS in its own bucket below — PINNED ones included
+// ([T-sidebar-recent-pinned-copy]). This is the whole rule, kept as a pure
+// function over the fields the sidebar already publishes (unread badge,
+// running set, `updatedAt`) — no new model field, no second source of truth,
+// and drivable from a test without the app.
 //
 // BEGIN sidebar-recent-planner
 /// One conversation as the Recent bucket sees it. Deliberately a value type
@@ -224,6 +225,9 @@ final class SidebarGroupsMemo {
 struct RecentCandidate: Equatable {
     let id: String
     let updatedAt: Date
+    /// Carried for the record and for the tests; it no longer excludes the
+    /// candidate — a pinned chat rides along in 最近 and keeps its 置顶 row
+    /// ([T-sidebar-recent-pinned-copy], see `RecentSectionPlanner.rank`).
     let isPinned: Bool
     let isUnread: Bool
     let isRunning: Bool
@@ -263,16 +267,40 @@ enum RecentSectionPlanner {
 
     /// nil = not in the bucket.
     ///
-    /// Pinned conversations are excluded on purpose: they already sit in the
-    /// "置顶" bucket directly below this one, so listing them again would show
-    /// the same row twice within the top few lines. Unread and running
-    /// conversations never age out; a read one ages out after `window`.
+    /// [T-sidebar-recent-pinned-copy] A PINNED conversation is NOT excluded:
+    /// the official sidebar lists it here *and* keeps it in "置顶" (photo
+    /// ref: the third row of 最近 carries the 置顶 pill). The two sections are
+    /// keyed independently, so one chat legitimately appears in both — that is
+    /// the "同时保留在原来的位置" rule, not a duplicate-identity bug. Unread and
+    /// running conversations never age out; a read one ages out after `window`.
     static func rank(_ candidate: RecentCandidate, now: Date,
                      window: TimeInterval = activityWindow) -> Rank? {
-        if candidate.isPinned { return nil }
         if candidate.isRunning { return .running }
         if candidate.isUnread { return .unread }
         return now.timeIntervalSince(candidate.updatedAt) < window ? .recent : nil
+    }
+
+    /// How many of `ids` are unread right now — the number on the 最近 header's
+    /// red badge ([T-sidebar-recent-unread-badge]).
+    ///
+    /// Deliberately a projection over the SIDEBAR's own membership plus the
+    /// store's unread set: there is no second counter to keep in sync, so
+    /// opening one chat (which calls `SessionBadgeStore.remove(.unread,…)`)
+    /// or "全部已读" moves this number on the very next evaluation. Counting
+    /// members rather than "everything unread in the library" is what makes
+    /// the badge read as "unread in 最近": with the 3/5/10 cap, the two numbers
+    /// differ, and only this one can reach zero by reading the rows shown.
+    ///
+    /// Duplicate ids are counted once (the bucket's own ids are unique; the
+    /// guard is here so a future caller cannot inflate the number).
+    static func unreadCount(ids: [String], unread: Set<String>) -> Int {
+        guard !unread.isEmpty else { return 0 }
+        var seen = Set<String>(minimumCapacity: ids.count)
+        var count = 0
+        for id in ids where seen.insert(id).inserted {
+            if unread.contains(id) { count += 1 }
+        }
+        return count
     }
 
     /// "置顶对话和分组合计超过 4 个" — pinned CONVERSATIONS plus GROUPS.

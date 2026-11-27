@@ -71,11 +71,22 @@ extension ContentView {
             .buttonStyle(.plain)
         } else if index > 0 || group.label == "Pinned" || group.label == "Recent" {
             Group {
-                // [T-sidebar-recent-section] "最近": clock + title + chevron,
-                // built from the pinned row's own geometry so both bucket
-                // titles keep one shared x (see RecentSectionHeaderRow).
+                // [T-sidebar-recent-section] "最近": title + unread counter +
+                // chevron, laid out exactly like the pinned row's title so both
+                // bucket titles keep one shared x (see RecentSectionHeaderRow).
+                // [T-sidebar-title-glyph-removal] Neither bucket shows a glyph
+                // in front of its title.
                 if group.label == "Recent", group.folderId == nil {
-                    RecentSectionHeaderRow(label: group.label, folds: !isSearching)
+                    // [T-sidebar-recent-unread-badge] The badge and "全部已读"
+                    // read the SAME live source — the store's unread set
+                    // projected onto this bucket's rows — so the number cannot
+                    // drift from the rows behind it and drops to zero the
+                    // moment they are read. Both stay correct while the bucket
+                    // is folded: folding hides the rows, not the ids.
+                    RecentSectionHeaderRow(label: group.label,
+                                           unreadCount: recentUnreadCount(group),
+                                           folds: !isSearching,
+                                           markAllRead: { markAllSessionsRead() })
                 } else if group.label == "Pinned", group.folderId == nil {
                     // [T-pinned-section-collapse] The first of the two date
                     // buckets that fold (see the Recent row above): pin +
@@ -116,6 +127,49 @@ extension ContentView {
                 }
             }
         }
+    }
+
+    // MARK: - [T-sidebar-recent-unread-badge] 最近 bucket: unread counter + 全部已读
+
+    /// Unread chats shown in this "最近" bucket right now.
+    ///
+    /// Derived, never stored: the store's LIVE unread set ∩ the bucket's own
+    /// ids. That is what makes the header react to every existing mark-read
+    /// path (opening a chat removes its `.unread` badge; so does "全部已读")
+    /// without a second counter that could disagree with the rows.
+    ///
+    /// `group.ids` is intact while the bucket is FOLDED (folding removes rows,
+    /// not membership), so a collapsed 最近 still reports how many unread
+    /// conversations are hidden inside it — which is exactly when the number
+    /// matters most.
+    func recentUnreadCount(_ group: SidebarGroup) -> Int {
+        RecentSectionPlanner.unreadCount(ids: group.ids,
+                                         unread: sidebarBadgeStore.unreadSessionIds)
+    }
+
+    /// [T-sidebar-recent-unread-badge] "全部已读".
+    ///
+    /// Uses ONLY the app's existing mark-read primitive — the very call that
+    /// runs when a chat is opened (`SessionBadgeStore.remove(.unread,…)`) — on
+    /// every session currently carrying the `.unread` hint. It clears a
+    /// transient UI badge and nothing else: no message is deleted, no session
+    /// body/updatedAt is rewritten, no `.paused` or other queued state is
+    /// touched (that would need `clearAll(for:)`, which this deliberately does
+    /// NOT use), and nothing is persisted beyond the store's own "unread is
+    /// transient" rule.
+    ///
+    /// Every unread session is cleared, not only the ones the 3/5/10 cap
+    /// currently lists: the button says "all", and a capped bucket can hold
+    /// fewer rows than there are unread chats. The badge then reads 0 and
+    /// disappears together with the button.
+    func markAllSessionsRead() {
+        let unread = sidebarBadgeStore.unreadSessionIds
+        guard !unread.isEmpty else { return }
+        for id in unread {
+            sidebarBadgeStore.remove(.unread, for: id)
+        }
+        AppLogger(category: "SessionBadgeStore").info(
+            "[BadgeMarkAll] cleared=\(unread.count) source=sidebar-recent-header")
     }
 
     /// Display aggregates for the Move-to-Group picker rows: the same

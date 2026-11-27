@@ -60,13 +60,21 @@ def source_checks():
         'static let minimumPinnedAndGroups = 5',
         'static let limitChoices = [3, 5, 10]',
         'static let defaultLimit = 5',
-        'if candidate.isPinned { return nil }',
         'if candidate.isRunning { return .running }',
         'if candidate.isUnread { return .unread }',
         'return now.timeIntervalSince(candidate.updatedAt) < window ? .recent : nil',
+        # [T-sidebar-recent-unread-badge] the header's number is a projection
+        'static func unreadCount(ids: [String], unread: Set<String>) -> Int',
     ):
         assert literal in groups, f'membership rule drifted: {literal!r}'
         checks += 1
+    # [T-sidebar-recent-pinned-copy] the pin no longer excludes anything.
+    assert 'if candidate.isPinned { return nil }' not in groups, 'a pinned chat must ride along in 最近'
+    assert 'guard recentEnabled else { continue }' in grouping, 'the candidate walk must not filter pins out'
+    assert '!session.isPinned else { continue }' not in grouping, 'the pin filter is gone from the candidate walk'
+    assert 'isPinned: session.isPinned,' in grouping, 'the candidate carries the real pin flag'
+    assert 'isPinned: false,' not in grouping, 'the candidate must not hard-code "unpinned"'
+    checks += 1
     assert 'var dimmedIds: Set<String> = []' in groups and 'func isDimmed(_ id: String)' in groups
     checks += 1
 
@@ -123,35 +131,93 @@ def source_checks():
     assert 'if group.folderId == nil, group.label == "Pinned" {\n            return !PinnedSectionState.isCollapsedNow' in accordion
     checks += 1
 
-    # --- header: clock out of the layout flow, title x identical to Pinned ---
+    # --- [T-sidebar-title-glyph-removal] no glyph before either title -------
+    #
+    # The clock (最近) and the pin (置顶) that used to hang in the leading
+    # gutter are GONE from every real header AND from the sticky UIKit copy,
+    # and the titles did not move: the glyphs were always out-of-flow overlays
+    # at a negative offset, never HStack members.
     pin_row = slice_between(surfaces, 'struct PinnedSectionHeaderRow: View {',
-                            '/// [T-sidebar-recent-section] The "最近" bucket', 'PinnedSectionHeaderRow')
+                            '/// Rows of the pinned bucket for the plain-List paths', 'PinnedSectionHeaderRow')
     recent_row = slice_between(surfaces, 'struct RecentSectionHeaderRow: View {',
                                '/// [T-sidebar-recent-section] Rows of the Recent bucket', 'RecentSectionHeaderRow')
-    for row, name in ((pin_row, 'pinned'), (recent_row, 'recent')):
-        hstack = slice_between(row, 'HStack(spacing: 4) {',
-                               '.frame(maxWidth: .infinity, alignment: .leading)', f'{name} hstack')
-        assert 'Image(' not in hstack.split('if folds')[0], f'{name}: no glyph may precede the title'
-        assert hstack.index('Text(LocalizedStringKey(label))') < hstack.index('if folds'), name
-        assert '.overlay(alignment: .leading) {' in row, f'{name}: glyph must be a leading overlay'
-        assert '.offset(x: -PinnedTitlePin.gutter)' in row, f'{name}: glyph must hang in the gutter'
+    badge = slice_between(surfaces, 'struct RecentUnreadBadge: View {',
+                          '/// [T-sidebar-recent-section] The "最近" bucket', 'RecentUnreadBadge')
+    stable = surfaces[surfaces.index('final class StablePinnedTitle'):
+                      surfaces.index('/// [T-pinned-section-collapse] Fold state')]
+    for glyph in ('Image(systemName: "clock.arrow.circlepath")',
+                  'Image(systemName: "pin.fill")',
+                  'enum PinnedTitlePin', 'PinnedTitlePin.'):
+        assert glyph not in surfaces, f'the bucket title glyph must be gone: {glyph!r}'
         checks += 1
-    # Same title text, same spacing, same chevron -> same x for both buckets.
-    def title_block(row):
-        hstack = slice_between(row, 'HStack(spacing: 4) {', '.frame(maxWidth: .infinity, alignment: .leading)', 'hstack')
-        return hstack[:hstack.index('if folds')]
-    assert title_block(pin_row) == title_block(recent_row), 'both bucket titles must be laid out identically'
-    assert 'Image(systemName: "clock.arrow.circlepath")' in recent_row
-    assert '.font(.system(size: PinnedTitlePin.glyphPointSize, weight: .semibold))' in recent_row
-    assert '.frame(width: PinnedTitlePin.glyphBox.width,\n                       height: PinnedTitlePin.glyphBox.height)' in recent_row
-    assert 'Image(systemName: "pin.fill")' in pin_row
-    assert 'static let gutter: CGFloat = 14' in surfaces
-    assert 'static let glyphBox = CGSize(width: 10, height: 12)' in surfaces
-    assert 'static let glyphPointSize: CGFloat = 10' in surfaces
+    # No overlay at all on either row: a decorative glyph was the only thing
+    # that ever used one there.
+    for row, name in ((pin_row, 'pinned'), (recent_row, 'recent')):
+        assert '.overlay(alignment: .leading)' not in row, f'{name}: no leading overlay may come back'
+        images = re.findall(r'Image\(systemName: "([^"]+)"\)', row)
+        assert images == ['chevron.down'], f'{name}: the fold chevron is the only glyph left, got {images}'
+        checks += 1
+    # …and the sticky copy paints no glyph either, while still drawing the
+    # SAME title at the SAME x (`labelX` is the only thing it may never move).
+    assert 'pin.frame' not in stable, 'the sticky copy must not draw a glyph in the gutter'
+    assert 'label.frame = CGRect(x: labelX' in stable, 'the sticky title still starts at labelX'
+    assert 'chevron.frame = CGRect(x: labelX + titleWidth + 4' in stable, 'the sticky chevron stays right after the title'
+    checks += 1
+    # Same title text, same font, same colour -> same x for both buckets. The
+    # badge sits AFTER the title, so it cannot move the text edge.
+    def title_text(row):
+        start = row.index('Text(LocalizedStringKey(label))')
+        anchor = row.index('.foregroundStyle(Color(UIColor.secondaryLabel))', start)
+        block = row[start:row.index('\n', anchor)]
+        # Indentation differs by one nesting level in the Recent row; the
+        # modifiers themselves must be identical.
+        return [line.strip() for line in block.splitlines()]
+    assert title_text(pin_row) == title_text(recent_row), 'both bucket titles must be laid out identically'
+    # The badge is the ONLY thing between title and chevron, and it comes after
+    # the title.
+    assert recent_row.index('Text(LocalizedStringKey(label))') < recent_row.index('RecentUnreadBadge(count: unreadCount)')
+    assert recent_row.index('RecentUnreadBadge(count: unreadCount)') < recent_row.index('if folds')
+    checks += 1
+
+    # --- [T-sidebar-recent-unread-badge] counter + 全部已读 -----------------
+    # The number is a COUNT derived from the store every pass (never a stored
+    # counter), it is hidden at zero, and it keeps working while folded.
+    assert 'unreadCount > 0' in recent_row and 'if unreadCount > 0 {' in recent_row
+    assert 'Text(verbatim:' in badge and 'Capsule().fill(Color.red)' in badge, 'a red numeric badge'
+    assert 'unreadCount: recentUnreadCount(group),' in headers, 'the header is fed the live count'
+    assert 'RecentSectionPlanner.unreadCount(ids: group.ids,' in headers
+    assert 'unread: sidebarBadgeStore.unreadSessionIds)' in headers, 'count comes from the real unread set'
+    assert 'sidebarBadgeStore' in headers, 'the store must be the source, not a local counter'
+    # Folded: rows disappear, membership does not — the count is built from
+    # group.ids, which a fold never empties (only FOLDER groups are emptied).
+    assert 'recent.accordionMemberIDs = recentPlan.ids' in grouping
+    assert 'if g.isCollapsed { g.ids = [] }' in grouping, 'only folder groups may drop their ids'
+    checks += 1
+    # "全部已读" uses the EXISTING mark-read primitive only: it removes the
+    # transient `.unread` hint. It must not clear other badge states, delete a
+    # message, or rewrite a session.
+    assert 'markAllRead: { markAllSessionsRead() }' in headers, 'the button runs the mark-read action'
+    assert 'Text("Mark All as Read")' in recent_row, 'the button label is a catalog key'
+    mark = headers[headers.index('func markAllSessionsRead()'):]
+    mark = mark[:mark.index('\n    }')]
+    assert 'sidebarBadgeStore.remove(.unread, for: id)' in mark, 'marking read = remove(.unread)'
+    assert 'clearAll' not in mark, 'marking read must NOT wipe paused/other badge states'
+    for forbidden in ('deleteSession', 'ChatStore', 'deleteMessage', 'updatedAt =', 'setFolder'):
+        assert forbidden not in mark, f'全部已读 must not touch session content ({forbidden})'
+    checks += 1
+    # The button is OUTSIDE the fold tap area: the fold gesture sits on the
+    # leading child, the button is its sibling, so no gesture race can fold the
+    # bucket while the user meant to mark everything read.
+    tap = recent_row[recent_row.index('THE FOLD TAP AREA'):recent_row.index('if let markAllRead')]
+    assert '.onTapGesture { if folds { state.toggle() } }' in tap, 'the fold tap stays on the leading region'
+    assert 'Button(action: markAllRead)' in recent_row, 'the button is a sibling of that region'
+    after_button = recent_row[recent_row.index('if let markAllRead'):]
+    assert '.onTapGesture' not in after_button, 'the button must not carry the fold gesture'
+    assert '.buttonStyle(.plain)' in after_button
     checks += 1
 
     # --- every renderer folds the bucket ------------------------------------
-    assert 'RecentSectionHeaderRow(label: group.label, folds: !isSearching)' in headers
+    assert 'RecentSectionHeaderRow(label: group.label,' in headers
     assert '|| group.label == "Recent"' in headers
     assert session_list.count('RecentBucketRows(active: isRecentBucket(group))') == 2, 'both lists fold Recent'
     assert 'PinnedBucketRows(active: isPinnedBucket(group) && !isSearching)' in session_list
@@ -185,6 +251,31 @@ def source_checks():
     footer_key = footer_literal.group(1)
     assert footer_key in catalog, 'the footer Text literal is not a catalog key'
     assert '超过 4 个' in catalog[footer_key]['localizations']['zh-Hans']['stringUnit']['value']
+    checks += 1
+    for key, zh in (('Mark All as Read', '全部已读'),):
+        assert key in catalog, f'missing catalog key {key!r}'
+        assert catalog[key]['localizations']['zh-Hans']['stringUnit']['value'] == zh
+        assert catalog[key]['localizations']['zh-Hant']['stringUnit']['value'] == '全部已讀'
+        checks += 1
+
+    # --- [T-sidebar-recent-pinned-copy] duplicate identity is contained ------
+    #
+    # One chat in two sections is legitimate now; two rows sharing ONE identity
+    # inside one ForEach is the shape that has crashed this list. Three things
+    # keep them apart, and all three are asserted:
+    #   1. the plain-List select rows carry a SECTION-scoped `.id()`;
+    #   2. the native accordion keys rows by IndexPath (UIKit cells), and its
+    #      label cells are re-rendered from the section's own group;
+    #   3. the DEBUG tracer reports duplicates PER SECTION, not on the
+    #      flattened sequence (which now repeats by design).
+    assert session_list.count(r'.id("select-\(group.id)-\(sessionId)")') == 2, \
+        'both lists must scope their select row ids by section'
+    assert r'.id("select-\(sessionId)")' not in session_list, 'an unscoped row id would collide across sections'
+    tracer = read(SIDEBAR / 'SidebarIdentityTracer.swift')
+    assert 'let duplicatedSections = groups.filter { $0.ids.count != Set($0.ids).count }' in tracer, \
+        'the duplicate check must be per section'
+    assert 'rows.count != newRowSet.count' not in tracer, \
+        'the flattened check now fires on the legitimate pinned copy'
     checks += 1
     print(f'SIDEBAR_RECENT_SOURCE_PASS checks={checks}', flush=True)
     return checks

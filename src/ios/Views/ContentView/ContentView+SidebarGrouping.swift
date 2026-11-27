@@ -129,7 +129,14 @@ extension ContentView {
         // candidates: this runs on every AttributeGraph flush during streaming,
         // so a second full walk of the library is not acceptable here. A
         // candidate is only constructed for a session that can actually enter
-        // the bucket (unpinned AND unread / running / inside the window).
+        // the bucket (unread / running / inside the window).
+        //
+        // [T-sidebar-recent-pinned-copy] PINNED sessions are candidates too:
+        // the official sidebar shows a pinned chat in 最近 as well as in 置顶,
+        // so the pin flag no longer filters here (it used to, which is exactly
+        // the row the user pointed at in the reference screenshot). The pin
+        // still decides where the session sits in its OWN bucket; it no longer
+        // hides it from this copy.
         let recentWindow = RecentSectionPlanner.activityWindow
         var sessionKeys: [SidebarSessionKey] = []
         sessionKeys.reserveCapacity(list.count)
@@ -139,14 +146,14 @@ extension ContentView {
                 id: session.id, updatedAt: session.updatedAt, pinnedAt: session.pinnedAt,
                 isPinned: session.isPinned, folderId: session.folderId,
                 category: session.category, title: session.title))
-            guard recentEnabled, !session.isPinned else { continue }
+            guard recentEnabled else { continue }
             let isUnread = unreadIds.contains(session.id)
             let isRunning = activeIds.contains(session.id)
             if !isUnread, !isRunning, now.timeIntervalSince(session.updatedAt) >= recentWindow {
                 continue
             }
             recentCandidates.append(RecentCandidate(
-                id: session.id, updatedAt: session.updatedAt, isPinned: false,
+                id: session.id, updatedAt: session.updatedAt, isPinned: session.isPinned,
                 isUnread: isUnread, isRunning: isRunning))
         }
         let recentPlan = RecentSectionPlanner.plan(

@@ -382,7 +382,11 @@ final class StablePinnedTitle: ObservableObject {
     private var labelX: CGFloat = 16
     private let surface = UIView()
     private let label = UILabel()
-    private let pin = UIImageView(image: UIImage(systemName: "pin.fill"))
+    /// [T-sidebar-recent-section] No leading glyph on either date-bucket title
+    /// ([T-sidebar-title-glyph-removal]): the sticky copy used to paint the
+    /// pinned bucket's pin symbol in the gutter to mirror the SwiftUI header,
+    /// and it is gone from both, so the handover between the two copies cannot
+    /// show a glyph one of them no longer draws.
     /// [T-pinned-section-collapse] The chevron the SwiftUI header draws for a
     /// date bucket. While the section is expanded the sticky overlay is the
     /// only VISIBLE copy of that header (the SwiftUI one is at opacity 0.001
@@ -398,13 +402,9 @@ final class StablePinnedTitle: ObservableObject {
         label.textColor = .secondaryLabel
         label.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .semibold)
         label.accessibilityTraits = .header
-        pin.tintColor = .secondaryLabel
-        pin.contentMode = .scaleAspectFit
-        pin.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: PinnedTitlePin.glyphPointSize, weight: .semibold)
         chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .scaleAspectFit
-        surface.addSubview(pin); surface.addSubview(label); surface.addSubview(chevron)
+        surface.addSubview(label); surface.addSubview(chevron)
     }
 
     func configure(ids: [String], enabled: Bool) {
@@ -500,16 +500,13 @@ final class StablePinnedTitle: ObservableObject {
         let fontSize = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
         label.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         label.frame = CGRect(x: labelX, y: 0, width: max(0, surface.bounds.width - labelX - 16), height: headerHeight)
-        // [T-pinned-title-pin] The sticky copy must land on exactly the glyph
-        // the SwiftUI header draws, or the title would appear to hop when one
-        // hands over to the other: same 10pt glyph, same 14pt gutter to the
-        // LEFT of `labelX`. `label.frame` above stays untouched — the title's
-        // x is the one thing this overlay may never move.
-        let pinSize = PinnedTitlePin.glyphBox
-        pin.isHidden = false
-        pin.frame = CGRect(x: labelX - PinnedTitlePin.gutter,
-                           y: (headerHeight - pinSize.height) / 2,
-                           width: pinSize.width, height: pinSize.height)
+        // [T-sidebar-title-glyph-removal] The gutter glyph is gone, so the
+        // sticky copy draws NOTHING left of `labelX` any more: both bucket
+        // titles start exactly at the SwiftUI header's text edge, and the
+        // handover between the two copies is a pure cross-fade of the same
+        // title at the same x. `label.frame` above was never touched by the
+        // glyph (it hung outside the layout flow), which is why removing it
+        // moves nothing.
         // [T-pinned-section-collapse] Chevron right after the title, matching
         // the SwiftUI header's 4pt spacing and 11pt glyph.
         let titleWidth = min(label.intrinsicContentSize.width,
@@ -600,30 +597,23 @@ final class RecentSectionState: ObservableObject {
     }
 }
 
-/// [T-pinned-title-pin] Geometry of the pin that marks the "置顶" bucket.
-///
-/// The glyph deliberately lives OUTSIDE the title's layout flow: it hangs in
-/// the row's leading gutter with a negative offset, so the title keeps exactly
-/// the x it has today (and the sticky UIKit copy, which draws the same
-/// relationship from `labelX`, lands on the same pixel). Putting the pin in
-/// the HStack instead would push "置顶" right by glyph + spacing.
-enum PinnedTitlePin {
-    /// Point size of the `pin.fill` glyph — the same weight class as the 11pt
-    /// fold chevron that follows the title.
-    static let glyphPointSize: CGFloat = 10
-    /// Layout box of the glyph: the point size wide (so the 4pt gap to the
-    /// title survives) and 2pt taller, so the symbol's ascender is never
-    /// clipped. Only the overlay/pinned copy uses it — never the title.
-    static let glyphBox = CGSize(width: 10, height: 12)
-    /// Leading gutter the glyph occupies: the box plus the 4pt gap the title
-    /// keeps in front of it. 14pt fits inside the row's 16pt leading inset,
-    /// leaving 2pt of margin at the row's edge.
-    static let gutter: CGFloat = 14
-}
+// [T-sidebar-title-glyph-removal] The leading-glyph geometry block used to live
+// here: a 10pt symbol (a pin, and for 最近 a clock) drawn in a 14pt leading
+// gutter as an out-of-flow overlay. Both date-bucket titles now carry NO
+// leading glyph at all — the user asked for exactly that — so the geometry had
+// no reader left and was deleted with them. The titles' x is unchanged: the
+// glyph was always an overlay at a negative offset, never an HStack member, so
+// nothing about the text's own layout depended on it. What remains of each
+// header row is exactly [title][chevron], plus the Recent bucket's unread
+// counter between them, and the sticky UIKit copy paints the same.
 
-/// The pinned bucket's header row: pin, title, and the chevron that folds the
+/// The pinned bucket's header row: title, and the chevron that folds the
 /// bucket. Its own view so the chevron tracks `PinnedSectionState` without
 /// `ContentView` observing the flag.
+///
+/// [T-sidebar-title-glyph-removal] No leading glyph any more: the pin that used
+/// to hang in the gutter is gone, and the title is still the row's first
+/// element at the same x it always had.
 struct PinnedSectionHeaderRow: View {
     let label: String
     /// False in a result set: the bucket there is the search result list, so
@@ -648,23 +638,6 @@ struct PinnedSectionHeaderRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // [T-pinned-title-pin] Decorative pin, drawn OUT of the layout flow.
-        // `offset(x: -gutter)` hangs the 10pt glyph in the leading gutter
-        // (gutter-10…gutter left of the title), so the title's frame — and
-        // therefore "置顶" itself — does not move by a single point. No HStack
-        // member, no Spacer, nothing that could re-measure the text.
-        .overlay(alignment: .leading) {
-            Image(systemName: "pin.fill")
-                .font(.system(size: PinnedTitlePin.glyphPointSize, weight: .semibold))
-                // Dynamic label colour: identical in light and dark, and the
-                // same token the title's own secondary label uses.
-                .foregroundStyle(Color(UIColor.secondaryLabel))
-                .frame(width: PinnedTitlePin.glyphBox.width,
-                       height: PinnedTitlePin.glyphBox.height)
-                .offset(x: -PinnedTitlePin.gutter)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
         .contentShape(Rectangle())
         .onTapGesture { if folds { state.toggle() } }
         .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
@@ -693,54 +666,106 @@ struct PinnedBucketRows<Rows: View>: View {
     }
 }
 
-/// [T-sidebar-recent-section] The "最近" bucket's header row: a clock with a
-/// return arrow, the title, and the fold chevron. Tap anywhere on the row.
+/// [T-sidebar-recent-unread-badge] The red counter beside the "最近" title —
+/// the official header reads 最近 (1).
 ///
-/// Deliberately a TWIN of `PinnedSectionHeaderRow`:
-///   • the title is the same leading `Text` of the same `HStack(spacing: 4)`,
-///     so "最近" sits on exactly the x "置顶" does — the alignment the user
-///     asked for, guaranteed by construction rather than by eye;
-///   • the clock hangs in the SAME leading gutter as the pin (`PinnedTitlePin`
-///     box + gutter, reused verbatim), so it cannot push the title right and
-///     the two glyphs line up on the same axis;
-///   • same 11pt chevron, same 4pt gap, same 0.25s fold animation.
+/// A COUNT, not a dot: it is the number of unread chats the bucket currently
+/// lists, computed by the caller from `SessionBadgeStore.unreadSessionIds` and
+/// the bucket's own ids (`RecentSectionPlanner.unreadCount`). Nothing here
+/// remembers a number, so opening one chat (the existing mark-read path) or
+/// "全部已读" moves it on the next pass. Zero never reaches this view — the
+/// caller hides it.
+struct RecentUnreadBadge: View {
+    let count: Int
+
+    var body: some View {
+        // `verbatim`: this is a number, not a translatable sentence.
+        Text(verbatim: count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 12, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            // One digit reads as a circle (18pt), three as a pill — the
+            // official shape, and it keeps the header's height at 18pt either
+            // way so a 32pt label slot never grows.
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Capsule().fill(Color.red))
+            // Non-localized on purpose: the visible text is the number, and
+            // the header is announced with it.
+            .accessibilityLabel(Text(verbatim: "\(count) unread"))
+    }
+}
+
+/// [T-sidebar-recent-section] The "最近" bucket's header row: the title, the
+/// unread counter, the fold chevron, and "全部已读" on the right.
+///
+/// [T-sidebar-title-glyph-removal] No leading glyph: the clock that used to
+/// hang in the gutter is gone, and the title is still the row's first element
+/// at the same x — it was never an HStack member, so nothing moved.
+///
+/// Deliberately a TWIN of `PinnedSectionHeaderRow`: same title `Text`, same
+/// `.subheadline.weight(.semibold)`, same 4pt gap, same 11pt chevron, same
+/// 0.25s fold animation — so "最近" and "置顶" share one text edge by
+/// construction rather than by eye.
 struct RecentSectionHeaderRow: View {
     let label: String
+    /// [T-sidebar-recent-unread-badge] Unread chats currently listed in the
+    /// bucket. 0 hides BOTH the badge and "全部已读": there is nothing to mark
+    /// read, and a control that looks live but does nothing is worse than no
+    /// control. Fed from the store every pass — this view owns no counter.
+    var unreadCount: Int = 0
     /// False in a result set (see `PinnedSectionHeaderRow.folds`).
     var folds: Bool = true
+    /// "全部已读". Optional so a caller with nothing to clear (and the UIKit
+    /// fixture) renders the header without the button.
+    var markAllRead: (() -> Void)? = nil
     @ObservedObject private var state = RecentSectionState.shared
 
     var body: some View {
         HStack(spacing: 4) {
-            // Bucket labels are English keys; localize at display only.
-            Text(LocalizedStringKey(label))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(UIColor.secondaryLabel))
-            if folds {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(UIColor.tertiaryLabel))
-                    .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+            // THE FOLD TAP AREA: title + badge + chevron, stretched over all
+            // the width left of the button. The tap lives on this CHILD rather
+            // than on the whole row precisely so it cannot overlap "全部已读":
+            // the button is a SIBLING, not something inside the tappable
+            // region, so neither control has to win a gesture race.
+            HStack(spacing: 4) {
+                // Bucket labels are English keys; localize at display only.
+                Text(LocalizedStringKey(label))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                if unreadCount > 0 {
+                    RecentUnreadBadge(count: unreadCount)
+                }
+                if folds {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { if folds { state.toggle() } }
+
+            if let markAllRead, unreadCount > 0 {
+                Button(action: markAllRead) {
+                    Text("Mark All as Read")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                        // NO vertical padding on purpose: the row's height must
+                        // stay the title's own (~20pt), or "最近" would be a
+                        // few points taller than "置顶" everywhere the header is
+                        // laid out by content (the iPad split list) instead of
+                        // by the accordion's fixed 32pt slot. `contentShape`
+                        // still makes the whole word tappable.
+                        .padding(.leading, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Mark All as Read"))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // The clock rides OUT of the layout flow exactly like the pin: same
-        // box, same gutter, same 10pt semibold weight and secondary colour, so
-        // the two bucket titles keep one shared text edge.
-        // `clock.arrow.circlepath` is SF Symbols 2 (iOS 14) and is already
-        // shipped in eight places in this app, so the iOS 16 floor covers it.
-        .overlay(alignment: .leading) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: PinnedTitlePin.glyphPointSize, weight: .semibold))
-                .foregroundStyle(Color(UIColor.secondaryLabel))
-                .frame(width: PinnedTitlePin.glyphBox.width,
-                       height: PinnedTitlePin.glyphBox.height)
-                .offset(x: -PinnedTitlePin.gutter)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { if folds { state.toggle() } }
         .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
         .textCase(nil)
         .accessibilityAddTraits(folds ? .isButton : [])

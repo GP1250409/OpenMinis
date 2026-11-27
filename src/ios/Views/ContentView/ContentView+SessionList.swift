@@ -273,7 +273,13 @@ extension ContentView {
                     if isSelecting {
                         ForEach(group.ids, id: \.self) { sessionId in
                             selectableRow(sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId))
-                                .id("select-\(sessionId)")
+                                // [T-sidebar-recent-pinned-copy] SECTION-scoped
+                                // id: a pinned chat now legitimately sits in
+                                // both 最近 and 置顶, and two rows carrying the
+                                // same explicit id inside one List is exactly
+                                // the duplicate-identity shape this file's
+                                // ForEach guards exist for.
+                                .id("select-\(group.id)-\(sessionId)")
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
@@ -414,7 +420,10 @@ extension ContentView {
                     if isSelecting {
                         ForEach(group.ids, id: \.self) { sessionId in
                             selectableRow(sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId))
-                                .id("select-\(sessionId)")
+                                // [T-sidebar-recent-pinned-copy] Section-scoped
+                                // id — see the compact list above: the same
+                                // session can appear in 最近 AND 置顶 now.
+                                .id("select-\(group.id)-\(sessionId)")
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {

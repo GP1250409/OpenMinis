@@ -92631,6 +92631,28 @@
         }
       }
     },
+    "Mark All as Read" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark All as Read"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部已读"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部已讀"
+          }
+        }
+      }
+    },
     "Show Recent Section" : {
       "localizations" : {
         "en" : {
