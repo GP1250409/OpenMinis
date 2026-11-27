@@ -290,7 +290,13 @@ extension ContentView {
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
                     if group.folderId == nil || isSelecting {
-                        if group.label == "Pinned", !isSelecting, !isSearching {
+                        // [T-pinned-section-collapse] The sticky UIKit title
+                        // only exists while the section is EXPANDED: it needs
+                        // first/last member probes, and a collapsed bucket has
+                        // no members. Folded, the real SwiftUI header is drawn
+                        // instead — that is the row carrying the right-pointing
+                        // chevron and the tap that unfolds again.
+                        if group.label == "Pinned", !isSelecting, !isSearching, !pinnedCollapseActive {
                             sectionHeader(index: index, group: group)
                                 .opacity(0.001)
                                 .accessibilityHidden(true)

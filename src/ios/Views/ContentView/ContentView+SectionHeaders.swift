@@ -70,8 +70,14 @@ extension ContentView {
             }
             .buttonStyle(.plain)
         } else if index > 0 || group.label == "Pinned" {
+            // [T-pinned-section-collapse] The pinned bucket is the only date
+            // header that folds, so it also carries the chevron and the tap.
+            // It stays a header (not a card) on purpose: official Minis shows
+            // one flat row — pin, title, chevron — and a card there would put
+            // a container around a bucket that is not a folder.
+            let isPinnedHeader = group.label == "Pinned" && group.folderId == nil
             HStack(spacing: 4) {
-                if group.label == "Pinned" {
+                if isPinnedHeader {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(Color(UIColor.secondaryLabel))
@@ -81,8 +87,32 @@ extension ContentView {
                 Text(LocalizedStringKey(group.label))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color(UIColor.secondaryLabel))
+                if isPinnedHeader {
+                    // Same chevron language as the folder cards: down when the
+                    // members are shown, pointing right once they are folded.
+                    // Reads the SOURCE OF TRUTH (`pinnedCollapseActive`) rather
+                    // than `group.isCollapsed`: the native accordion rewrites
+                    // that field on every cell during a FOLDER's fold animation
+                    // (link != nil), which would flip this chevron for the
+                    // duration of somebody else's collapse.
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .rotationEffect(.degrees(pinnedCollapseActive ? -90 : 0))
+                }
             }
             .textCase(nil)
+            // Expand the tap target to the full row width for the pinned
+            // header only — the blank space right of the chevron belongs to
+            // this affordance. Other date buckets keep their content-sized
+            // frame so their drag-highlight rectangles do not change.
+            .frame(maxWidth: isPinnedHeader ? .infinity : nil, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if isPinnedHeader { togglePinnedSectionCollapsed() }
+            }
+            .animation(.easeInOut(duration: 0.25), value: pinnedCollapseActive)
+            .accessibilityAddTraits(isPinnedHeader ? .isButton : [])
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(dropTargetFolderId == "" ? Color.accentColor.opacity(0.18) : Color.clear)

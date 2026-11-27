@@ -209,6 +209,12 @@ struct ContentView: View {
     /// noise, not signal).
     @State var collapsedFolderIds: Set<String> =
         Set(UserDefaults.standard.stringArray(forKey: "collapsedFolderIds") ?? [])
+    /// Pinned section collapsed (the "置顶" header folds its member rows away).
+    /// Same rule as folders: pure UI view-state, persisted locally, never
+    /// synced. Kept OUT of `collapsedFolderIds` because the pinned bucket has
+    /// no folder id and must not be swept by the folder accordion's
+    /// "opening one folder closes the rest" pass.
+    @AppStorage("pinnedSectionCollapsed") var pinnedSectionCollapsed = false
     /// Folder ids whose EXPANDED header card is currently scrolled out above
     /// the list's visible top — drives the floating mini-bar. A Set (not a
     /// single id) because "expanded" is the DEFAULT folder state: before the

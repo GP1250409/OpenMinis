@@ -93,6 +93,16 @@ extension ContentView {
     /// in this single pass, and never in the header's body: the header is a
     /// high-frequency recompute path, and deriving "any member active" there
     /// would cost O(members) × folders × every AttributeGraph re-eval.
+    /// Whether the pinned bucket is hiding its rows right now. The saved
+    /// toggle, EXCEPT during multi-select (the header's select-all acts on
+    /// `group.ids`, so an empty list would make it a no-op) and in search
+    /// results (the bucket then is a result set — collapsing it would hide
+    /// exactly the rows that matched). The saved value is never overwritten,
+    /// so leaving either mode restores what the user chose.
+    var pinnedCollapseActive: Bool {
+        pinnedSectionCollapsed && !isSelecting && !searchResultsActive
+    }
+
     func groupedSessionIDs(_ list: [ChatSession]) -> [SidebarGroup] {
         // Build the store snapshots ONCE per evaluation (each is O(its own
         // small population), replacing per-member store entry + per-member
@@ -122,6 +132,7 @@ extension ContentView {
             },
             folders: folders,
             collapsedFolderIds: collapsedFolderIds,
+            pinnedSectionCollapsed: pinnedCollapseActive,
             pendingDraftId: pendingFolderDraft?.draftId,
             pendingDraftFolderId: pendingFolderDraft?.folderId,
             isSearching: isSearching,
@@ -330,9 +341,33 @@ extension ContentView {
         // would push cross-bucket decisions into groupedSessions, a function
         // already implicated in [T-ios-session-list-equatable-jank].
         if let first = dateGroups.first, first.label == "Pinned" {
-            return [first] + folderGroups + dateGroups.dropFirst()
+            // [T-pinned-section-collapse] Mirror the folder cards: the header
+            // stays, the rows go. `totalCount` keeps the real count so the
+            // header (and any future subtitle) can still say how much is
+            // folded away, and `ids` empties because both list renderers —
+            // the SwiftUI List and the native accordion — build rows from it.
+            var pinnedGroup = first
+            pinnedGroup.totalCount = first.ids.count
+            pinnedGroup.isCollapsed = pinnedCollapseActive
+            if pinnedCollapseActive { pinnedGroup.ids = [] }
+            return [pinnedGroup] + folderGroups + dateGroups.dropFirst()
         }
         return folderGroups + dateGroups
+    }
+
+    /// Toggle the pinned section's fold state (the "置顶" header).
+    ///
+    /// Unlike folders this is a FREE toggle: the pinned bucket is not part of
+    /// the folder accordion, so nothing else opens or closes with it. No
+    /// scroll anchoring either — the header the user tapped does not move,
+    /// and the rows being removed are all BELOW it.
+    func togglePinnedSectionCollapsed() {
+        // Search results ignore the saved state (the bucket is a result set
+        // there), so flipping it would only surprise the user afterwards.
+        guard !searchResultsActive else { return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            pinnedSectionCollapsed.toggle()
+        }
     }
 
     /// Toggle a folder section collapsed/expanded and persist the set.

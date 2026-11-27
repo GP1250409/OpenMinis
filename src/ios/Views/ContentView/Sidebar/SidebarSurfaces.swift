@@ -383,6 +383,13 @@ final class StablePinnedTitle: ObservableObject {
     private let surface = UIView()
     private let label = UILabel()
     private let pin = UIImageView(image: UIImage(systemName: "pin.fill"))
+    /// [T-pinned-section-collapse] The chevron the SwiftUI header draws for a
+    /// date bucket. While the section is expanded the sticky overlay is the
+    /// only VISIBLE copy of that header (the SwiftUI one is at opacity 0.001
+    /// for the probe), so the chevron has to be painted here too or the
+    /// expand affordance would disappear exactly when it is needed.
+    private let chevron = UIImageView(image: UIImage(systemName: "chevron.down"))
+    private var chevronAngle: CGFloat = 0
     private var queued = false
 
     init() {
@@ -393,7 +400,9 @@ final class StablePinnedTitle: ObservableObject {
         label.accessibilityTraits = .header
         pin.tintColor = .secondaryLabel
         pin.contentMode = .scaleAspectFit
-        surface.addSubview(pin); surface.addSubview(label)
+        chevron.tintColor = .tertiaryLabel
+        chevron.contentMode = .scaleAspectFit
+        surface.addSubview(pin); surface.addSubview(label); surface.addSubview(chevron)
     }
 
     func configure(ids: [String], enabled: Bool) {
@@ -486,6 +495,15 @@ final class StablePinnedTitle: ObservableObject {
         label.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         pin.frame = CGRect(x: labelX, y: (headerHeight - 10) / 2, width: 10, height: 10)
         label.frame = CGRect(x: labelX + 14, y: 0, width: max(0, surface.bounds.width - labelX - 30), height: headerHeight)
+        // [T-pinned-section-collapse] Chevron right after the title, matching
+        // the SwiftUI header's 4pt spacing and 11pt glyph.
+        let titleWidth = min(label.intrinsicContentSize.width,
+                             max(0, surface.bounds.width - labelX - 44))
+        let chevronSize: CGFloat = 11
+        chevron.frame = CGRect(x: labelX + 14 + titleWidth + 4,
+                               y: (headerHeight - chevronSize) / 2,
+                               width: chevronSize, height: chevronSize)
+        chevron.transform = CGAffineTransform(rotationAngle: chevronAngle)
         // Keep the title in front of newly inserted rows; scrollView still
         // receives all taps and drops through this noninteractive surface.
         scroll.bringSubviewToFront(surface)
