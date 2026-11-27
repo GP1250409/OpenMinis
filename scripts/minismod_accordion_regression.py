@@ -23,6 +23,22 @@ paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('
 # (in the stable pinned-title section of the file). Include the state and its
 # two leaf views explicitly so the shipped accordion still compiles verbatim.
 paint+=surfaces[surfaces.index('/// [T-pinned-section-collapse] Fold state'):surfaces.index('struct PinnedBoundaryProbe: UIViewRepresentable')]
+# [T-pinned-title-pin] The pin marks the pinned bucket WITHOUT moving its
+# title: it hangs in the row's leading gutter (a leading overlay with a
+# negative offset), so "置顶" keeps the exact x this branch aligned it to.
+# Joining the title's HStack instead would shift the text right by
+# glyph + spacing, which is precisely the regression this contract forbids.
+pin_row=surfaces[surfaces.index('struct PinnedSectionHeaderRow: View {'):surfaces.index('/// Rows of the pinned bucket for the plain-List paths')]
+pin_hstack=pin_row[pin_row.index('HStack(spacing: 4) {'):pin_row.index('.frame(maxWidth: .infinity, alignment: .leading)')]
+assert 'pin.fill' not in pin_hstack,'pin must not be an HStack member (it would move the pinned title)'
+assert pin_hstack.index('Text(LocalizedStringKey(label))') < pin_hstack.index('Image(systemName: "chevron.down")'),'title stays the leading element of the row'
+assert '.overlay(alignment: .leading) {' in pin_row,'pin must be drawn as a leading overlay'
+assert '.offset(x: -PinnedTitlePin.gutter)' in pin_row,'pin must hang LEFT of the title'
+stable=surfaces[surfaces.index('final class StablePinnedTitle'):surfaces.index('/// [T-pinned-section-collapse] Fold state')]
+assert 'label.frame = CGRect(x: labelX' in stable,'sticky title must keep x == labelX'
+assert 'pin.frame = CGRect(x: labelX - PinnedTitlePin.gutter' in stable,'sticky pin must mirror the SwiftUI gutter'
+assert 'pin.isHidden = true' not in stable,'the sticky copy now draws the pin in both fold states'
+print('PINNED_TITLE_PIN_OK gutter=%s' % 14)
 paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
 # Compile the complete production SessionRow, not a replacement Text fixture.
 # Only application services/models are doubled in RowClippingTests.swift.

@@ -400,6 +400,8 @@ final class StablePinnedTitle: ObservableObject {
         label.accessibilityTraits = .header
         pin.tintColor = .secondaryLabel
         pin.contentMode = .scaleAspectFit
+        pin.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: PinnedTitlePin.glyphPointSize, weight: .semibold)
         chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .scaleAspectFit
         surface.addSubview(pin); surface.addSubview(label); surface.addSubview(chevron)
@@ -497,8 +499,17 @@ final class StablePinnedTitle: ObservableObject {
         label.text = AppLocalized("Pinned")
         let fontSize = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
         label.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        pin.isHidden = true
         label.frame = CGRect(x: labelX, y: 0, width: max(0, surface.bounds.width - labelX - 16), height: headerHeight)
+        // [T-pinned-title-pin] The sticky copy must land on exactly the glyph
+        // the SwiftUI header draws, or the title would appear to hop when one
+        // hands over to the other: same 10pt glyph, same 14pt gutter to the
+        // LEFT of `labelX`. `label.frame` above stays untouched — the title's
+        // x is the one thing this overlay may never move.
+        let pinSize = PinnedTitlePin.glyphBox
+        pin.isHidden = false
+        pin.frame = CGRect(x: labelX - PinnedTitlePin.gutter,
+                           y: (headerHeight - pinSize.height) / 2,
+                           width: pinSize.width, height: pinSize.height)
         // [T-pinned-section-collapse] Chevron right after the title, matching
         // the SwiftUI header's 4pt spacing and 11pt glyph.
         let titleWidth = min(label.intrinsicContentSize.width,
@@ -556,6 +567,27 @@ final class PinnedSectionState: ObservableObject {
     }
 }
 
+/// [T-pinned-title-pin] Geometry of the pin that marks the "置顶" bucket.
+///
+/// The glyph deliberately lives OUTSIDE the title's layout flow: it hangs in
+/// the row's leading gutter with a negative offset, so the title keeps exactly
+/// the x it has today (and the sticky UIKit copy, which draws the same
+/// relationship from `labelX`, lands on the same pixel). Putting the pin in
+/// the HStack instead would push "置顶" right by glyph + spacing.
+enum PinnedTitlePin {
+    /// Point size of the `pin.fill` glyph — the same weight class as the 11pt
+    /// fold chevron that follows the title.
+    static let glyphPointSize: CGFloat = 10
+    /// Layout box of the glyph: the point size wide (so the 4pt gap to the
+    /// title survives) and 2pt taller, so the symbol's ascender is never
+    /// clipped. Only the overlay/pinned copy uses it — never the title.
+    static let glyphBox = CGSize(width: 10, height: 12)
+    /// Leading gutter the glyph occupies: the box plus the 4pt gap the title
+    /// keeps in front of it. 14pt fits inside the row's 16pt leading inset,
+    /// leaving 2pt of margin at the row's edge.
+    static let gutter: CGFloat = 14
+}
+
 /// The pinned bucket's header row: pin, title, and the chevron that folds the
 /// bucket. Its own view so the chevron tracks `PinnedSectionState` without
 /// `ContentView` observing the flag.
@@ -583,6 +615,23 @@ struct PinnedSectionHeaderRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // [T-pinned-title-pin] Decorative pin, drawn OUT of the layout flow.
+        // `offset(x: -gutter)` hangs the 10pt glyph in the leading gutter
+        // (gutter-10…gutter left of the title), so the title's frame — and
+        // therefore "置顶" itself — does not move by a single point. No HStack
+        // member, no Spacer, nothing that could re-measure the text.
+        .overlay(alignment: .leading) {
+            Image(systemName: "pin.fill")
+                .font(.system(size: PinnedTitlePin.glyphPointSize, weight: .semibold))
+                // Dynamic label colour: identical in light and dark, and the
+                // same token the title's own secondary label uses.
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+                .frame(width: PinnedTitlePin.glyphBox.width,
+                       height: PinnedTitlePin.glyphBox.height)
+                .offset(x: -PinnedTitlePin.gutter)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .contentShape(Rectangle())
         .onTapGesture { if folds { state.toggle() } }
         .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
