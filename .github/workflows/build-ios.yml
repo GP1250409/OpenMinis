@@ -351,7 +351,15 @@ jobs:
               "url": run_url,
               "group": "Minis-mod CI",
           }).encode("utf-8")
-          req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json; charset=utf-8"}, method="POST")
+          req = urllib.request.Request(
+              url,
+              data=payload,
+              headers={
+                  "Content-Type": "application/json; charset=utf-8",
+                  "User-Agent": "curl/8.7.1",
+              },
+              method="POST",
+          )
           try:
               with urllib.request.urlopen(req, timeout=15) as resp:
                   print(f"Bark notified: HTTP {resp.status}")
