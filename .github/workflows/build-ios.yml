@@ -128,6 +128,9 @@ jobs:
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
           python3 scripts/minismod_accordion_regression.py 2>&1 | tee accordion-regression.log
+          # [T-sidebar-recent-section] Shipping membership/gate rule compiled and
+          # run (Linux + macOS) plus the wiring contracts of the 最近 bucket.
+          python3 scripts/sidebar_recent_regression.py 2>&1 | tee sidebar-recent-regression.log
           python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
       - name: Thinking & list transaction regression tests
         if: steps.scope.outputs.run_thinking_uikit == 'true'
@@ -307,6 +310,9 @@ jobs:
             build/card-dark/*.log
             build/card-dark/ProductionRenderer.swift
             mod-regression.log
+            sidebar-recent-regression.log
+            build/sidebar-recent/results.log
+            build/sidebar-recent/ProductionRecentPlanner.swift
             genui-height-regression.log
             chart-layout-regression.log
             chart-render-regression.log

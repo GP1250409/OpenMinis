@@ -113,13 +113,46 @@ extension ContentView {
         // [T-ios-listsessions-perf] Same set the rows need; publish it so each
         // row is an O(1) lookup instead of two per-row tracker queries.
         noteRunningSessionIds(activeIds)
+        // [T-sidebar-recent-section] The Recent bucket's membership, planned
+        // BEFORE the memo check, because its result is part of the key: that is
+        // what makes the bucket react to a badge flip, a loop starting, a read
+        // chat crossing the 1-hour window and the 3-5-10 cap, without inventing
+        // a timer. `now` is shared with the day stamp below.
+        //
+        // OFF in a search result set: the list already IS the answer, and a
+        // duplicate block on top of it would be noise (same rule as the folded
+        // chevron there). Multi-select keeps the bucket — its rows are still
+        // rows to select.
+        let recentEnabled = RecentSectionSettings.isEnabled && !isSearching
+        let now = Date()
+        // ONE pass builds both the memo key's session projection and the Recent
+        // candidates: this runs on every AttributeGraph flush during streaming,
+        // so a second full walk of the library is not acceptable here. A
+        // candidate is only constructed for a session that can actually enter
+        // the bucket (unpinned AND unread / running / inside the window).
+        let recentWindow = RecentSectionPlanner.activityWindow
+        var sessionKeys: [SidebarSessionKey] = []
+        sessionKeys.reserveCapacity(list.count)
+        var recentCandidates: [RecentCandidate] = []
+        for session in list {
+            sessionKeys.append(SidebarSessionKey(
+                id: session.id, updatedAt: session.updatedAt, pinnedAt: session.pinnedAt,
+                isPinned: session.isPinned, folderId: session.folderId,
+                category: session.category, title: session.title))
+            guard recentEnabled, !session.isPinned else { continue }
+            let isUnread = unreadIds.contains(session.id)
+            let isRunning = activeIds.contains(session.id)
+            if !isUnread, !isRunning, now.timeIntervalSince(session.updatedAt) >= recentWindow {
+                continue
+            }
+            recentCandidates.append(RecentCandidate(
+                id: session.id, updatedAt: session.updatedAt, isPinned: false,
+                isUnread: isUnread, isRunning: isRunning))
+        }
+        let recentPlan = RecentSectionPlanner.plan(
+            candidates: recentCandidates, limit: RecentSectionSettings.limit, now: now)
         let key = SidebarGroupsMemoKey(
-            sessions: list.map {
-                SidebarSessionKey(
-                    id: $0.id, updatedAt: $0.updatedAt, pinnedAt: $0.pinnedAt,
-                    isPinned: $0.isPinned, folderId: $0.folderId,
-                    category: $0.category, title: $0.title)
-            },
+            sessions: sessionKeys,
             folders: folders,
             collapsedFolderIds: collapsedFolderIds,
             pendingDraftId: pendingFolderDraft?.draftId,
@@ -131,12 +164,15 @@ extension ContentView {
             unreadIds: unreadIds,
             freshCornerIds: freshCornerIds,
             activeIds: activeIds,
-            dayStamp: Calendar.current.startOfDay(for: Date()))
+            dayStamp: Calendar.current.startOfDay(for: now),
+            recentPlan: recentPlan,
+            recentEnabled: recentEnabled)
         if sidebarGroupsMemo.key == key {
             return sidebarGroupsMemo.groups
         }
         let groups = computeGroupedSessionIDs(
-            list, unreadIds: unreadIds, freshCornerIds: freshCornerIds, activeIds: activeIds)
+            list, unreadIds: unreadIds, freshCornerIds: freshCornerIds, activeIds: activeIds,
+            recentPlan: recentPlan, recentEnabled: recentEnabled)
         sidebarGroupsMemo.key = key
         sidebarGroupsMemo.groups = groups
         #if DEBUG
@@ -174,7 +210,9 @@ extension ContentView {
         _ list: [ChatSession],
         unreadIds: Set<String>,
         freshCornerIds: Set<String>,
-        activeIds: Set<String>
+        activeIds: Set<String>,
+        recentPlan: RecentPlan,
+        recentEnabled: Bool
     ) -> [SidebarGroup] {
         let folderById = Dictionary(folders.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -329,10 +367,32 @@ extension ContentView {
         // folders mixed into the date buckets — chosen because interleaving
         // would push cross-bucket decisions into groupedSessions, a function
         // already implicated in [T-ios-session-list-equatable-jank].
+        var assembled: [SidebarGroup] = folderGroups + dateGroups
         if let first = dateGroups.first, first.label == "Pinned" {
-            return [first] + folderGroups + dateGroups.dropFirst()
+            assembled = [first] + folderGroups + dateGroups.dropFirst()
         }
-        return folderGroups + dateGroups
+        // [T-sidebar-recent-section] "最近" opens the list, above "置顶" — the
+        // official order. Its rows are DUPLICATES that stay in their own bucket
+        // below ("同时保留在原来的位置"), so this section is the only place in
+        // the sidebar where one session id appears twice; every consumer keys
+        // rows per section, not globally.
+        //
+        // Gated exactly like the official setting says: pinned CONVERSATIONS
+        // plus GROUPS must together exceed four, otherwise a short list does not
+        // need a shortcut to its own top. An empty plan hides it too — a header
+        // with nothing under it would be worse than no header.
+        if recentEnabled, !recentPlan.isEmpty {
+            let pinnedCount = assembled
+                .first(where: { $0.folderId == nil && $0.label == "Pinned" })?.ids.count ?? 0
+            if RecentSectionPlanner.isVisible(pinnedCount: pinnedCount,
+                                              groupCount: folderGroups.count) {
+                var recent = SidebarGroup(label: "Recent", ids: recentPlan.ids)
+                recent.dimmedIds = recentPlan.dimmedIds
+                recent.accordionMemberIDs = recentPlan.ids
+                assembled.insert(recent, at: 0)
+            }
+        }
+        return assembled
     }
 
     /// Toggle a folder section collapsed/expanded and persist the set.

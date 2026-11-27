@@ -13,7 +13,12 @@ extension ContentView {
         let items: [AccordionRenderSection] = groups.enumerated().map { index, group in
             let folder = group.folderId != nil
             let members = folder ? group.accordionMemberIDs : group.ids
-            let hasLabel = folder ? group.showsGroupsHeader : (index > 0 || group.label == "Pinned")
+            let hasLabel = folder ? group.showsGroupsHeader
+                // [T-sidebar-recent-section] Both labelled date buckets keep
+                // their 32pt label slot even when they are the first section —
+                // Recent is always index 0, and a zero-height label would drop
+                // its clock/title/chevron row entirely.
+                : (index > 0 || group.label == "Pinned" || group.label == "Recent")
             return AccordionRenderSection(group: group, members: members,
                 geometry: AccordionSectionGeometry(id: group.id, folderID: group.folderId,
                     count: members.count, rowHeight: rowHeight,
@@ -68,7 +73,11 @@ extension ContentView {
             return AnyView(
                 // The row paints its own background (inside the context-menu
                 // preview); nothing is added around it here.
+                // [T-sidebar-recent-section] A read-but-recent Recent row is
+                // drawn dim; every other bucket's group has an EMPTY dimmedIds
+                // set, so this is opacity 1 there.
                 stackRow(id, group: group)
+                    .opacity(group.isDimmed(id) ? RecentSectionPlanner.dimOpacity : 1)
             )
         }
     }

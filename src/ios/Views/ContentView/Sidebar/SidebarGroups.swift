@@ -129,6 +129,14 @@ struct SidebarGroup: Equatable, Identifiable {
     /// [T-search-folder-pages] Matches of a search-expanded folder not yet
     /// shown; > 0 renders the "Show more" row below `ids`.
     var hiddenMatchCount = 0
+    /// [T-sidebar-recent-section] Members the Recent bucket shows DIM: already
+    /// read, but still inside its one-hour activity window. Empty for every
+    /// other bucket, so no other section pays for the lookup.
+    var dimmedIds: Set<String> = []
+
+    /// [T-sidebar-recent-section] Row opacity for a dimmed Recent member.
+    /// A separate member so the two row builders (and their tests) agree.
+    func isDimmed(_ id: String) -> Bool { !dimmedIds.isEmpty && dimmedIds.contains(id) }
 
     /// The member row that closes the folder card (bottom segment). With a
     /// "Show more" row below, that row closes it instead.
@@ -178,6 +186,16 @@ struct SidebarGroupsMemoKey: Equatable {
     let freshCornerIds: Set<String>
     let activeIds: Set<String>
     let dayStamp: Date
+    /// [T-sidebar-recent-section] The planned Recent membership. IN the key on
+    /// purpose: the bucket's rows are a copy of sessions that also live in
+    /// another bucket, so a change here changes what the list shows even when
+    /// no session/folder value did (a read chat crossing the 1-hour window, a
+    /// switch being flipped, the 3/5/10 cap moving).
+    let recentPlan: RecentPlan
+    /// Settings switch + the search gate. Folded into the key so flipping the
+    /// toggle rebuilds the list on the next pass instead of waiting for an
+    /// unrelated session edit.
+    let recentEnabled: Bool
 }
 
 /// Reference-type memo box held in @State: mutating its contents during a
@@ -190,3 +208,135 @@ final class SidebarGroupsMemo {
     var key: SidebarGroupsMemoKey?
     var groups: [SidebarGroup] = []
 }
+
+// MARK: - [T-sidebar-recent-section] Recent bucket membership
+//
+// The official sidebar opens with a "最近" bucket above "置顶": unread,
+// running and recently active conversations in one place at the top, while
+// each of them STAYS in its own bucket below. This is the whole rule, kept as
+// a pure function over the fields the sidebar already publishes (pin flag,
+// unread badge, running set, `updatedAt`) — no new model field, no second
+// source of truth, and drivable from a test without the app.
+//
+// BEGIN sidebar-recent-planner
+/// One conversation as the Recent bucket sees it. Deliberately a value type
+/// with no `ChatSession`: the planning rule must stay testable on its own.
+struct RecentCandidate: Equatable {
+    let id: String
+    let updatedAt: Date
+    let isPinned: Bool
+    let isUnread: Bool
+    let isRunning: Bool
+}
+
+/// What the Recent bucket shows this pass: the capped, ordered member ids and
+/// the subset that is DIM (read, still inside the activity window).
+struct RecentPlan: Equatable {
+    var ids: [String] = []
+    var dimmedIds: Set<String> = []
+    var isEmpty: Bool { ids.isEmpty }
+}
+
+/// "最近" bucket membership + the visibility gate. Pure, side-effect free.
+enum RecentSectionPlanner {
+    /// "最近 1 小时内活跃过": the read-but-recent window, and the point at which
+    /// an already-read conversation LEAVES the bucket (official: 已读的对话会变暗
+    /// 留在那里，直到最后一次活跃的 1 小时后).
+    static let activityWindow: TimeInterval = 3600
+    /// "只有置顶对话和分组合计超过 4 个时才会显示这个分区" — 4 is still hidden,
+    /// 5 shows it.
+    static let minimumPinnedAndGroups = 5
+    /// 3 / 5 / 10, default 5 (settings › Grouping › 最近分区条数).
+    static let limitChoices = [3, 5, 10]
+    static let defaultLimit = 5
+    /// Opacity of a read-but-recent row: still readable, visibly quieter than
+    /// an unread/running one.
+    static let dimOpacity: Double = 0.55
+
+    /// Why a candidate is in the bucket. The raw order IS the display order:
+    /// running first, then unread, then read-but-recent.
+    enum Rank: Int {
+        case running = 0
+        case unread = 1
+        case recent = 2
+    }
+
+    /// nil = not in the bucket.
+    ///
+    /// Pinned conversations are excluded on purpose: they already sit in the
+    /// "置顶" bucket directly below this one, so listing them again would show
+    /// the same row twice within the top few lines. Unread and running
+    /// conversations never age out; a read one ages out after `window`.
+    static func rank(_ candidate: RecentCandidate, now: Date,
+                     window: TimeInterval = activityWindow) -> Rank? {
+        if candidate.isPinned { return nil }
+        if candidate.isRunning { return .running }
+        if candidate.isUnread { return .unread }
+        return now.timeIntervalSince(candidate.updatedAt) < window ? .recent : nil
+    }
+
+    /// "置顶对话和分组合计超过 4 个" — pinned CONVERSATIONS plus GROUPS.
+    static func isVisible(pinnedCount: Int, groupCount: Int) -> Bool {
+        pinnedCount + groupCount >= minimumPinnedAndGroups
+    }
+
+    /// Ordered: running (newest first), unread (newest first), read-recent
+    /// (newest first), capped to `limit`. Ties break on id so the order is
+    /// deterministic (a wobbly order would churn the ForEach identities).
+    static func plan(candidates: [RecentCandidate], limit: Int, now: Date,
+                     window: TimeInterval = activityWindow) -> RecentPlan {
+        let cap = limit > 0 ? limit : defaultLimit
+        var ranked: [(rank: Rank, candidate: RecentCandidate)] = []
+        ranked.reserveCapacity(min(candidates.count, cap * 2))
+        for candidate in candidates {
+            if let rank = rank(candidate, now: now, window: window) {
+                ranked.append((rank, candidate))
+            }
+        }
+        // Only the top `cap` matter; sorting the whole candidate set keeps the
+        // comparator simple and the sets here are the unread/running/recent
+        // few, never the whole library.
+        ranked.sort { a, b in
+            if a.rank != b.rank { return a.rank.rawValue < b.rank.rawValue }
+            if a.candidate.updatedAt != b.candidate.updatedAt {
+                return a.candidate.updatedAt > b.candidate.updatedAt
+            }
+            return a.candidate.id < b.candidate.id
+        }
+        var plan = RecentPlan()
+        plan.ids.reserveCapacity(min(ranked.count, cap))
+        for entry in ranked.prefix(cap) {
+            plan.ids.append(entry.candidate.id)
+            if entry.rank == .recent { plan.dimmedIds.insert(entry.candidate.id) }
+        }
+        return plan
+    }
+}
+
+/// UserDefaults switches of the Recent bucket. Read straight from
+/// `UserDefaults` (not @AppStorage) for the same reason `autoGroupingEnabled`
+/// is: the value is consumed outside SwiftUI's view tree, in the grouping
+/// pass, and a plain defaults read is the single source of truth there.
+///
+/// Keys are duplicated as literals in AppearanceSettingsView (which compiles
+/// standalone in the settings harness) — `scripts/sidebar_recent_regression.py`
+/// asserts the two spellings agree.
+enum RecentSectionSettings {
+    static let enabledKey = "sidebarRecentSectionEnabled"
+    static let limitKey = "sidebarRecentSectionCount"
+
+    /// ON by default: it only ever duplicates rows the user already has, and
+    /// the visibility gate keeps it away from short lists.
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
+    }
+
+    /// A stored value outside 3/5/10 (older build, manual defaults edit) falls
+    /// back to 5 instead of an unbounded list.
+    static var limit: Int {
+        let stored = UserDefaults.standard.integer(forKey: limitKey)
+        return RecentSectionPlanner.limitChoices.contains(stored)
+            ? stored : RecentSectionPlanner.defaultLimit
+    }
+}
+// END sidebar-recent-planner

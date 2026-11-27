@@ -112,6 +112,11 @@ extension ContentView {
         group.folderId == nil && group.label == "Pinned"
     }
 
+    /// [T-sidebar-recent-section] The Recent bucket folds like the pinned one.
+    private func isRecentBucket(_ group: SidebarGroup) -> Bool {
+        group.folderId == nil && group.label == "Recent"
+    }
+
     func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {
         let session = sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId)
         return SessionStackRow(
@@ -275,21 +280,30 @@ extension ContentView {
                         // [T-pinned-section-collapse] Folded pinned bucket:
                         // the rows really are gone in a plain List (unlike the
                         // accordion, which animates their height to zero).
-                        PinnedBucketRows(active: isPinnedBucket(group) && !isSearching) {
-                            ForEach(group.ids, id: \.self) { sessionId in
-                                stackRow(sessionId, group: group)
-                                    .background {
-                                        if group.label == "Pinned", group.folderId == nil, !isSearching {
-                                            ZStack {
-                                                if sessionId == group.ids.first {
-                                                    PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
-                                                }
-                                                if sessionId == group.ids.last {
-                                                    PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
-                                                }
-                                            }.allowsHitTesting(false)
+                        // [T-sidebar-recent-section] The Recent bucket folds
+                        // through the same wrapper — one extra EmptyView-capable
+                        // level, no extra spacing of its own.
+                        RecentBucketRows(active: isRecentBucket(group)) {
+                            PinnedBucketRows(active: isPinnedBucket(group) && !isSearching) {
+                                ForEach(group.ids, id: \.self) { sessionId in
+                                    stackRow(sessionId, group: group)
+                                        // [T-sidebar-recent-section] Read-but-recent
+                                        // rows are dim; every other bucket's
+                                        // dimmedIds is empty.
+                                        .opacity(group.isDimmed(sessionId) ? RecentSectionPlanner.dimOpacity : 1)
+                                        .background {
+                                            if group.label == "Pinned", group.folderId == nil, !isSearching {
+                                                ZStack {
+                                                    if sessionId == group.ids.first {
+                                                        PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
+                                                    }
+                                                    if sessionId == group.ids.last {
+                                                        PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
+                                                    }
+                                                }.allowsHitTesting(false)
+                                            }
                                         }
-                                    }
+                                }
                             }
                         }
                     }
@@ -404,9 +418,14 @@ extension ContentView {
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
-                        PinnedBucketRows(active: isPinnedBucket(group)) {
-                            ForEach(group.ids, id: \.self) { sessionId in
-                                splitRow(sessionId, group: group)
+                        // [T-sidebar-recent-section] Same two fold wrappers and
+                        // the same dim rule as the compact list.
+                        RecentBucketRows(active: isRecentBucket(group)) {
+                            PinnedBucketRows(active: isPinnedBucket(group)) {
+                                ForEach(group.ids, id: \.self) { sessionId in
+                                    splitRow(sessionId, group: group)
+                                        .opacity(group.isDimmed(sessionId) ? RecentSectionPlanner.dimOpacity : 1)
+                                }
                             }
                         }
                     }

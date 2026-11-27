@@ -69,11 +69,17 @@ extension ContentView {
                 .textCase(nil)
             }
             .buttonStyle(.plain)
-        } else if index > 0 || group.label == "Pinned" {
+        } else if index > 0 || group.label == "Pinned" || group.label == "Recent" {
             Group {
-                if group.label == "Pinned", group.folderId == nil {
-                    // [T-pinned-section-collapse] The only date bucket that
-                    // folds: pin + title + chevron, tap anywhere on the row.
+                // [T-sidebar-recent-section] "最近": clock + title + chevron,
+                // built from the pinned row's own geometry so both bucket
+                // titles keep one shared x (see RecentSectionHeaderRow).
+                if group.label == "Recent", group.folderId == nil {
+                    RecentSectionHeaderRow(label: group.label, folds: !isSearching)
+                } else if group.label == "Pinned", group.folderId == nil {
+                    // [T-pinned-section-collapse] The first of the two date
+                    // buckets that fold (see the Recent row above): pin +
+                    // title + chevron, tap anywhere on the row.
                     // Official Minis shows exactly this flat row, so the bucket
                     // stays a header — a card would put a container around
                     // something that is not a folder.

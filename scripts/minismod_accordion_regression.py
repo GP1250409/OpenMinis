@@ -146,3 +146,9 @@ if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
  except subprocess.TimeoutExpired:
   (out/'diagnostic.log').write_text('log show timed out')
 assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'
+# [T-sidebar-recent-section] Both labelled date buckets (最近 / 置顶) sit on one
+# 32pt label pitch, a folded bucket reserves no member height, and every
+# expanded boundary is flush: the spacing contract the official sidebar
+# breaks by leaving a row-sized hole under a folded 最近.
+assert 'RECENT_BUCKET_SPACING_PASS folded_pitch=32 reserved_rows=0' in r.stdout,'recent bucket spacing contract'
+assert 'RECENT_BUCKET_SPACING_PASS expanded_pitch=32 row=68 footer=0' in r.stdout,'recent bucket expanded spacing contract'

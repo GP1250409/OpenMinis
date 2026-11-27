@@ -567,6 +567,39 @@ final class PinnedSectionState: ObservableObject {
     }
 }
 
+/// [T-sidebar-recent-section] Fold state of the "最近" bucket.
+///
+/// A byte-for-byte sibling of `PinnedSectionState`: same tiny store, same
+/// persisted-key discipline, same `didChange` contract. Both buckets are date
+/// buckets that fold through the native accordion's reveal motion, so the
+/// accordion has to be able to observe them WITHOUT rebuilding the grouping —
+/// hence a store outside `ContentView`'s @State.
+@MainActor
+final class RecentSectionState: ObservableObject {
+    static let shared = RecentSectionState()
+    nonisolated static let defaultsKey = "recentSectionCollapsed"
+    static let didChange = Notification.Name("RecentSectionStateDidChange")
+
+    @Published private(set) var isCollapsed: Bool
+
+    /// Actor-free read for the accordion's geometry path (same reason as the
+    /// pinned bucket's).
+    nonisolated static var isCollapsedNow: Bool {
+        UserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    private init() {
+        isCollapsed = Self.isCollapsedNow
+    }
+
+    func toggle() {
+        let next = !isCollapsed
+        isCollapsed = next
+        UserDefaults.standard.set(next, forKey: Self.defaultsKey)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+}
+
 /// [T-pinned-title-pin] Geometry of the pin that marks the "置顶" bucket.
 ///
 /// The glyph deliberately lives OUTSIDE the title's layout flow: it hangs in
@@ -648,6 +681,76 @@ struct PinnedSectionHeaderRow: View {
 struct PinnedBucketRows<Rows: View>: View {
     @ObservedObject private var state = PinnedSectionState.shared
     /// True only for the pinned bucket, and only where folding applies.
+    let active: Bool
+    @ViewBuilder var rows: () -> Rows
+
+    var body: some View {
+        if active && state.isCollapsed {
+            EmptyView()
+        } else {
+            rows()
+        }
+    }
+}
+
+/// [T-sidebar-recent-section] The "最近" bucket's header row: a clock with a
+/// return arrow, the title, and the fold chevron. Tap anywhere on the row.
+///
+/// Deliberately a TWIN of `PinnedSectionHeaderRow`:
+///   • the title is the same leading `Text` of the same `HStack(spacing: 4)`,
+///     so "最近" sits on exactly the x "置顶" does — the alignment the user
+///     asked for, guaranteed by construction rather than by eye;
+///   • the clock hangs in the SAME leading gutter as the pin (`PinnedTitlePin`
+///     box + gutter, reused verbatim), so it cannot push the title right and
+///     the two glyphs line up on the same axis;
+///   • same 11pt chevron, same 4pt gap, same 0.25s fold animation.
+struct RecentSectionHeaderRow: View {
+    let label: String
+    /// False in a result set (see `PinnedSectionHeaderRow.folds`).
+    var folds: Bool = true
+    @ObservedObject private var state = RecentSectionState.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            // Bucket labels are English keys; localize at display only.
+            Text(LocalizedStringKey(label))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+            if folds {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(UIColor.tertiaryLabel))
+                    .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The clock rides OUT of the layout flow exactly like the pin: same
+        // box, same gutter, same 10pt semibold weight and secondary colour, so
+        // the two bucket titles keep one shared text edge.
+        // `clock.arrow.circlepath` is SF Symbols 2 (iOS 14) and is already
+        // shipped in eight places in this app, so the iOS 16 floor covers it.
+        .overlay(alignment: .leading) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: PinnedTitlePin.glyphPointSize, weight: .semibold))
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+                .frame(width: PinnedTitlePin.glyphBox.width,
+                       height: PinnedTitlePin.glyphBox.height)
+                .offset(x: -PinnedTitlePin.gutter)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if folds { state.toggle() } }
+        .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
+        .textCase(nil)
+        .accessibilityAddTraits(folds ? .isButton : [])
+    }
+}
+
+/// [T-sidebar-recent-section] Rows of the Recent bucket for the plain-List
+/// paths — same contract as `PinnedBucketRows`, different flag.
+struct RecentBucketRows<Rows: View>: View {
+    @ObservedObject private var state = RecentSectionState.shared
     let active: Bool
     @ViewBuilder var rows: () -> Rows
 

@@ -92631,6 +92631,72 @@
         }
       }
     },
+    "Show Recent Section" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Recent Section"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示最近分区"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示最近分區"
+          }
+        }
+      }
+    },
+    "Recent Section Chats" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Section Chats"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近分区条数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近分區條數"
+          }
+        }
+      }
+    },
+    "Unread, running and recently active conversations also appear at the top of the list and stay in their original position. Read ones stay there, dimmed, until one hour after their last activity. This section appears only when pinned conversations and groups together exceed four." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unread, running and recently active conversations also appear at the top of the list and stay in their original position. Read ones stay there, dimmed, until one hour after their last activity. This section appears only when pinned conversations and groups together exceed four."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未读、正在运行以及最近 1 小时内活跃过的对话也会显示在列表顶部，同时保留在原来的位置。已读的对话会变暗留在那里，直到最后一次活跃的 1 小时后。只有置顶对话和分组合计超过 4 个时才会显示这个分区。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未讀、正在執行以及最近 1 小時內活躍過的對話也會顯示在列表頂部，同時保留在原來的位置。已讀的對話會變暗留在那裡，直到最後一次活躍的 1 小時後。只有置頂對話和分組合計超過 4 個時才會顯示這個分區。"
+          }
+        }
+      }
+    },
     "Auto-injected" : {
       "localizations" : {
         "de" : {
