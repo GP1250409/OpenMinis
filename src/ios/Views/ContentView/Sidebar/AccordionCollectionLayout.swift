@@ -78,9 +78,23 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
         }
         let row = indexPath.item - s.prefixCount
         let p = indexPath.section < reveal.count ? min(1, max(0, reveal[indexPath.section])) : 1
+        if s.folderID == nil {
+            // [T-pinned-section-collapse] Date/Pinned buckets are flat rows
+            // rather than a rounded folder card. Match official Minis: fade
+            // the full-height rows behind the rising section below instead of
+            // slicing them like a folder card.
+            a.frame = CGRect(x: 0, y: y + s.headerHeight + CGFloat(row) * s.rowHeight,
+                             width: width, height: s.rowHeight)
+            a.alpha = p
+            a.zIndex = p < 0.999 ? -1 : 0
+            a.isHidden = p <= 0.001
+            return a
+        }
         let height = min(s.rowHeight, max(0, s.fullHeight * p - CGFloat(row) * s.rowHeight))
         a.frame = CGRect(x: 0, y: y + s.headerHeight + CGFloat(row) * s.rowHeight,
                          width: width, height: height)
+        a.alpha = 1
+        a.zIndex = 0
         a.isHidden = height <= 0
         return a
     }
