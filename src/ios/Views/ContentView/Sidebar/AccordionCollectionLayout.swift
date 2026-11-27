@@ -49,7 +49,8 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
 
     func headerY(section: Int) -> CGFloat {
         guard sections.indices.contains(section), starts.indices.contains(section) else { return 0 }
-        return starts[section] + sections[section].labelHeight
+        let s = sections[section]
+        return s.headerHeight > 0 ? starts[section] + s.labelHeight : starts[section]
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool { true }
@@ -85,7 +86,7 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
             // slicing them like a folder card.
             a.frame = CGRect(x: 0, y: y + s.headerHeight + CGFloat(row) * s.rowHeight,
                              width: width, height: s.rowHeight)
-            a.alpha = p
+            a.alpha = p * p
             a.zIndex = p < 0.999 ? -1 : 0
             a.isHidden = p <= 0.001
             return a

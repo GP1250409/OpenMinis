@@ -461,7 +461,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             let s = sections[path.section]
             if s.group.folderId == nil, path.item >= s.geometry.prefixCount {
                 let p = path.section < accordionLayout.reveal.count ? min(1, max(0, accordionLayout.reveal[path.section])) : 1
-                cell.alpha = p
+                cell.alpha = p * p
                 cell.layer.zPosition = p < 0.999 ? -1 : 0
             }
         }
@@ -511,7 +511,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             if s.group.folderId == nil, path.item >= s.geometry.prefixCount,
                path.section < accordionLayout.reveal.count {
                 let p = min(1, max(0, accordionLayout.reveal[path.section]))
-                hosting.alpha = p
+                hosting.alpha = p * p
                 hosting.layer.zPosition = p < 0.999 ? -1 : 0
             }
             guard let cardRect = activeCards[path.section] else {
@@ -595,7 +595,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
         if link == nil { cell.applyCardClip(nil) }
         if group.folderId == nil, case .member = role, accordionLayout.reveal.indices.contains(path.section) {
             let p = min(1, max(0, accordionLayout.reveal[path.section]))
-            cell.alpha = p
+            cell.alpha = p * p
             cell.layer.zPosition = p < 0.999 ? -1 : 0
         } else {
             cell.alpha = 1
