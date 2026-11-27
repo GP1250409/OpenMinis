@@ -184,17 +184,35 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         // the first CI run of this fixture.
         let labelSlot: CGFloat = 32
         let rowSlot: CGFloat = 68
-        let groupChrome: CGFloat = 68 + 4               // group header + footer
+        // A group card's WHOLE contribution to naturalHeight: its own 32pt
+        // "Groups" label, the 68pt header, one 68pt row per member and the 4pt
+        // footer. The previous version defined `groupChrome` as header+footer
+        // only, so `groupExpanded` was 32pt short of what prepare() actually
+        // adds for this section (production builds folder sections with
+        // labelHeight 32 / headerHeight 68 / footerHeight 4 — see
+        // ContentView+NativeAccordion.swift). That fixture arithmetic, not the
+        // shipping layout, is what failed on the simulator.
+        let groupChrome: CGFloat = labelSlot + 68 + 4   // own label + header + footer
         let groupExpanded: CGFloat = groupChrome + 2 * rowSlot
+
+        // Reports the two real numbers before an exact-equality assertion, so a
+        // future mismatch shows the actual/expected geometry instead of only a
+        // test name. The assertion itself stays exact.
+        func checkHeight(_ actual: CGFloat, _ expected: CGFloat, _ name: String) {
+            print("HEIGHT \(name) actual=\(actual) expected=\(expected) delta=\(actual - expected)")
+            fflush(stdout)
+            check(actual == expected, name)
+        }
 
         // Both date buckets folded: equal 32pt pitches, no reserved member rows.
         layout.reveal = [0, 0, 1]
         layout.prepare()
         check(layout.starts[1] - layout.starts[0] == labelSlot, "folded 最近→置顶 pitch is one 32pt label slot")
         check(layout.starts[2] - layout.starts[1] == labelSlot, "folded 置顶→分组 pitch is one 32pt label slot")
-        let foldedHeight: CGFloat = 3 * labelSlot + groupExpanded
-        check(layout.naturalHeight == foldedHeight,
-              "a folded bucket reserves no member height")
+        // Only the two folded date buckets still add a label; the group's own
+        // label is already inside groupExpanded.
+        let foldedHeight: CGFloat = 2 * labelSlot + groupExpanded
+        checkHeight(layout.naturalHeight, foldedHeight, "a folded bucket reserves no member height")
         print("RECENT_BUCKET_SPACING_PASS folded_pitch=32 reserved_rows=0"); fflush(stdout)
 
         // 最近 expanded: label→row pitch is the label's own height, and the last
@@ -208,8 +226,8 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(recentFirst.frame.minY == recentLabel.frame.maxY, "最近 title→first row has no extra gap")
         check(recentLast.frame.maxY == layout.starts[1], "last 最近 row meets 置顶 title with no gap")
         let recentExpandedHeight: CGFloat = labelSlot + 5 * rowSlot + labelSlot + groupExpanded
-        check(layout.naturalHeight == recentExpandedHeight,
-              "expanded 最近 adds exactly its five real rows and nothing else")
+        checkHeight(layout.naturalHeight, recentExpandedHeight,
+                    "expanded 最近 adds exactly its five real rows and nothing else")
 
         // 置顶 expanded between a folded Recent and the Groups divider.
         layout.reveal = [0, 1, 1]
@@ -220,8 +238,8 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(pinnedFirst.frame.minY == pinnedLabel.frame.maxY, "置顶 title→first row has no extra gap")
         check(pinnedLast.frame.maxY == layout.starts[2], "last pinned row meets 分组 with no gap")
         let pinnedExpandedHeight: CGFloat = labelSlot + labelSlot + 3 * rowSlot + groupExpanded
-        check(layout.naturalHeight == pinnedExpandedHeight,
-              "expanded 置顶 adds exactly its three real rows and nothing else")
+        checkHeight(layout.naturalHeight, pinnedExpandedHeight,
+                    "expanded 置顶 adds exactly its three real rows and nothing else")
 
         // Both expanded: the two buckets stack on the same rhythm.
         layout.reveal = [1, 1, 1]
