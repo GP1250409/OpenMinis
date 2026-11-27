@@ -105,6 +105,13 @@ extension ContentView {
     /// `SessionStackRow` (one view, fixed type). Runs only for rows the List
     /// actually builds, so the lookups below are per visible row, not per
     /// session in the library.
+    /// [T-pinned-section-collapse] The pinned bucket is the only date bucket
+    /// that folds. Its rows are wrapped in `PinnedBucketRows` on the plain-List
+    /// paths; the native accordion animates the same fold through `reveal`.
+    private func isPinnedBucket(_ group: SidebarGroup) -> Bool {
+        group.folderId == nil && group.label == "Pinned"
+    }
+
     func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {
         let session = sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId)
         return SessionStackRow(
@@ -265,20 +272,25 @@ extension ContentView {
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
-                        ForEach(group.ids, id: \.self) { sessionId in
-                            stackRow(sessionId, group: group)
-                                .background {
-                                    if group.label == "Pinned", group.folderId == nil, !isSearching {
-                                        ZStack {
-                                            if sessionId == group.ids.first {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
-                                            }
-                                            if sessionId == group.ids.last {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
-                                            }
-                                        }.allowsHitTesting(false)
+                        // [T-pinned-section-collapse] Folded pinned bucket:
+                        // the rows really are gone in a plain List (unlike the
+                        // accordion, which animates their height to zero).
+                        PinnedBucketRows(active: isPinnedBucket(group) && !isSearching) {
+                            ForEach(group.ids, id: \.self) { sessionId in
+                                stackRow(sessionId, group: group)
+                                    .background {
+                                        if group.label == "Pinned", group.folderId == nil, !isSearching {
+                                            ZStack {
+                                                if sessionId == group.ids.first {
+                                                    PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
+                                                }
+                                                if sessionId == group.ids.last {
+                                                    PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
+                                                }
+                                            }.allowsHitTesting(false)
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                     if group.hiddenMatchCount > 0, !isSelecting {
@@ -296,7 +308,8 @@ extension ContentView {
                         // no members. Folded, the real SwiftUI header is drawn
                         // instead — that is the row carrying the right-pointing
                         // chevron and the tap that unfolds again.
-                        if group.label == "Pinned", !isSelecting, !isSearching, !pinnedCollapseActive {
+                        if group.label == "Pinned", !isSelecting, !isSearching,
+                           !PinnedSectionState.isCollapsedNow {
                             sectionHeader(index: index, group: group)
                                 .opacity(0.001)
                                 .accessibilityHidden(true)
@@ -391,8 +404,10 @@ extension ContentView {
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
-                        ForEach(group.ids, id: \.self) { sessionId in
-                            splitRow(sessionId, group: group)
+                        PinnedBucketRows(active: isPinnedBucket(group)) {
+                            ForEach(group.ids, id: \.self) { sessionId in
+                                splitRow(sessionId, group: group)
+                            }
                         }
                     }
                     if group.hiddenMatchCount > 0, !isSelecting {

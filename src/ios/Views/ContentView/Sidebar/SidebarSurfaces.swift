@@ -461,7 +461,11 @@ final class StablePinnedTitle: ObservableObject {
 
     private func layoutTitle() {
         guard let scroll else { return }
-        guard enabled else { surface.isHidden = true; return }
+        // [T-pinned-section-collapse] A folded bucket has no members, so the
+        // first/last probes that give this overlay its bounds are stale at
+        // best: hide the sticky copy and let the real SwiftUI header (with
+        // its right-pointing chevron) be the visible one.
+        guard enabled, !PinnedSectionState.isCollapsedNow else { surface.isHidden = true; return }
         if let h = headerProbe, h.window != nil, h.isDescendant(of: scroll) {
             // Use the supplementary container's height, not just the Text's
             // glyph box: this preserves the native section header spacing.
@@ -507,6 +511,98 @@ final class StablePinnedTitle: ObservableObject {
         // Keep the title in front of newly inserted rows; scrollView still
         // receives all taps and drops through this noninteractive surface.
         scroll.bringSubviewToFront(surface)
+    }
+}
+
+/// [T-pinned-section-collapse] Fold state of the "置顶" bucket.
+///
+/// A tiny store instead of a `ContentView` @State on purpose. The pinned
+/// bucket collapses through the NATIVE ACCORDION's own display-link motion —
+/// the same 0.25s reveal a folder card gets — and that motion is driven by
+/// `NativeAccordionController`, which can only react to a change it can see.
+/// Keeping the flag here means:
+///   • the header row re-renders its chevron on its own (`@ObservedObject`),
+///   • the accordion observes `didChange` and animates the section height,
+///   • `ContentView`'s body never rebuilds its grouping for a pure fold, so
+///     the sidebar memo and the row identities stay exactly as they were.
+///
+/// Persisted like the folder accordion, never synced.
+@MainActor
+final class PinnedSectionState: ObservableObject {
+    static let shared = PinnedSectionState()
+    static let defaultsKey = "pinnedSectionCollapsed"
+    static let didChange = Notification.Name("PinnedSectionStateDidChange")
+
+    @Published private(set) var isCollapsed: Bool
+
+    /// Thread-safe, actor-free read for call sites that are not views (the
+    /// accordion's geometry code runs on the main thread anyway, but a plain
+    /// `UserDefaults` read keeps those paths free of actor hops).
+    nonisolated static var isCollapsedNow: Bool {
+        UserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    private init() {
+        isCollapsed = Self.isCollapsedNow
+    }
+
+    func toggle() {
+        let next = !isCollapsed
+        isCollapsed = next
+        UserDefaults.standard.set(next, forKey: Self.defaultsKey)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+}
+
+/// The pinned bucket's header row: pin, title, and the chevron that folds the
+/// bucket. Its own view so the chevron tracks `PinnedSectionState` without
+/// `ContentView` observing the flag.
+struct PinnedSectionHeaderRow: View {
+    let label: String
+    @ObservedObject private var state = PinnedSectionState.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+            // Bucket labels are English keys; localize at display only.
+            Text(LocalizedStringKey(label))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+            // Same chevron language as the folder cards: down while the chats
+            // are on screen, pointing right once they are folded away.
+            Image(systemName: "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(UIColor.tertiaryLabel))
+                .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { state.toggle() }
+        .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
+        .textCase(nil)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Rows of the pinned bucket for the plain-List paths (search results,
+/// multi-select, iPad/Mac sidebar). The native accordion animates its own
+/// collapse, but a `List` has no reveal concept — there the rows simply have
+/// to stop being rows — and the fold flag lives outside `ContentView`, so the
+/// decision needs an observing wrapper of its own.
+struct PinnedBucketRows<Rows: View>: View {
+    @ObservedObject private var state = PinnedSectionState.shared
+    /// True only for the pinned bucket, and only where folding applies.
+    let active: Bool
+    @ViewBuilder var rows: () -> Rows
+
+    var body: some View {
+        if active && state.isCollapsed {
+            EmptyView()
+        } else {
+            rows()
+        }
     }
 }
 

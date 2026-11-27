@@ -168,9 +168,6 @@ struct SidebarGroupsMemoKey: Equatable {
     let sessions: [SidebarSessionKey]
     let folders: [ChatFolder]
     let collapsedFolderIds: Set<String>
-    /// The pinned bucket collapses its member rows; the flag is an input, so
-    /// the memo must miss on every toggle or the rows never come back.
-    let pinnedSectionCollapsed: Bool
     let pendingDraftId: String?
     let pendingDraftFolderId: String?
     let isSearching: Bool

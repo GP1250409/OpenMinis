@@ -5,7 +5,16 @@ struct AccordionRenderSection {
     var group: SidebarGroup
     var members: [String]
     var geometry: AccordionSectionGeometry
-    var expanded: Bool { group.folderId == nil || !group.isCollapsed }
+    var expanded: Bool {
+        // [T-pinned-section-collapse] The pinned bucket is the one date bucket
+        // that folds. Its flag lives in PinnedSectionState (not in the group,
+        // whose grouping is shared with the plain-List paths), so read it
+        // here: `reveal` 0 then animates the rows away exactly like a folder.
+        if group.folderId == nil, group.label == "Pinned" {
+            return !PinnedSectionState.isCollapsedNow
+        }
+        return group.folderId == nil || !group.isCollapsed
+    }
 }
 enum AccordionCellRole { case label, folder, member(Int) }
 final class AccordionViewportState {
@@ -173,6 +182,9 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     private let liveBottomCapView = UIView()
     private let liveBottomCapLayer = CAShapeLayer()
     private var tickTarget: AccordionDisplayTarget?
+    /// [T-pinned-section-collapse] Pinned fold requested while another
+    /// section's motion was running; applied by finishMotion.
+    private var pendingPinnedTarget: [CGFloat]?
     private var observers: [NSObjectProtocol] = []
     private(set) var configuredCellCount = 0 // simulator performance assertions
 
@@ -221,6 +233,43 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.probeNavigationBar("active+0.6") }
             }
         })
+        // [T-pinned-section-collapse] The pinned bucket folds through the SAME
+        // reveal motion a folder card gets. Its flag lives outside SwiftUI's
+        // grouping (PinnedSectionState), so the controller watches it directly
+        // and runs one motion here instead of waiting for a data rebuild that
+        // would only reload the list.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: PinnedSectionState.didChange, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pinnedSectionStateChanged() }
+            })
+    }
+
+    /// One reveal motion for the pinned bucket, mirroring what `receive(_:)`
+    /// does when a folder's collapse flag flips: same duration, same easing,
+    /// same scroll anchor, same reduce-motion / tracking guards.
+    private func pinnedSectionStateChanged() {
+        guard let index = sections.firstIndex(where: { $0.group.folderId == nil && $0.group.label == "Pinned" }),
+              accordionLayout.reveal.indices.contains(index) else { return }
+        var target = accordionLayout.reveal
+        target[index] = PinnedSectionState.isCollapsedNow ? 0 : 1
+        guard target != accordionLayout.reveal else { return }
+        if link != nil {
+            // A folder is mid-fold; the display link owns the layout. Land on
+            // the requested state when it finishes rather than stacking moves.
+            pendingPinnedTarget = target
+            return
+        }
+        guard view.window != nil, !UIAccessibility.isReduceMotionEnabled,
+              !collection.isTracking, !collection.isDragging, !collection.isDecelerating,
+              collection.bounds.height > 0 else {
+            accordionLayout.reveal = target
+            accordionLayout.invalidateLayout()
+            collection.layoutIfNeeded()
+            refreshVisible()
+            updateMiniBar()
+            return
+        }
+        beginMotion(from: accordionLayout.reveal, to: target)
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -281,6 +330,7 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
     }
     func stop() {
         pending = nil
+        pendingPinnedTarget = nil
         finishMotion()
         viewport.offset = collection.contentOffset.y
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -387,6 +437,14 @@ final class NativeAccordionController: UIViewController, UICollectionViewDataSou
             clearLiveCardClips()
         }
         refreshVisible(); updateMiniBar()
+        if let queued = pendingPinnedTarget {
+            pendingPinnedTarget = nil
+            // Land the fold the user asked for while a folder was moving.
+            if queued != accordionLayout.reveal, accordionLayout.reveal.count == queued.count {
+                beginMotion(from: accordionLayout.reveal, to: queued)
+                return
+            }
+        }
         if let latest = pending {
             pending = nil
             receive(latest.0, render: latest.1, allowAnimation: allowPendingAnimation)
