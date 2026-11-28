@@ -24,9 +24,11 @@ OUT = ROOT / 'build' / 'chat-mail-fold'
 OUT.mkdir(parents=True, exist_ok=True)
 
 failures = []
+checks = []
 
 
 def ok(cond, label):
+    checks.append(label)
     if not cond:
         failures.append(label)
         print('FAIL', label)
@@ -175,7 +177,7 @@ for needle in ['testExpandUsesMailGeometryAndLandsExactly', 'testCloseRemovesRow
                'testStreamingFallsBack', 'ChatMailFoldToggle.run(', 'ChatMailFoldFlight']:
     ok(needle in harness, 'uikit test: ' + needle)
 
-print('CHATMAILFOLD_PASS geometry=%d static=%d failures=%d' % (len(asserts), 40, len(failures)))
+print('CHATMAILFOLD_PASS geometry=%d static=%d failures=%d' % (len(asserts), len(checks), len(failures)))
 if failures:
     print('FAILURES:', failures)
     sys.exit(1)
