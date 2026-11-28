@@ -110,6 +110,10 @@ ok('outcome == .interrupted' in toggle and "case interrupted" in flight, 'interr
 ok('fallback=reduce-motion' in toggle and 'fallback=streaming' in toggle, 'reduce-motion / streaming fallbacks')
 ok('fallback=unmeasured' in toggle, 'unmeasured children never animate')
 ok('fallback=non-contiguous' in toggle, 'non-contiguous run never animates')
+ok('RAPID REVERSAL' in toggle and 'live.retarget(direction)' in toggle,
+   'rapid reversal retargets the live flight instead of restarting it')
+ok('env.items().contains(request.item)' in toggle, 'retarget requires the header to still be in the list')
+ok('receipt.height > 0.5' in toggle, 'a zero-height receipt is not a measurement')
 ok('ToolGroupAccordionMeasurement.naturalHeights' in toggle, 'off-screen children are really measured')
 ok('layout.setMeasuredHeight(heights[k], at: idx)' in toggle, 'natural heights frozen in the cache first')
 ok('env.currentFlight()?.cancel()' in toggle, 'one owner at a time')
@@ -124,7 +128,11 @@ ok('mailClips[span.lowerBound + k] = visible <= 0.5 ? 0 : max(0, min(windowStart
 ok('let windowStart = total * (1 - reveal)' in layout, 'layout: bottom-anchored window')
 ok('isMailFoldIndex(index)' in layout, 'layout: self-sizing skipped for the block')
 ok('if let shown = mailShown[i], shown <= 0.5 {' in layout, 'layout: empty rows hidden')
-ok('if i == mailFoldSpan?.range.upperBound {' in layout, 'layout: inter-child gap folded into the slot')
+ok('let slotEnd = start + h + (k == n - 1 ? trailing : gap)' in layout,
+   'layout: internal AND trailing gaps folded into their slots')
+ok('let trailing = max(0, span.trailingSpacing)' in layout, 'layout: the span carries its trailing gap')
+ok('func resolvedGapAfter(index: Int) -> CGFloat' in layout, 'layout: footer-hug aware trailing gap')
+ok('gapWithheld = false' in layout, 'layout: no layout gap is added for a span row')
 ok(layout.count('let windowStart = total * (1 - ') >= 2, 'layout: the span and the diagnostics use one formula')
 
 # Cell: natural content height + top clip window.

@@ -84,6 +84,10 @@ final class MessageListLayout: UICollectionViewLayout {
         /// Gap between two children (folded INTO each row's slot, spacing is
         /// suppressed for the rows of the span while it is installed).
         var rowSpacing: CGFloat
+        /// Gap after the LAST child (footer-hug aware): it translates with the
+        /// block, otherwise the follower ends 8pt low and snaps when the rows
+        /// are removed.
+        var trailingSpacing: CGFloat
         /// 0 = collapsed (nothing of the block is below the header),
         /// 1 = expanded (the whole block is below it).
         var reveal: CGFloat
@@ -141,8 +145,9 @@ final class MessageListLayout: UICollectionViewLayout {
         guard let span = mailFoldSpan else { return nil }
         let p = min(1, max(0, span.reveal))
         let gap = max(0, span.rowSpacing)
+        let trailing = max(0, span.trailingSpacing)
         let n = span.naturalHeights.count
-        let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap
+        let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap + trailing
         guard total > 0 else { return span.naturalHeights.map { _ in 0 } }
         let windowStart = total * (1 - p)
         var out: [CGFloat] = []
@@ -150,7 +155,7 @@ final class MessageListLayout: UICollectionViewLayout {
         var start: CGFloat = 0
         for (k, raw) in span.naturalHeights.enumerated() {
             let h = max(0, raw)
-            let slotEnd = start + h + (k == n - 1 ? 0 : gap)
+            let slotEnd = start + h + (k == n - 1 ? trailing : gap)
             out.append(max(0, min(slotEnd, total) - max(start, windowStart)))
             start = slotEnd
         }
@@ -552,6 +557,21 @@ final class MessageListLayout: UICollectionViewLayout {
         return CGSize(width: width, height: totalHeight)
     }
 
+    /// The gap the layout would put after `index` in the resting list, using
+    /// the same rule `prepare()` applies (footer hug / last row / streaming).
+    /// The mail fold needs it for the block's trailing gap so that gap
+    /// translates WITH the block instead of snapping at the end.
+    func resolvedGapAfter(index: Int) -> CGFloat {
+        let count = collectionView?.numberOfItems(inSection: 0) ?? 0
+        let isLast = index + 1 >= count
+        let nextIsFooter = !isLast
+            && (contentKeyByIndex[index + 1]?.hasPrefix("f:") ?? false)
+            && (footerHugByIndex[index + 1] ?? true)
+            && !isStreamingCell(index + 1)
+        return MessageRowGap.after(height: 1, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
+                                   gapWithheldBefore: false, spacing: itemSpacing)
+    }
+
     override func prepare() {
         let t0 = CACurrentMediaTime()
         super.prepare()
@@ -584,14 +604,15 @@ final class MessageListLayout: UICollectionViewLayout {
         if let span = mailFoldSpan, !span.naturalHeights.isEmpty {
             let reveal = min(1, max(0, span.reveal))
             let gap = max(0, span.rowSpacing)
+            let trailing = max(0, span.trailingSpacing)
             let n = span.naturalHeights.count
-            let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap
+            let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap + trailing
             if total > 0 {
                 let windowStart = total * (1 - reveal)
                 var start: CGFloat = 0
                 for (k, natural) in span.naturalHeights.enumerated() {
                     let h = max(0, natural)
-                    let slotEnd = start + h + (k == n - 1 ? 0 : gap)
+                    let slotEnd = start + h + (k == n - 1 ? trailing : gap)
                     let visible = max(0, min(slotEnd, total) - max(start, windowStart))
                     mailShown[span.lowerBound + k] = visible
                     mailClips[span.lowerBound + k] = visible <= 0.5 ? 0 : max(0, min(windowStart - start, h))
@@ -677,16 +698,11 @@ final class MessageListLayout: UICollectionViewLayout {
             // that, whatever follows it (a queued candidate, the next user
             // bubble) touched the reply. The rule is MessageRowGap.
             if mailShown[i] != nil {
-                // [T-chat-mail-fold] The gap between two children is inside the
-                // child's slot; the gap after the LAST child keeps the normal
-                // rule (it follows the block and moves with its bottom edge).
-                if i == mailFoldSpan?.range.upperBound {
-                    y += MessageRowGap.after(height: h, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
-                                             gapWithheldBefore: gapWithheld, spacing: itemSpacing)
-                    gapWithheld = nextIsFooter && h > 0
-                } else {
-                    gapWithheld = false
-                }
+                // [T-chat-mail-fold] EVERY gap of the block — the internal ones
+                // and the one after the last child — is inside that child's
+                // slot, so it translates with the block and the follower lands
+                // exactly on the collapsed position at reveal 0.
+                gapWithheld = false
             } else {
                 y += MessageRowGap.after(height: h, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
                                          gapWithheldBefore: gapWithheld, spacing: itemSpacing)

@@ -708,9 +708,18 @@ func originalToggleMissing(_ s: OriginalToggleSources) -> [String] {
     need("tap-userBrowsing", s.tap.contains("scrollMode = .userBrowsing"))
     need("tap-transaction", s.tap.contains("ToolGroupOriginalToggle.run(request, in: env)"))
     need("tap-apply", s.tap.contains("self.applySnapshot(messages: vm.messages, caller: caller)"))
-    need("tap-reconfigure", s.tap.contains("self?.refreshToolGroupToggleRow(item)"))
-    need("tap-no-flight", !tapCode.contains("ToolGroupAccordion") && !tapCode.contains("Flight")
+    // [T-chat-mail-fold] The row refresh is now wrapped in an explicit
+    // `guard let self` (the closure must return Void, not Void?), so the call
+    // is spelled without the optional chain. Same step, same order.
+    need("tap-reconfigure", s.tap.contains("self.refreshToolGroupToggleRow(item)"))
+    // [T-chat-mail-fold] 2026-11-28: the user asked for Mail-style animation on
+    // the chat, so the tap DOES name a flight now — the MAIL one. The
+    // cancelled CURTAIN driver, its transaction, retarget and the deferred
+    // converge stay banned, and the mail transaction must be the first thing
+    // the tap tries (the instant switch below stays the fallback).
+    need("tap-no-curtain", !tapCode.contains("ToolGroupAccordion")
          && !tapCode.contains("retarget") && !tapCode.contains("deferConverge"))
+    need("tap-mail-fold", tapCode.contains("ChatMailFoldToggle.run(mailRequest, in: mailEnv)"))
     // 2. the transaction is the original instant switch, in the old order
     need("transaction-apply", s.txn.contains("env.applyStructure(\"toolGroupToggle\")"))
     need("transaction-invalidation", ordered(s.txn, ["clearCachedHeight()",
@@ -763,9 +772,12 @@ for (label, path, needle) in stepLosses {
     check("frozen negative: losing '\(label)' fails the original-toggle chain",
           before.contains(needle) && !originalToggleMissing(mutated).isEmpty)
 }
-check("the tap never re-enters the cancelled accordion (no flight, span, retarget or deferred converge)",
-      !toggleTap.contains("ToolGroupAccordion") && !toggleTap.contains("Flight")
-      && !toggleTap.contains("retarget") && !toggleTap.contains("Converge"))
+// [T-chat-mail-fold] The tap drives the MAIL flight now (user request
+// 2026-11-28); the cancelled curtain accordion must stay unreachable.
+check("the tap never re-enters the cancelled curtain (no span, retarget or deferred converge) and uses the mail fold",
+      !toggleTap.contains("ToolGroupAccordion") && !toggleTap.contains("retarget")
+      && !toggleTap.contains("Converge")
+      && toggleTap.contains("ChatMailFoldToggle.run(mailRequest, in: mailEnv)"))
 let plan = body(of: "func planToolFolds(messages: [ChatMessage])")
 check("a first fold is held back through ToolFoldPlanner.holdsBack, rows looked up lazily [T-fold-browse-hold]",
       plan.contains("if ToolFoldPlanner.holdsBack(browsing: browsing,")

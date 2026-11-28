@@ -57,6 +57,9 @@ enum ChatMailFoldToggle {
         /// would be cut short by the next update — the caller uses its instant
         /// switch.
         var isStreaming: () -> Bool
+        /// The gap the list would put after the LAST child right now (footer
+        /// hug aware). Folded back to the caller's spacing when it is 0.
+        var trailingSpacing: (Int) -> CGFloat
         var log: (String) -> Void
     }
 
@@ -110,6 +113,21 @@ enum ChatMailFoldToggle {
         if env.isReduceMotion() { log("fallback=reduce-motion"); return .fallback("reduce-motion") }
         if env.isStreaming() { log("fallback=streaming"); return .fallback("streaming") }
 
+        // [T-chat-mail-fold] RAPID REVERSAL: a second tap on the same block
+        // while the film is still running flips the SAME flight from its
+        // current reveal. Restarting would drop the block to reveal 0 for one
+        // frame (a visible flash), re-measure rows that never moved and stack a
+        // second span; retargeting keeps one span, one clock, one settle.
+        if let live = env.currentFlight(), live.isRunning, let plan = live.currentPlan,
+           plan.headerItem == request.item, plan.memberItems == request.memberItems,
+           env.items().contains(request.item) {
+            let direction: ChatMailFoldFlight.Direction = request.expanding ? .expand : .collapse
+            live.retarget(direction)
+            env.refreshHeader(request.item)
+            log("retarget expanded=\(request.expanding) reveal=\(String(format: "%.3f", live.reveal)) frames=\(live.framesApplied)")
+            return .started(live)
+        }
+
         var items = env.items()
         guard var headerIndex = items.firstIndex(of: request.item) else { return .invalid("header-miss") }
         var idxs = memberIndices(of: request.memberItems, in: items) ?? []
@@ -152,6 +170,7 @@ enum ChatMailFoldToggle {
 
         let items = env.items()
         guard idxs.allSatisfy({ $0 < items.count }) else { return .invalid("stale-span") }
+        let spanRangeCandidate = idxs[0]...(idxs[0] + idxs.count - 1)
 
         // [T-chat-mail-fold] Freeze MEASURED natural heights. A cached height
         // is not necessarily what the row really needs (a freshly inserted
@@ -183,7 +202,7 @@ enum ChatMailFoldToggle {
                 // pass hands its input back unchanged from its off-collection
                 // guard, its hosting-exception fallback and its generation
                 // race, and that input is the layout's estimate.
-                if let receipt = cell.heightReceipt {
+                if let receipt = cell.heightReceipt, receipt.height > 0.5 {
                     heights.append(receipt.height)
                     sources["visible-\(receipt.source.rawValue)", default: 0] += 1
                     continue
@@ -202,7 +221,7 @@ enum ChatMailFoldToggle {
             heights.append(layout.naturalHeightForAccordion(at: idx))
             unmeasured += 1
         }
-        log("natural measured=\(idxs.count - unmeasured) unmeasured=\(unmeasured) probe=[\(probe.summary)] unhosted=\(probe.unhosted.count) src=\(sources)")
+        log("natural measured=\(idxs.count - unmeasured) unmeasured=\(unmeasured) trailing=\(String(format: "%.1f", env.trailingSpacing(spanRangeCandidate.upperBound))) probe=[\(probe.summary)] unhosted=\(probe.unhosted.count) src=\(sources)")
         // Only a fully measured run may animate: an estimate would be replaced
         // by the true height when the span clears, moving every row below it at
         // the very end ("pops"). Correct beats animated.
@@ -218,9 +237,11 @@ enum ChatMailFoldToggle {
         // must not re-measure these rows into something else.
         for (k, idx) in idxs.enumerated() { layout.setMeasuredHeight(heights[k], at: idx) }
 
+        let trailing = max(0, env.trailingSpacing(spanRange.upperBound))
         let span = MessageListLayout.MailFoldSpan(lowerBound: spanRange.lowerBound,
                                                   naturalHeights: heights,
                                                   rowSpacing: max(0, request.rowSpacing),
+                                                  trailingSpacing: trailing,
                                                   reveal: startReveal)
         let wasSuppressed = layout.suppressContentOffsetAdjustment
         layout.suppressContentOffsetAdjustment = true

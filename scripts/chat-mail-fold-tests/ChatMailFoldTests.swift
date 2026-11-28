@@ -28,42 +28,42 @@ func near(_ a: CGFloat, _ b: CGFloat, _ tol: CGFloat = 0.01) -> Bool { abs(a - b
 func fmt(_ v: [CGFloat]) -> String { v.map { String(format: "%.3f", Double($0)) }.joined(separator: ",") }
 
 // 1. Total block height: children + INTERNAL gaps only.
-check("total-3x100-gap8", near(ChatMailFold.totalHeight(natural: [100, 100, 100], rowSpacing: 8), 316))
-check("total-1x100", near(ChatMailFold.totalHeight(natural: [100], rowSpacing: 8), 100))
-check("total-empty", near(ChatMailFold.totalHeight(natural: [], rowSpacing: 8), 0))
+check("total-3x100-gap8", near(ChatMailFold.totalHeight(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0), 316))
+check("total-1x100", near(ChatMailFold.totalHeight(natural: [100], rowSpacing: 8, trailingSpacing: 0), 100))
+check("total-empty", near(ChatMailFold.totalHeight(natural: [], rowSpacing: 8, trailingSpacing: 0), 0))
 
 // 2. Collapsed: nothing visible, everything hidden, no top clip.
-let c0 = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, reveal: 0)
+let c0 = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0, reveal: 0)
 check("collapse-heights", fmt(c0.map { $0.visible }) == "0.000,0.000,0.000", fmt(c0.map { $0.visible }))
 check("collapse-hidden", c0.allSatisfy { $0.isHidden })
 // Fully hidden rows are not drawn and report no clip.
 check("collapse-topclip", c0.allSatisfy { near($0.topClip, 0) })
 
 // 3. Expanded: the whole block, no clip.
-let c1 = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, reveal: 1)
+let c1 = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0, reveal: 1)
 check("expand-heights", fmt(c1.map { $0.visible }) == "108.000,108.000,100.000", fmt(c1.map { $0.visible }))
 check("expand-topclip", c1.allSatisfy { near($0.topClip, 0) })
 check("expand-sum", near(c1.map { $0.visible }.reduce(0, +), 316))
 
 // 4. MAIL ORDER: at a small reveal the LAST child is the one that shows.
-let q = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, reveal: 0.25)
+let q = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0, reveal: 0.25)
 // 0.25 * 316 = 79 → only the LAST child shows, its bottom 79 of 100.
 check("quarter-heights", fmt(q.map { $0.visible }) == "0.000,0.000,79.000", fmt(q.map { $0.visible }))
 check("quarter-last-visible", q[2].visible > 0 && q[0].isHidden && q[1].isHidden)
-check("quarter-straddle-is-last", ChatMailFold.clippedRow(natural: [100, 100, 100], rowSpacing: 8, reveal: 0.25) == 2)
+check("quarter-straddle-is-last", ChatMailFold.clippedRow(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0, reveal: 0.25) == 2)
 // The straddling child shows its BOTTOM 79 of 100: 21 hidden above the window.
 check("quarter-topclip", fmt(q.map { $0.topClip }) == "0.000,0.000,21.000", fmt(q.map { $0.topClip }))
 check("quarter-content-visible", fmt(q.map { $0.contentVisible }) == "0.000,0.000,79.000", fmt(q.map { $0.contentVisible }))
 // FIRST child appears LAST / disappears FIRST (the opposite of a curtain).
 check("quarter-first-hidden", q[0].isHidden)
-check("three-quarter-first-partial", ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, reveal: 0.8)[0].visible > 0)
+check("three-quarter-first-partial", ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 0, reveal: 0.8)[0].visible > 0)
 
 // 5. Σ visible == total * reveal at every step: the bottom edge (and every row
 //    after it) moves by exactly the revealed amount — no end-of-flight pop.
 var sumOK = true
 for step in 0...100 {
     let r = CGFloat(step) / 100
-    let sum = ChatMailFold.rows(natural: [120, 40, 210], rowSpacing: 8, reveal: r).map { $0.visible }.reduce(0, +)
+    let sum = ChatMailFold.rows(natural: [120, 40, 210], rowSpacing: 8, trailingSpacing: 0, reveal: r).map { $0.visible }.reduce(0, +)
     // 120 + 40 + 210 + 2 * 8 = 386
     if !near(sum, 386 * r, 0.01) { sumOK = false }
 }
@@ -72,7 +72,7 @@ check("sum-linear", sumOK)
 var boundsOK = true
 for step in 0...100 {
     let r = CGFloat(step) / 100
-    let rows = ChatMailFold.rows(natural: [120, 40, 210], rowSpacing: 8, reveal: r)
+    let rows = ChatMailFold.rows(natural: [120, 40, 210], rowSpacing: 8, trailingSpacing: 0, reveal: r)
     if rows[0].visible > 128.01 || rows[1].visible > 48.01 || rows[2].visible > 210.01 { boundsOK = false }
     if rows[0].topClip + rows[0].contentVisible > 120.01 { boundsOK = false }
 }
@@ -80,11 +80,29 @@ check("row-bounds", boundsOK)
 
 // 6. Single child (a one-row block): the same top-clipped sliding window,
 //    content never scaled — half open shows the bottom half of the text.
-let one = ChatMailFold.rows(natural: [200], rowSpacing: 8, reveal: 0.5)
+let one = ChatMailFold.rows(natural: [200], rowSpacing: 8, trailingSpacing: 0, reveal: 0.5)
 check("single-visible", fmt(one.map { $0.visible }) == "100.000", fmt(one.map { $0.visible }))
 check("single-topclip", fmt(one.map { $0.topClip }) == "100.000", fmt(one.map { $0.topClip }))
 check("single-content-visible", fmt(one.map { $0.contentVisible }) == "100.000", fmt(one.map { $0.contentVisible }))
-check("single-full", near(ChatMailFold.rows(natural: [200], rowSpacing: 8, reveal: 1)[0].visible, 200))
+check("single-full", near(ChatMailFold.rows(natural: [200], rowSpacing: 8, trailingSpacing: 0, reveal: 1)[0].visible, 200))
+
+// 6b. TRAILING GAP: folded into the block, so a close never snaps the
+//     follower up by one spacing at the last frame (and an open never drops it).
+let tr = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 8, reveal: 0)
+check("trailing-total", near(ChatMailFold.totalHeight(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 8), 324))
+check("trailing-collapsed-zero", fmt(tr.map { $0.visible }) == "0.000,0.000,0.000", fmt(tr.map { $0.visible }))
+let trFull = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 8, reveal: 1)
+check("trailing-expanded", fmt(trFull.map { $0.visible }) == "108.000,108.000,108.000", fmt(trFull.map { $0.visible }))
+var trSum = 0.0
+var trSums = true
+for step in 0...1000 {
+    let r = CGFloat(step) / 1000
+    let sum = ChatMailFold.rows(natural: [100, 100, 100], rowSpacing: 8, trailingSpacing: 8, reveal: r).map { $0.visible }.reduce(0, +)
+    if sum < trSum - 0.0001 { trSums = false }   // monotone: the follower never jumps up
+    trSum = sum
+    if !near(sum, 324 * r, 0.01) { trSums = false }
+}
+check("trailing-continuous", trSums)
 
 // 7. Reduce motion / zero duration: progress is 1 at once, no frames.
 check("progress-zero-duration", near(ChatMailFold.progress(elapsed: 0, duration: 0), 1))

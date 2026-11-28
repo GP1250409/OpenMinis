@@ -290,11 +290,21 @@ extension CollectionViewMessageListV3.Coordinator {
                     self.applySnapshot(messages: vm.messages, caller: caller)
                 },
                 indexOf: { [weak self] item in self?.dataSource?.snapshot().indexOfItem(item) },
+                // Explicit `guard let self`: a single-expression body would
+                // infer `Void?` from the optional chain and fail to convert to
+                // the `Void` the closure promises (Darwin-only compile trap).
                 configureForMeasurement: { [weak self] cell, item, ip in
-                    self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)
+                    guard let self else { return }
+                    self.configureCell(cell, item: item, indexPath: ip, writesListState: false)
                 },
-                refreshHeader: { [weak self] item in self?.refreshToolGroupToggleRow(item) },
-                storeFlight: { [weak self] flight in self?.mailFoldFlight = flight },
+                refreshHeader: { [weak self] item in
+                    guard let self else { return }
+                    self.refreshToolGroupToggleRow(item)
+                },
+                storeFlight: { [weak self] flight in
+                    guard let self else { return }
+                    self.mailFoldFlight = flight
+                },
                 currentFlight: { [weak self] in self?.mailFoldFlight },
                 isReduceMotion: { UIAccessibility.isReduceMotionEnabled },
                 // Streaming: the list is re-applied continuously, so a 0.32s
@@ -304,6 +314,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 isStreaming: { [weak self] in
                     guard let self, let layout = self.viewController?.messageListLayout else { return false }
                     return layout.streamingCellIndex != nil
+                },
+                // The block's trailing gap is footer-hug aware: it must
+                // translate with the block, never snap at the end.
+                trailingSpacing: { [weak self] index in
+                    self?.viewController?.messageListLayout.resolvedGapAfter(index: index) ?? 8
                 },
                 log: { message in log.info(message) })
             let mailRequest = ChatMailFoldToggle.Request(

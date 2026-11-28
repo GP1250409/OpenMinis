@@ -80,15 +80,17 @@ enum ChatMailFold {
         var isHidden: Bool { visible <= 0.5 }
     }
 
-    /// Total block height: every natural height plus the INTERNAL gaps only.
-    /// The trailing gap after the last child belongs to the layout (it follows
-    /// the same footer-hug rules as the expanded state), so it is not part of
-    /// the block and does not translate.
-    static func totalHeight(natural: [CGFloat], rowSpacing: CGFloat) -> CGFloat {
+    /// Total block height: every natural height plus the INTERNAL gaps and the
+    /// gap after the LAST child. That trailing gap must translate with the
+    /// block: leaving it to the layout makes the following sibling end 8pt
+    /// lower than the collapsed state and snap up when the rows are removed
+    /// (the same end-of-close hitch class as d48).
+    static func totalHeight(natural: [CGFloat], rowSpacing: CGFloat, trailingSpacing: CGFloat? = nil) -> CGFloat {
         let n = natural.count
         guard n > 0 else { return 0 }
         let sum = natural.reduce(0) { $0 + max(0, $1) }
-        return sum + CGFloat(max(0, n - 1)) * max(0, rowSpacing)
+        let trailing = max(0, trailingSpacing ?? rowSpacing)
+        return sum + CGFloat(max(0, n - 1)) * max(0, rowSpacing) + trailing
     }
 
     /// The block's rows at `reveal` (0 = collapsed, 1 = expanded), in order.
@@ -96,11 +98,12 @@ enum ChatMailFold {
     /// Window in block coordinates: `[total * (1 - reveal), total]` — the
     /// BOTTOM part of the block. Row k occupies `[start, start + h + gap]`
     /// (`[start, start + h]` for the last row).
-    static func rows(natural: [CGFloat], rowSpacing: CGFloat, reveal: CGFloat) -> [Row] {
+    static func rows(natural: [CGFloat], rowSpacing: CGFloat, trailingSpacing: CGFloat? = nil,
+                     reveal: CGFloat) -> [Row] {
         let n = natural.count
         guard n > 0 else { return [] }
         let p = min(1, max(0, reveal))
-        let total = totalHeight(natural: natural, rowSpacing: rowSpacing)
+        let total = totalHeight(natural: natural, rowSpacing: rowSpacing, trailingSpacing: trailingSpacing)
         guard total > 0 else { return natural.map { _ in Row(visible: 0, contentVisible: 0, topClip: 0) } }
         let gap = max(0, rowSpacing)
         let windowStart = total * (1 - p)
@@ -109,7 +112,7 @@ enum ChatMailFold {
         var start: CGFloat = 0
         for (k, raw) in natural.enumerated() {
             let h = max(0, raw)
-            let slotEnd = start + h + (k == n - 1 ? 0 : gap)
+            let slotEnd = start + h + (k == n - 1 ? max(0, trailingSpacing ?? gap) : gap)
             let contentEnd = start + h
             let visible = max(0, min(slotEnd, total) - max(start, windowStart))
             let contentVisible = max(0, min(contentEnd, total) - max(max(start, windowStart), 0))
@@ -125,19 +128,22 @@ enum ChatMailFold {
     /// Heights the layout gives the block's rows at `reveal` (spacing folded in).
     /// `Σ result == total * reveal` for reveal in 0…1, which is what makes the
     /// following sibling move with the block's bottom edge instead of popping.
-    static func visibleHeights(natural: [CGFloat], rowSpacing: CGFloat, reveal: CGFloat) -> [CGFloat] {
-        rows(natural: natural, rowSpacing: rowSpacing, reveal: reveal).map { $0.visible }
+    static func visibleHeights(natural: [CGFloat], rowSpacing: CGFloat, trailingSpacing: CGFloat? = nil,
+                               reveal: CGFloat) -> [CGFloat] {
+        rows(natural: natural, rowSpacing: rowSpacing, trailingSpacing: trailingSpacing, reveal: reveal).map { $0.visible }
     }
 
     /// Points of each row's content hidden above the window, in order.
-    static func topClips(natural: [CGFloat], rowSpacing: CGFloat, reveal: CGFloat) -> [CGFloat] {
-        rows(natural: natural, rowSpacing: rowSpacing, reveal: reveal).map { $0.topClip }
+    static func topClips(natural: [CGFloat], rowSpacing: CGFloat, trailingSpacing: CGFloat? = nil,
+                         reveal: CGFloat) -> [CGFloat] {
+        rows(natural: natural, rowSpacing: rowSpacing, trailingSpacing: trailingSpacing, reveal: reveal).map { $0.topClip }
     }
 
     /// The row that straddles the window's TOP edge (the only one that needs a
     /// cell clip), or nil when the edge lands on a row boundary.
-    static func clippedRow(natural: [CGFloat], rowSpacing: CGFloat, reveal: CGFloat) -> Int? {
-        let r = rows(natural: natural, rowSpacing: rowSpacing, reveal: reveal)
+    static func clippedRow(natural: [CGFloat], rowSpacing: CGFloat, trailingSpacing: CGFloat? = nil,
+                           reveal: CGFloat) -> Int? {
+        let r = rows(natural: natural, rowSpacing: rowSpacing, trailingSpacing: trailingSpacing, reveal: reveal)
         for (i, row) in r.enumerated() {
             let full = max(0, natural[i])
             if !row.isHidden && row.topClip > 0.001 && row.contentVisible < full - 0.5 { return i }
