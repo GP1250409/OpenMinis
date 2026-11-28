@@ -104,6 +104,7 @@ subprocess.run(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5',
  str(paint_source), str(row_source), str(header_source), str(wrapped_source),
  str(root/'scripts/accordion-tests/WrappedRowGeometryTests.swift'),
  str(root/'scripts/accordion-tests/RowClippingTests.swift'), str(root/'scripts/accordion-tests/SidebarChromeTests.swift'),
+ str(root/'scripts/accordion-tests/MailFoldTests.swift'),
  str(root/'scripts/accordion-tests/FolderAppearanceTests.swift'), str(root/'scripts/accordion-tests/FloatingBarTests.swift'),
  str(v3/'UsageStampRow.swift'), str(usage_source), str(root/'scripts/accordion-tests/UsageStampTests.swift'),
  str(root/'scripts/accordion-tests/AccordionTestApp.swift'),'-o',str(app/'AccordionRegression')],check=True)

@@ -63,6 +63,11 @@ final class AccordionHostingCell: UICollectionViewCell {
     private var host: AccordionRowHostingController?
     private var fullHeight: CGFloat = 0
     private var cardClipMask: CAShapeLayer?
+    /// [T-sidebar-mail-fold] Part of this row's top that the section header
+    /// covers. The host keeps the FULL row frame and is only translated by
+    /// `-clipTop`, so the clipped first-visible row shows its own text/icon at
+    /// their real position instead of a re-anchored or squeezed copy.
+    private(set) var clipTop: CGFloat = 0
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -73,6 +78,19 @@ final class AccordionHostingCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         applyCardClip(nil)
+        clipTop = 0
+    }
+    override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
+        super.apply(layoutAttributes)
+        let next = (layoutAttributes as? AccordionRowAttributes)?.clipTop ?? 0
+        guard abs(next - clipTop) > 0.01 else { return }
+        clipTop = next
+        // Translate in the SAME pass that delivered the clip: relying on
+        // layoutSubviews alone could land one refresh later mid-fold.
+        if bounds.width > 0, fullHeight > 0 {
+            host?.view.frame = CGRect(x: 0, y: -clipTop, width: bounds.width, height: fullHeight)
+        }
+        setNeedsLayout()
     }
     static func liveCardClipPath(for card: CGRect, radius r: CGFloat = 16, bleed: CGFloat = 1.0) -> CGPath {
         let cr = min(r, card.width / 2, card.height / 2)
@@ -154,8 +172,11 @@ final class AccordionHostingCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         // The host never sees the partially-revealed cell height. Text is NOT
-        // scaled, squeezed, or measured again during the animation.
-        host?.view.frame = CGRect(x: 0, y: 0, width: bounds.width, height: fullHeight)
+        // scaled, squeezed, or measured again during the animation. [T-sidebar-
+        // mail-fold] The row is clipped at its TOP (behind the header), so the
+        // full-height host is translated up by exactly the covered part and
+        // keeps its own internal alignment.
+        host?.view.frame = CGRect(x: 0, y: -clipTop, width: bounds.width, height: fullHeight)
     }
 }
 

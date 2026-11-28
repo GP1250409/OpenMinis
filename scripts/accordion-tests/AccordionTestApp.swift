@@ -62,11 +62,17 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         let closedHeight = layout.naturalHeight
         check((layout.layoutAttributesForElements(in: cv.bounds) ?? []).count < 20, "4700 collapsed members produce no eager cells")
         layout.reveal = [1, 0.0001, 0]; layout.prepare()
-        let partial = layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 1))!
+        // [T-sidebar-mail-fold] The reveal is now a BOTTOM-aligned block clipped
+        // at the header, so at a sliver of progress the row that is partially
+        // visible is the LAST member (clipped at its top), not the first. The
+        // intent of this check is unchanged: real geometry, never alpha/scale.
+        let s1 = layout.sections[1]
+        let partial = layout.layoutAttributesForItem(at: IndexPath(item: 2 + s1.count - 1, section: 1))!
         check(partial.frame.height > 0 && partial.frame.height < 68, "real partial-height member, not alpha or scale")
+        check((partial as? AccordionRowAttributes)?.clipTop ?? 0 > 0, "partial member is clipped at the header, not its bottom")
         check(layout.naturalHeight > closedHeight, "following groups move with growing member region")
-        let hidden = layout.layoutAttributesForItem(at: IndexPath(item: 3, section: 1))!
-        check(hidden.isHidden, "unrevealed rows stay hidden")
+        let hidden = layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 1))!
+        check(hidden.isHidden, "rows still behind the header stay hidden")
         layout.reveal = [1, 1, 0]; layout.prepare()
         let attributes = layout.layoutAttributesForElements(in: CGRect(x: 0, y: 100000, width: 390, height: 844)) ?? []
         check(attributes.count < 25, "deep scroll visits only viewport rows in huge group")
@@ -142,6 +148,8 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         check(controller.accordionLayout.translation == 0, "user drag stops the transition cleanly")
         controller.stop()
         check(controller.accordionLayout.minimumContentHeight == 0, "teardown leaves no animation state")
+        mailFoldGeometryTest()
+        mailFoldMotionTest()
         rowClippingTest()
         wrappedRowGeometryTest()
         floatingBarTest()
