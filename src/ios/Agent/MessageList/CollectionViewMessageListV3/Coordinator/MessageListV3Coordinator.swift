@@ -252,6 +252,10 @@ extension CollectionViewMessageListV3 {
         /// until the list can drop the rows with nobody's finger on the screen;
         /// see Coordinator+ToolFolding `flushToolGroupAccordionConverge`.
         var toolGroupAccordionPendingConverge: String?
+        /// [T-chat-mail-fold] The live mail-style fold of the chat (a folded
+        /// tool run sliding out from behind its header). One at a time, same
+        /// ownership rule as the status-bar flight.
+        var mailFoldFlight: ChatMailFoldFlight?
 
         // === Attachment mount invalidation ===
         // [T-ios-user-attach-mount-invalidate] Drain mounts attachments onto an

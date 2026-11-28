@@ -85,11 +85,28 @@ class SelfSizingCell: UICollectionViewCell {
         }
     }
 
+    /// [T-chat-mail-fold] Points of the hosted content hidden ABOVE the cell.
+    ///
+    /// A mail-style block slides DOWN from behind its header: the row that
+    /// straddles the window's top edge must show its BOTTOM part, not its top
+    /// one. The cell keeps `contentView` at the natural height (so SwiftUI
+    /// never re-lays the text into a shorter container) and shifts it UP by
+    /// this amount; the cell's own `clipsToBounds` then cuts exactly the hidden
+    /// part. 0 / nil = no top clip.
+    var mailFoldContentTopClip: CGFloat = 0 {
+        didSet {
+            guard mailFoldContentTopClip != oldValue else { return }
+            if mailFoldContentTopClip <= 0.001 { mailFoldContentTopClip = 0 }
+            setNeedsLayout()
+        }
+    }
+
     /// [T-toolgroup-accordion] Put the clip window back to the cell's own bounds.
     /// Without this a reused cell would keep a taller `contentView` and every
     /// later row of that reuse slot would draw with the wrong height.
     private func resetAccordionWindowIfNeeded() {
         guard accordionContentHeight == nil else { return }
+        mailFoldContentTopClip = 0
         clipsToBounds = false
         contentView.clipsToBounds = true
         if contentView.frame != bounds {
@@ -102,9 +119,16 @@ class SelfSizingCell: UICollectionViewCell {
         guard let natural = accordionContentHeight else { return }
         clipsToBounds = true
         contentView.clipsToBounds = false
-        let target = max(bounds.height, natural)
-        if abs(contentView.frame.height - target) > 0.5 || contentView.frame.width != bounds.width {
-            contentView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: target)
+        let top = max(0, mailFoldContentTopClip)
+        // The content view is EXACTLY the natural height (never the cell's
+        // clipped height): SwiftUI must lay the text out at its real size, the
+        // CELL clips it. Shifting the content view up by `top` hides the part
+        // above the mail window and leaves the bottom part in place.
+        let target = natural
+        if abs(contentView.frame.height - target) > 0.5
+            || contentView.frame.width != bounds.width
+            || abs(contentView.frame.minY + top) > 0.5 {
+            contentView.frame = CGRect(x: 0, y: -top, width: bounds.width, height: target)
         }
     }
 

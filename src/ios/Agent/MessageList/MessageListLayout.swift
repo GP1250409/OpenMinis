@@ -65,6 +65,98 @@ final class MessageListLayout: UICollectionViewLayout {
         setToolGroupAccordion(nil)
     }
 
+    // MARK: - [T-chat-mail-fold] Mail-style sliding block
+
+    /// The children of a mail-style fold (a folded tool run) while it opens or
+    /// closes. Different geometry from `ToolGroupAccordionSpan`: the rows keep
+    /// their NATURAL heights and the visible window is the block's BOTTOM
+    /// `total * reveal` points, so the last child appears first and the block
+    /// slides down from behind the fixed header. `ChatMailFold` is the same
+    /// math with a name; the arithmetic below is INLINED because this file is
+    /// compiled verbatim by the other UIKit harnesses, which do not link the
+    /// helper (the historical "statusbar source manifest missing a dependency"
+    /// failure). `scripts/chat_mail_fold_regression.py` pins the two formulas
+    /// together, and the flight asserts they agree on every span it installs.
+    struct MailFoldSpan: Equatable {
+        var lowerBound: Int
+        /// Natural (unclipped) height of each child row, in range order.
+        var naturalHeights: [CGFloat]
+        /// Gap between two children (folded INTO each row's slot, spacing is
+        /// suppressed for the rows of the span while it is installed).
+        var rowSpacing: CGFloat
+        /// 0 = collapsed (nothing of the block is below the header),
+        /// 1 = expanded (the whole block is below it).
+        var reveal: CGFloat
+        var upperBound: Int { lowerBound + max(0, naturalHeights.count - 1) }
+        var range: ClosedRange<Int> { lowerBound...max(lowerBound, upperBound) }
+    }
+
+    private var _mailFold: MailFoldSpan?
+    /// Per-row top clip produced by the last `prepare()` for the mail span.
+    private var _mailFoldTopClips: [Int: CGFloat] = [:]
+
+    var mailFoldSpan: MailFoldSpan? {
+        os_unfair_lock_lock(&_accordionLock)
+        defer { os_unfair_lock_unlock(&_accordionLock) }
+        return _mailFold
+    }
+
+    func setMailFold(_ span: MailFoldSpan?) {
+        os_unfair_lock_lock(&_accordionLock)
+        _mailFold = span
+        if span == nil { _mailFoldTopClips.removeAll() }
+        os_unfair_lock_unlock(&_accordionLock)
+    }
+
+    func updateMailFoldReveal(_ reveal: CGFloat) {
+        os_unfair_lock_lock(&_accordionLock)
+        if var s = _mailFold {
+            s.reveal = min(1, max(0, reveal))
+            _mailFold = s
+        }
+        os_unfair_lock_unlock(&_accordionLock)
+    }
+
+    func clearMailFold() {
+        setMailFold(nil)
+    }
+
+    /// True while `index` is one of the mail block's child rows.
+    func isMailFoldIndex(_ index: Int) -> Bool {
+        guard let span = mailFoldSpan else { return false }
+        return span.range.contains(index)
+    }
+
+    /// Points of `index`'s content hidden above the window, as laid out by the
+    /// last `prepare()`. 0 for rows that are fully visible; the flight writes it
+    /// into the cell (`SelfSizingCell.mailFoldContentTopClip`).
+    func mailFoldTopClip(at index: Int) -> CGFloat {
+        os_unfair_lock_lock(&_accordionLock)
+        defer { os_unfair_lock_unlock(&_accordionLock) }
+        return _mailFoldTopClips[index] ?? 0
+    }
+
+    /// Row heights for the current reveal, in span order (diagnostics / tests).
+    var mailFoldVisibleHeights: [CGFloat]? {
+        guard let span = mailFoldSpan else { return nil }
+        let p = min(1, max(0, span.reveal))
+        let gap = max(0, span.rowSpacing)
+        let n = span.naturalHeights.count
+        let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap
+        guard total > 0 else { return span.naturalHeights.map { _ in 0 } }
+        let windowStart = total * (1 - p)
+        var out: [CGFloat] = []
+        out.reserveCapacity(n)
+        var start: CGFloat = 0
+        for (k, raw) in span.naturalHeights.enumerated() {
+            let h = max(0, raw)
+            let slotEnd = start + h + (k == n - 1 ? 0 : gap)
+            out.append(max(0, min(slotEnd, total) - max(start, windowStart)))
+            start = slotEnd
+        }
+        return out
+    }
+
     /// [T-toolgroup-accordion] Cross-feature takeover channel.
     ///
     /// The status-bar scroll-to-top flight lives in a file that other harnesses
@@ -483,6 +575,33 @@ final class MessageListLayout: UICollectionViewLayout {
         // [T-toolgroup-accordion] Per-row clipped heights for the run that is
         // animating right now (empty at rest). Computed once per prepare from
         // the frozen natural heights, never written back to the cache.
+        // [T-chat-mail-fold] Mail block: the rows keep their natural heights
+        // and the visible window is the block's BOTTOM `total * reveal` points.
+        // The cell height is the visible slice INCLUDING the (suppressed)
+        // inter-row gap, so the bottom edge and every following row are exact.
+        var mailShown: [Int: CGFloat] = [:]
+        var mailClips: [Int: CGFloat] = [:]
+        if let span = mailFoldSpan, !span.naturalHeights.isEmpty {
+            let reveal = min(1, max(0, span.reveal))
+            let gap = max(0, span.rowSpacing)
+            let n = span.naturalHeights.count
+            let total = span.naturalHeights.reduce(0) { $0 + max(0, $1) } + CGFloat(max(0, n - 1)) * gap
+            if total > 0 {
+                let windowStart = total * (1 - reveal)
+                var start: CGFloat = 0
+                for (k, natural) in span.naturalHeights.enumerated() {
+                    let h = max(0, natural)
+                    let slotEnd = start + h + (k == n - 1 ? 0 : gap)
+                    let visible = max(0, min(slotEnd, total) - max(start, windowStart))
+                    mailShown[span.lowerBound + k] = visible
+                    mailClips[span.lowerBound + k] = visible <= 0.5 ? 0 : max(0, min(windowStart - start, h))
+                    start = slotEnd
+                }
+            }
+        }
+        os_unfair_lock_lock(&_accordionLock)
+        _mailFoldTopClips = mailClips
+        os_unfair_lock_unlock(&_accordionLock)
         var accordionShown: [Int: CGFloat] = [:]
         if let span = toolGroupAccordionSpan, !span.naturalHeights.isEmpty {
             // Frontier arithmetic is INLINED on purpose: MessageListLayout is
@@ -505,7 +624,9 @@ final class MessageListLayout: UICollectionViewLayout {
             let ip = IndexPath(item: i, section: 0)
             let attrs = UICollectionViewLayoutAttributes(forCellWith: ip)
             let h: CGFloat
-            if let shown = accordionShown[i] {
+            if let shown = mailShown[i] {
+                h = shown
+            } else if let shown = accordionShown[i] {
                 h = shown
             } else if let cached = heightCache[i] {
                 h = cached
@@ -518,6 +639,9 @@ final class MessageListLayout: UICollectionViewLayout {
             }
             // Rows fully below the reveal frontier occupy no space and must not
             // draw: the run's content appears as the frontier passes it.
+            if let shown = mailShown[i], shown <= 0.5 {
+                attrs.isHidden = true
+            }
             if let shown = accordionShown[i], shown <= 0.5 {
                 attrs.isHidden = true
             }
@@ -552,9 +676,22 @@ final class MessageListLayout: UICollectionViewLayout {
             // which hands on the gap the row above withheld for it: without
             // that, whatever follows it (a queued candidate, the next user
             // bubble) touched the reply. The rule is MessageRowGap.
-            y += MessageRowGap.after(height: h, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
-                                     gapWithheldBefore: gapWithheld, spacing: itemSpacing)
-            gapWithheld = nextIsFooter && h > 0
+            if mailShown[i] != nil {
+                // [T-chat-mail-fold] The gap between two children is inside the
+                // child's slot; the gap after the LAST child keeps the normal
+                // rule (it follows the block and moves with its bottom edge).
+                if i == mailFoldSpan?.range.upperBound {
+                    y += MessageRowGap.after(height: h, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
+                                             gapWithheldBefore: gapWithheld, spacing: itemSpacing)
+                    gapWithheld = nextIsFooter && h > 0
+                } else {
+                    gapWithheld = false
+                }
+            } else {
+                y += MessageRowGap.after(height: h, isLast: isLast, nextIsHuggingFooter: nextIsFooter,
+                                         gapWithheldBefore: gapWithheld, spacing: itemSpacing)
+                gapWithheld = nextIsFooter && h > 0
+            }
         }
         totalHeight = y
         heightDeltaSincePrepare = 0
@@ -718,6 +855,11 @@ final class MessageListLayout: UICollectionViewLayout {
         // flight. The natural height was frozen at tap time and is restored
         // when the span is cleared (the coordinator re-measures then).
         if isToolGroupAccordionIndex(index) {
+            return false
+        }
+        // [T-chat-mail-fold] Same rule for the mail block: its rows are laid
+        // out at the clipped window height on purpose.
+        if isMailFoldIndex(index) {
             return false
         }
 

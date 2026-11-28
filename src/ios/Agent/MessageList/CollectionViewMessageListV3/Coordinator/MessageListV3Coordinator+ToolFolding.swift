@@ -266,13 +266,64 @@ extension CollectionViewMessageListV3.Coordinator {
                 indexOf: { [weak self] item in self?.dataSource?.snapshot().indexOfItem(item) },
                 reconfigure: { [weak self] item in self?.refreshToolGroupToggleRow(item) },
                 log: { message in log.info(message) })
+            let memberItems = run.memberIds.map { MessageListItem.assistantBlock(run.messageId, $0) }
             let request = ToolGroupOriginalToggle.Request(
                 item: item,
-                memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) },
+                memberItems: memberItems,
                 expanding: expanding,
                 oldIndex: oldIdx,
                 anchorY: anchorY,
                 groupTag: firstBlockId.uuidString.prefix(8).description)
+
+            // [T-chat-mail-fold] The user asked for Mail-style expand/collapse
+            // on 2026-11-28: the run's children slide out from behind the fixed
+            // header, natural sizes, no scaling. The transaction declines (and
+            // the original instant switch below runs, exactly as before) for
+            // reduce motion, streaming, a non-contiguous run, an unmeasured
+            // child, or a list that no longer holds the rows.
+            let mailEnv = ChatMailFoldToggle.Environment(
+                collectionView: cv,
+                layout: layout,
+                items: { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] },
+                applyStructure: { [weak self] caller in
+                    guard let self, let vm = self.vm else { return }
+                    self.applySnapshot(messages: vm.messages, caller: caller)
+                },
+                indexOf: { [weak self] item in self?.dataSource?.snapshot().indexOfItem(item) },
+                configureForMeasurement: { [weak self] cell, item, ip in
+                    self?.configureCell(cell, item: item, indexPath: ip, writesListState: false)
+                },
+                refreshHeader: { [weak self] item in self?.refreshToolGroupToggleRow(item) },
+                storeFlight: { [weak self] flight in self?.mailFoldFlight = flight },
+                currentFlight: { [weak self] in self?.mailFoldFlight },
+                isReduceMotion: { UIAccessibility.isReduceMotionEnabled },
+                // Streaming: the list is re-applied continuously, so a 0.32s
+                // film here would be cut short by the next update. The list's
+                // own streaming signal (a range that is being re-measured) is
+                // the one the layout already maintains.
+                isStreaming: { [weak self] in
+                    guard let self, let layout = self.viewController?.messageListLayout else { return false }
+                    return layout.streamingCellIndex != nil
+                },
+                log: { message in log.info(message) })
+            let mailRequest = ChatMailFoldToggle.Request(
+                item: item,
+                memberItems: memberItems,
+                expanding: expanding,
+                oldIndex: oldIdx,
+                anchorY: anchorY,
+                rowSpacing: layout.itemSpacing,
+                groupTag: firstBlockId.uuidString.prefix(8).description)
+            switch ChatMailFoldToggle.run(mailRequest, in: mailEnv) {
+            case .started:
+                if isNearBottom() { scrollMode = .autoScrolling }
+                return
+            case .fallback(let reason):
+                log.info("[MailFold] fallback=\(reason) group=\(request.groupTag) → instant switch")
+            case .invalid(let reason):
+                log.info("[MailFold] invalid=\(reason) group=\(request.groupTag) → instant switch")
+            }
+
             if case .missing(let reason) = ToolGroupOriginalToggle.run(request, in: env) {
                 log.warning("[ToolFold] toggle MISS group=\(firstBlockId.uuidString.prefix(8)) reason=\(reason)")
             }

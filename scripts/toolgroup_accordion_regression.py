@@ -345,7 +345,11 @@ def static_checks():
     toggle = fold[fold.index('func toggleToolGroup(firstBlockId: UUID)'):fold.index('func refreshToolGroupToggleRow')]
     c.absent(toggle, 'ToolGroupAccordionFlight', 'frozen negative: the tap never creates a flight')
     c.absent(toggle, 'retarget', 'frozen negative: no retarget branch on the tap')
-    c.absent(toggle, 'UIAccessibility.isReduceMotionEnabled', 'frozen negative: no reveal to gate on reduce motion')
+    # [T-chat-mail-fold] 2026-11-28: the user asked for Mail-style animation on
+    # the chat, so the tap DOES gate a reveal on Reduce Motion again — it must
+    # decline the mail flight and run this instant switch instead. Intentional
+    # update of the 11-20 negative (the behaviour is required, not restored).
+    c.present(toggle, 'UIAccessibility.isReduceMotionEnabled', 'Reduce Motion falls back to the instant switch')
     c.absent(toggle, 'legacyInstantToolGroupToggle', 'frozen negative: one path, not an animated one plus a fallback')
     c.present(toggle, 'ToolGroupOriginalToggle.run(request, in: env)',
               'the tap runs the shared original-toggle transaction')
@@ -440,8 +444,11 @@ def static_checks():
     c.present(flight, 'items[plan.headerIndex] == plan.headerItem', 'header identity')
     c.present(flight, 'where items[plan.memberRange.lowerBound + k] != want', 'member identity')
     c.present(flight, "retire=identity", 'a failed identity check retires the flight')
-    c.present(toggle, 'memberItems: run.memberIds.map { .assistantBlock(run.messageId, $0) }',
+    # [T-chat-mail-fold] Same contract, the array is built once and handed to
+    # both transactions (the mail request and the instant fallback).
+    c.present(toggle, 'let memberItems = run.memberIds.map { MessageListItem.assistantBlock(run.messageId, $0) }',
               'the plan carries the real member identities')
+    c.present(toggle, 'memberItems: memberItems', 'both transactions get those identities')
     snap_src = (IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift').read_text()
     c.ok(snap_src.count('cancelAccordionIfSpanBroken(beforeApplying:') == 0,
          'no snapshot apply validates a reveal span any more (the tap installs none)')
@@ -470,8 +477,11 @@ def static_checks():
     c.absent(toggle, 'flight.spanIsValid', 'frozen negative: no per-frame-only validation left')
     c.absent(toggle, 'ds.collectionView(cv, cellForItemAt: ip)',
              'frozen negative: never dequeue a cell outside a UIKit request cycle')
-    c.absent(toggle, 'writesListState: false',
-             'frozen negative: the tap never configures cells in measurement mode')
+    # [T-chat-mail-fold] The tap now freezes each child's real natural height
+    # through the production write-free configure — the safe way to measure,
+    # never a dequeue outside a UIKit request cycle (the negative above stays).
+    c.present(toggle, 'writesListState: false',
+              'the mail transaction measures through the write-free configure')
     c.present(txn, 'writesListState: false',
               'the measurement host keeps its write-free configure (module contract, not on the tap)')
     c.present(measure, 'window.addSubview(container)', 'measurement happens in a window-hosted collection view')
@@ -557,7 +567,12 @@ def static_checks():
     c.present(infra, 'accordionContentHeight = nil\n        resetAccordionWindowIfNeeded()\n        configGeneration',
               'a new configuration resets the clip window')
     c.present(infra, 'var accordionContentHeight: CGFloat?', 'SelfSizingCell owns the clip window')
-    c.present(infra, 'let target = max(bounds.height, natural)', 'the hosted content is never laid out shorter than natural')
+    # [T-chat-mail-fold] The content view is now EXACTLY the natural height:
+    # the mail window clips the CELL, never the hosted content (a shorter
+    # content view would re-lay the text instead of revealing it).
+    c.present(infra, 'let target = natural', 'the hosted content is never laid out shorter than natural')
+    c.present(infra, 'contentView.frame = CGRect(x: 0, y: -top, width: bounds.width, height: target)',
+              'the mail window hides the top part by shifting, not by resizing')
     # dependency-free layout keeps the five other harness manifests valid
     c.absent(layout, 'ToolGroupAccordion.', 'frozen negative: MessageListLayout must not depend on ToolGroupAccordion.swift (5 other harnesses compile it verbatim)')
     c.present(''.join(layout.split()), 'letreveal=min(1,max(0,span.reveal))', 'layout inlines the same frontier formula')
@@ -804,7 +819,12 @@ def static_checks():
         c.ok(ok, label)
         _sec14 += 1
     c14('ToolGroupOriginalToggle.run(request, in: env)' in tap_region, '14: the tap runs the shared original toggle')
-    for token in ['ToolGroupAccordion', 'Flight', 'retarget', 'CADisplayLink', 'setToolGroupAccordion',
+    # [T-chat-mail-fold] `Flight` is intentionally no longer a blanket negative:
+    # the tap drives the MAIL flight now. The cancelled CURTAIN driver
+    # (ToolGroupAccordionFlight) and its accordion transaction stay banned.
+    c14('ToolGroupAccordionFlight' not in tap_region, '14: the tap never names the cancelled curtain driver')
+    c14('ChatMailFoldToggle.run(mailRequest, in: mailEnv)' in tap_region, '14: the tap runs the mail transaction')
+    for token in ['ToolGroupAccordion', 'retarget', 'CADisplayLink', 'setToolGroupAccordion',
                   'naturalHeight', 'measurement', 'deferConverge', 'abort', 'span']:
         c14(token not in tap_region, '14: frozen negative — the tap names no %s' % token)
     for token in ['env.applyStructure("toolGroupToggle")', 'let idx = env.indexOf(request.item)',
