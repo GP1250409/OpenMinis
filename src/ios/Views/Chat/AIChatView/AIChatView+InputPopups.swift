@@ -323,12 +323,17 @@ extension AIChatView {
 
     private struct InputBarPopupSurface: ViewModifier {
         let shape: RoundedRectangle
+        @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
         func body(content: Content) -> some View {
             if #available(iOS 26.0, *) {
                 content
                     .glassEffect(.regular, in: shape)
                     .clipShape(shape)
+            } else if liquidGlassEnabled {
+                content
+                    .clipShape(shape)
+                    .modifier(LiquidGlassSurface(shape: shape, style: .popup))
             } else {
                 content
                     .background(.regularMaterial, in: shape)

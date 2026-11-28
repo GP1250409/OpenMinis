@@ -206,6 +206,15 @@ struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
         return eq
     }
 
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
+    private var usesLegacyGlassBackButton: Bool {
+        if #available(iOS 26.0, *) { return false }
+        return liquidGlassEnabled && horizontalSizeClass == .compact
+    }
+
     var body: some View {
         #if DEBUG
         let _ = {
@@ -216,7 +225,25 @@ struct ChatToolbarHost<Title: View, Trailing: View>: View, Equatable {
         Color.clear
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
+            .navigationBarBackButtonHidden(usesLegacyGlassBackButton)
+            .background {
+                if usesLegacyGlassBackButton {
+                    LiquidGlassInteractivePopRestorer()
+                }
+            }
             .toolbar {
+                if usesLegacyGlassBackButton {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 15, weight: .semibold))
+                                .modifier(LiquidGlassNavBarIconChrome())
+                        }
+                        .accessibilityLabel(AppLocalized("Back"))
+                    }
+                }
                 ToolbarItem(placement: .principal) { title() }
                 if showsTrailing {
                     ToolbarItem(placement: .topBarTrailing) { trailing() }
@@ -596,6 +623,61 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
     /// layout, the glass chrome, or the menu anchor changes.
     final class HitPaddedButton: UIButton {
         static let minimumTouchSize: CGFloat = 44
+        static let glassDiameter: CGFloat = 34
+        private var glassDisc: LiquidGlassUIKitDiscView?
+        private var glassObserver: NSObjectProtocol?
+
+        deinit {
+            if let glassObserver {
+                NotificationCenter.default.removeObserver(glassObserver)
+            }
+        }
+
+        func setupLegacyGlassIfNeeded() {
+            if #available(iOS 26.0, *) { return }
+            guard glassDisc == nil else { return }
+            let disc = LiquidGlassUIKitDiscView(frame: CGRect(x: 0, y: 0, width: Self.glassDiameter, height: Self.glassDiameter))
+            insertSubview(disc, at: 0)
+            glassDisc = disc
+            updateGlassVisibility()
+            glassObserver = NotificationCenter.default.addObserver(
+                forName: LiquidGlassLegacySettings.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.updateGlassVisibility()
+                }
+            }
+        }
+
+        func updateGlassVisibility() {
+            let enabled = LiquidGlassLegacySettings.isEnabledNow
+            glassDisc?.isHidden = !enabled
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
+
+        override var intrinsicContentSize: CGSize {
+            if let glassDisc, !glassDisc.isHidden {
+                return CGSize(width: Self.glassDiameter, height: Self.glassDiameter)
+            }
+            return super.intrinsicContentSize
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if let glassDisc, !glassDisc.isHidden {
+                let d = Self.glassDiameter
+                glassDisc.frame = CGRect(
+                    x: (bounds.width - d) / 2,
+                    y: (bounds.height - d) / 2,
+                    width: d,
+                    height: d
+                )
+                sendSubviewToBack(glassDisc)
+            }
+        }
 
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             let dx = min(0, (bounds.width - Self.minimumTouchSize) / 2)
@@ -606,6 +688,7 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIButton {
         let button = HitPaddedButton(type: .system)
+        button.setupLegacyGlassIfNeeded()
         let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         button.setImage(UIImage(systemName: "ellipsis", withConfiguration: cfg), for: .normal)
         button.tintColor = UIColor(ChatColors.primaryText)

@@ -844,12 +844,17 @@ private struct ChatExportPDFPreview: UIViewRepresentable {
 /// as floating over the chat rather than as two filled buttons.
 private struct ChatShareFloatingButtonSurface: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
+        } else if liquidGlassEnabled {
+            content
+                .buttonStyle(.plain)
+                .modifier(LiquidGlassSurface(shape: Capsule(), style: .pill))
         } else {
             content
                 .buttonStyle(.plain)

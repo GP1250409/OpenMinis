@@ -3334,6 +3334,8 @@ private struct ToolPreviewThumbnail: View {
 /// That was the FAB regression; keeping the content as the modifier's `content`
 /// is what avoids it here.
 private struct ToolStatusBarSurface: ViewModifier {
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
     }
@@ -3341,6 +3343,10 @@ private struct ToolStatusBarSurface: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content.glassEffect(.regular, in: shape)
+        } else if liquidGlassEnabled {
+            content
+                .clipShape(shape)
+                .modifier(LiquidGlassSurface(shape: shape, style: .popup))
         } else {
             content
                 .background(Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : UIColor.systemBackground }))

@@ -78,41 +78,80 @@ extension ContentView {
             }
             .buttonStyle(.plain)
         } else {
-            Button { dismissSearch() } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 44)
-                    .contentShape(Rectangle())
+            LegacySearchClearButton { dismissSearch() }
+        }
+    }
+
+    private struct LegacySearchClearButton: View {
+        let action: () -> Void
+        @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
+        var body: some View {
+            Button(action: action) {
+                if liquidGlassEnabled {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
+                } else {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
+                }
             }
             .buttonStyle(.plain)
         }
     }
 
-    /// Glyph colour for the new-chat FAB.
-    ///
-    /// Was hardcoded `.white`, which worked when the button was an opaque
-    /// mid-tone brand disc. Once the fill became 0.30-alpha glass the light-mode
-    /// surface turned pale and a white glyph nearly vanished into it.
-    ///
-    /// Note this can't simply be `Color(UIColor.label)` like the search FAB uses:
-    /// that FAB is glass on 26+ AND `secondarySystemBackground` below it, both
-    /// light-ish surfaces, so `label` is right in every case. The new-chat FAB's
-    /// sub-26 fallback is still the OPAQUE brand colour (183/175/150 light,
-    /// 80/76/66 dark) — mid-tone in light mode, where `label` (near-black) has
-    /// less contrast than the white that shipped there for years. So the choice
-    /// is made per rendering path: adaptive on glass, unchanged white on the
-    /// opaque fallback.
-    private static var newChatIconColor: Color {
-        if #available(iOS 26.0, *) {
-            // Translucent glass: follow the interface style. Not pure black in
-            // light mode — the brand surface is warm, so a slightly softened
-            // near-black sits better on it than #000 while still reading clearly.
-            return Color(UIColor { $0.userInterfaceStyle == .dark
-                ? UIColor.white
-                : UIColor(white: 0.13, alpha: 1) })
-        } else {
-            // Opaque brand disc, as before.
-            return .white
+    /// Adaptive icon glyph for the new-chat FAB (standalone struct so the
+    /// DraggableFAB label closure captures ZERO `ContentView` state).
+    private struct NewChatFABIcon: View {
+        @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
+        private static let glassIconColor = Color(UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor.white
+            : UIColor(white: 0.13, alpha: 1) })
+
+        private var iconColor: Color {
+            if #available(iOS 26.0, *) { return Self.glassIconColor }
+            return liquidGlassEnabled ? Self.glassIconColor : .white
+        }
+
+        var body: some View {
+            Image(systemName: {
+                if #available(iOS 17.0, *) { return "bubble.left.and.text.bubble.right" }
+                return "plus.message.fill"
+            }())
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(iconColor)
+        }
+    }
+
+    /// Standalone `< iOS 26` FAB disc that reacts to `liquidGlassLegacyEnabled`
+    /// without capturing `ContentView` (`self`).
+    private struct LegacyFABCircleSurface<Icon: View>: View {
+        let tint: Color?
+        let fallbackFill: Color
+        let fallbackShadowOpacity: Double
+        @ViewBuilder let icon: () -> Icon
+        @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
+        var body: some View {
+            if liquidGlassEnabled {
+                icon()
+                    .frame(width: 56, height: 56)
+                    .modifier(LiquidGlassSurface(shape: Circle(), style: .floatingButton, tint: tint))
+                    .contentShape(Circle())
+                    .contentShape(.contextMenuPreview, Circle())
+            } else {
+                Circle()
+                    .fill(fallbackFill)
+                    .overlay { icon() }
+                    .shadow(color: .black.opacity(fallbackShadowOpacity), radius: 8, x: 0, y: 4)
+                    .contentShape(.contextMenuPreview, Circle())
+            }
         }
     }
 
@@ -198,16 +237,12 @@ extension ContentView {
                 // declares the two shapes separately for the same reason.
                 .contentShape(.contextMenuPreview, Circle())
         } else {
-            Circle()
-                .fill(fallbackFill)
-                .overlay { icon() }
-                .shadow(color: .black.opacity(fallbackShadowOpacity), radius: 8, x: 0, y: 4)
-                // The legacy surface also needs an explicit preview outline.
-                // Its circular fill does not stop the lifted context-menu
-                // platter from using rectangular bounds on iOS 16–25.
-                // Keep this after the shadow so the preview follows the disc,
-                // not the shadow's bounds; ordinary taps/dragging are unchanged.
-                .contentShape(.contextMenuPreview, Circle())
+            LegacyFABCircleSurface(
+                tint: tint,
+                fallbackFill: fallbackFill,
+                fallbackShadowOpacity: fallbackShadowOpacity,
+                icon: icon
+            )
         }
     }
 
@@ -257,12 +292,7 @@ extension ContentView {
                     fallbackFill: Self.newChatBrandColor,
                     fallbackShadowOpacity: 0.2
                 ) {
-                    Image(systemName: {
-                        if #available(iOS 17.0, *) { return "bubble.left.and.text.bubble.right" }
-                        return "plus.message.fill"
-                    }())
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Self.newChatIconColor)
+                    NewChatFABIcon()
                 }
                     .contextMenu {
                         let groups = Array(ProviderConfigStore.shared.config.modelGroups.prefix(10))

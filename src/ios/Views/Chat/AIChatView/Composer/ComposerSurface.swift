@@ -47,14 +47,17 @@ struct FloatingCircleButtonSurface: ViewModifier {
     var legacyShadowRadius: CGFloat = 5
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
     /// Glyph style for icons on this surface. Inside a default-styled Button
     /// both resolve against the button tint (accent): `.secondary` is a faded
     /// accent that washes out against the glass material, `.primary` is the
     /// full-strength accent, which stays readable (verified on device).
-    /// Sub-26 keeps the original `.secondary` over its opaque disc.
+    /// Sub-26 keeps the original `.secondary` over its opaque disc when
+    /// Liquid Glass is disabled.
     static var glyphStyle: HierarchicalShapeStyle {
         if #available(iOS 26.0, *) { return .primary }
+        if LiquidGlassLegacySettings.isEnabledNow { return .primary }
         return .secondary
     }
 
@@ -62,6 +65,10 @@ struct FloatingCircleButtonSurface: ViewModifier {
         if #available(iOS 26.0, *) {
             content
                 .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(Circle())
+        } else if liquidGlassEnabled {
+            content
+                .modifier(LiquidGlassSurface(shape: Circle(), style: .floatingButton))
                 .contentShape(Circle())
         } else {
             content
@@ -107,6 +114,8 @@ enum ComposerGeometry {
 }
 
 struct ComposerSurface: ViewModifier {
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: ComposerGeometry.cornerRadius, style: .continuous)
     }
@@ -116,6 +125,10 @@ struct ComposerSurface: ViewModifier {
             content
                 .glassEffect(.regular, in: shape)
                 .clipShape(shape)
+        } else if liquidGlassEnabled, ChatThemeStore.current == nil {
+            content
+                .clipShape(shape)
+                .modifier(LiquidGlassSurface(shape: shape, style: .composer))
         } else {
             content
                 .background(shape.fill(ChatColors.inputBg))

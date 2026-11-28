@@ -52,6 +52,7 @@ struct NavTitleFrameModifier: ViewModifier {
 // [T-agent-transcript-navbar] Shared with HelperTranscriptPage; logic unchanged.
 struct NavBarStyleModifier: ViewModifier {
     @Binding var topSafeAreaInset: CGFloat
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
     /// [T-agent-transcript-navbar-lost] When false, the iOS 16-18 branch skips
     /// the safe-area measuring overlay entirely.
@@ -92,6 +93,25 @@ struct NavBarStyleModifier: ViewModifier {
                 // here is toolbarBackground. No change needed in
                 // MessageListViewController.
                 .modifier(MacOS27OpaqueNavigationBar(background: ChatColors.background))
+        } else if liquidGlassEnabled {
+            // [MOD ios16-liquid-glass] Transparent navbar + soft top fade so
+            // messages scroll behind the floating glass back / "..." buttons
+            // without clashing against the centered title.
+            content
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .overlay(alignment: .top) {
+                    LiquidGlassNavBarTopFade(backgroundColor: ChatColors.background)
+                }
+                .overlay(alignment: .top) {
+                    if measuresSafeArea {
+                        Color.clear
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.safeAreaInsets.top
+                            } action: { topSafeAreaInset = $0 }
+                            .ignoresSafeArea()
+                            .frame(height: 0)
+                    }
+                }
         } else {
             // iOS 16–18: opaque navbar background
             content

@@ -339,26 +339,34 @@ extension ContentView {
         }
         ToolbarItem(placement: .topBarLeading) {
             if isSelecting {
-                Button("Cancel") {
+                Button {
                     isSelecting = false
                     selectedIds.removeAll()
+                } label: {
+                    Text("Cancel")
+                        .modifier(LiquidGlassNavBarPillChrome())
                 }
             } else {
                 Button {
                     activeToolSheet = .settings
                 } label: {
                     Image(systemName: "gear")
+                        .font(.system(size: 16, weight: .medium))
+                        .modifier(LiquidGlassNavBarIconChrome())
                 }
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
             if isSelecting {
-                Button(selectedIds.count == sessions.count ? "Deselect All" : "Select All") {
+                Button {
                     if selectedIds.count == sessions.count {
                         selectedIds.removeAll()
                     } else {
                         selectedIds = Set(sessions.map(\.id))
                     }
+                } label: {
+                    Text(selectedIds.count == sessions.count ? "Deselect All" : "Select All")
+                        .modifier(LiquidGlassNavBarPillChrome())
                 }
             } else if hasAlarms {
                 Button {
@@ -366,6 +374,7 @@ extension ContentView {
                 } label: {
                     Image(systemName: "alarm")
                         .font(.system(size: 15, weight: .medium))
+                        .modifier(LiquidGlassNavBarIconChrome())
                 }
             }
         }
@@ -420,6 +429,7 @@ extension ContentView {
                     // A pre-scaled UIImage makes the intrinsic size 24pt at the
                     // source, independent of SwiftUI layout.
                     Image(uiImage: Self.terminalCircleIcon)
+                        .modifier(LiquidGlassNavBarIconChrome())
                 }
             }
         }

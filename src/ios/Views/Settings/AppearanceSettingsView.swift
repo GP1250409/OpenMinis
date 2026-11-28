@@ -370,6 +370,9 @@ struct AppearanceSettingsView: View {
     /// asserts the two spellings still agree.
     @AppStorage("sidebarRecentSectionEnabled") private var showsRecentSection: Bool = true
     @AppStorage("sidebarRecentSectionCount") private var recentSectionCount: Int = 5
+    /// [MOD ios16-liquid-glass] Literal key matching `LiquidGlassLegacySettings.defaultsKey`
+    /// so this file stays standalone-compilable in the settings harness.
+    @AppStorage("liquidGlassLegacyEnabled") private var liquidGlassLegacyEnabled: Bool = true
     @ObservedObject private var fontSettings = FontSettings.shared
 
     enum LanguageSummaryDisplay: Equatable {
@@ -412,6 +415,30 @@ struct AppearanceSettingsView: View {
     var body: some View {
         List {
             AppearanceMenuSettingsSections()
+            if #available(iOS 26.0, *) {
+                // Native system Liquid Glass is always active on iOS 26+.
+            } else {
+                Section {
+                    Toggle(
+                        Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "液态玻璃效果" : "Liquid Glass",
+                        isOn: $liquidGlassLegacyEnabled
+                    )
+                    .onChange(of: liquidGlassLegacyEnabled) { _ in
+                        NotificationCenter.default.post(
+                            name: Notification.Name("LiquidGlassLegacySettingsDidChange"),
+                            object: nil
+                        )
+                    }
+                } header: {
+                    Text(Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "液态玻璃" : "Liquid Glass")
+                } footer: {
+                    Text(
+                        Locale.preferredLanguages.first?.hasPrefix("zh") == true
+                            ? "在 iOS 16–25 上为悬浮按钮、输入框、搜索栏、弹出菜单、消息气泡与顶部导航栏启用半透明液态玻璃质感。关闭后恢复原版不透明样式。"
+                            : "Enable translucent Liquid Glass surfaces for floating buttons, input bar, search bar, popups, user bubbles, and the top navigation bar on iOS 16–25. Turn off to restore the original opaque style."
+                    )
+                }
+            }
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
                     Text("Auto").tag(0)

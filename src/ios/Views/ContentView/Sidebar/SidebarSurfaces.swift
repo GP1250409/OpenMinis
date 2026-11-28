@@ -136,11 +136,17 @@ private let folderEdgeHighlight = Color(UIColor { traits in
 /// text field and its icons ride within the material instead of being composited
 /// over a separately-drawn shape.
 struct SearchBarSurface: ViewModifier {
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             // No .clipShape needed — glassEffect(in:) already clips to the
             // capsule, and no .shadow: the material carries its own.
             content.glassEffect(.regular, in: .capsule)
+        } else if liquidGlassEnabled {
+            content
+                .clipShape(Capsule())
+                .modifier(LiquidGlassSurface(shape: Capsule(), style: .composer))
         } else {
             content
                 .background(Color(UIColor.secondarySystemBackground))

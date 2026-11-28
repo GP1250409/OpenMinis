@@ -120,6 +120,8 @@ struct MessageContextMenuPreview: View {
 /// system composites behind it, while the material still supplies the glass
 /// highlight and edge that make it read as continuous with the bubble.
 private struct ContextMenuPreviewSurface: ViewModifier {
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
+
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 18)
     }
@@ -130,6 +132,10 @@ private struct ContextMenuPreviewSurface: ViewModifier {
                 // Opaque floor first — see the note above.
                 .background(shape.fill(ChatColors.background))
                 .glassEffect(.regular, in: shape)
+        } else if liquidGlassEnabled {
+            content
+                .modifier(LiquidGlassSurface(shape: shape, style: .bubble))
+                .background(shape.fill(ChatColors.background))
         } else {
             content.background(ChatColors.background)
         }
@@ -173,6 +179,7 @@ extension EnvironmentValues {
 private struct UserBubbleSurface: ViewModifier {
     let isQueued: Bool
     @Environment(\.chatSnapshotRendering) private var snapshotRendering
+    @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
     /// Matches `.contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))`
     /// on the row exactly — including the default (non-`.continuous`) corner
@@ -194,6 +201,8 @@ private struct UserBubbleSurface: ViewModifier {
                 )
         } else if #available(iOS 26.0, *), !snapshotRendering, ChatThemeStore.current == nil {
             content.glassEffect(.regular, in: shape)
+        } else if liquidGlassEnabled, !snapshotRendering, ChatThemeStore.current == nil {
+            content.modifier(LiquidGlassSurface(shape: shape, style: .bubble))
         } else {
             content.background(shape.fill(ChatColors.userBubble))
         }
