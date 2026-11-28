@@ -135,12 +135,12 @@ extension ContentView {
         let tint: Color?
         let fallbackFill: Color
         let fallbackShadowOpacity: Double
-        @ViewBuilder let icon: () -> Icon
+        let icon: Icon
         @AppStorage(LiquidGlassLegacySettings.defaultsKey) private var liquidGlassEnabled: Bool = true
 
         var body: some View {
             if liquidGlassEnabled {
-                icon()
+                icon
                     .frame(width: 56, height: 56)
                     .modifier(LiquidGlassSurface(shape: Circle(), style: .floatingButton, tint: tint))
                     .contentShape(Circle())
@@ -148,7 +148,7 @@ extension ContentView {
             } else {
                 Circle()
                     .fill(fallbackFill)
-                    .overlay { icon() }
+                    .overlay { icon }
                     .shadow(color: .black.opacity(fallbackShadowOpacity), radius: 8, x: 0, y: 4)
                     .contentShape(.contextMenuPreview, Circle())
             }
@@ -241,7 +241,7 @@ extension ContentView {
                 tint: tint,
                 fallbackFill: fallbackFill,
                 fallbackShadowOpacity: fallbackShadowOpacity,
-                icon: icon
+                icon: icon()
             )
         }
     }
