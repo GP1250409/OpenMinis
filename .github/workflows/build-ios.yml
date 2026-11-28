@@ -128,6 +128,9 @@ jobs:
           set -o pipefail
           python3 scripts/minismod_regression.py 2>&1 | tee mod-regression.log
           python3 scripts/minismod_accordion_regression.py 2>&1 | tee accordion-regression.log
+          # [T-sidebar-recent-section] Shipping membership/gate rule compiled and
+          # run (Linux + macOS) plus the wiring contracts of the 最近 bucket.
+          python3 scripts/sidebar_recent_regression.py 2>&1 | tee sidebar-recent-regression.log
           python3 scripts/genui_height_regression.py 2>&1 | tee genui-height-regression.log
       - name: Thinking & list transaction regression tests
         if: steps.scope.outputs.run_thinking_uikit == 'true'
@@ -307,6 +310,9 @@ jobs:
             build/card-dark/*.log
             build/card-dark/ProductionRenderer.swift
             mod-regression.log
+            sidebar-recent-regression.log
+            build/sidebar-recent/results.log
+            build/sidebar-recent/ProductionRecentPlanner.swift
             genui-height-regression.log
             chart-layout-regression.log
             chart-render-regression.log
@@ -324,3 +330,45 @@ jobs:
             build/genui-height/
             build.log
             build/mod-regression/*.swift
+      - name: Notify via Bark
+        if: success()
+        env:
+          BARK_URL: ${{ secrets.BARK_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.request
+          url = os.environ.get("BARK_URL", "").strip().rstrip("/")
+          if not url:
+              print("BARK_URL secret not configured; skipping Bark notification.")
+              raise SystemExit(0)
+          branch = os.environ.get("GITHUB_REF_NAME", "unknown")
+          sha = os.environ.get("GITHUB_SHA", "")[:7]
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+          try:
+              msg_line = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], text=True).strip()
+          except Exception:
+              msg_line = ""
+          body = f"分支: {branch}\n提交: {sha}" + (f" {msg_line}" if msg_line else "")
+          payload = json.dumps({
+              "title": "Minis-mod IPA 构建成功",
+              "body": body,
+              "url": run_url,
+              "group": "Minis-mod CI",
+          }).encode("utf-8")
+          req = urllib.request.Request(
+              url,
+              data=payload,
+              headers={
+                  "Content-Type": "application/json; charset=utf-8",
+                  "User-Agent": "curl/8.7.1",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  print(f"Bark notified: HTTP {resp.status}")
+          except Exception as exc:
+              print(f"Bark notification failed (non-fatal): {exc}")
+          PY

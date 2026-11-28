@@ -69,20 +69,43 @@ extension ContentView {
                 .textCase(nil)
             }
             .buttonStyle(.plain)
-        } else if index > 0 || group.label == "Pinned" {
-            HStack(spacing: 4) {
-                if group.label == "Pinned" {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(UIColor.secondaryLabel))
+        } else if index > 0 || group.label == "Pinned" || group.label == "Recent" {
+            Group {
+                // [T-sidebar-recent-section] "最近": title + unread counter +
+                // chevron, laid out exactly like the pinned row's title so both
+                // bucket titles keep one shared x (see RecentSectionHeaderRow).
+                // [T-sidebar-title-glyph-removal] Neither bucket shows a glyph
+                // in front of its title.
+                if group.label == "Recent", group.folderId == nil {
+                    // [T-sidebar-recent-unread-badge] The badge and "全部已读"
+                    // read the SAME live source — the store's unread set
+                    // projected onto this bucket's rows — so the number cannot
+                    // drift from the rows behind it and drops to zero the
+                    // moment they are read. Both stay correct while the bucket
+                    // is folded: folding hides the rows, not the ids.
+                    RecentSectionHeaderRow(label: group.label,
+                                           unreadCount: recentUnreadCount(group),
+                                           folds: !isSearching,
+                                           markAllRead: { markAllSessionsRead() })
+                } else if group.label == "Pinned", group.folderId == nil {
+                    // [T-pinned-section-collapse] The first of the two date
+                    // buckets that fold (see the Recent row above): pin +
+                    // title + chevron, tap anywhere on the row.
+                    // Official Minis shows exactly this flat row, so the bucket
+                    // stays a header — a card would put a container around
+                    // something that is not a folder.
+                    PinnedSectionHeaderRow(label: group.label, folds: !isSearching)
+                } else {
+                    HStack(spacing: 4) {
+                        // group.label stays an English key for logic;
+                        // LocalizedStringKey resolves the display string.
+                        Text(LocalizedStringKey(group.label))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(UIColor.secondaryLabel))
+                    }
+                    .textCase(nil)
                 }
-                // group.label stays an English key for logic; LocalizedStringKey
-                // resolves the display string per system language.
-                Text(LocalizedStringKey(group.label))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(UIColor.secondaryLabel))
             }
-            .textCase(nil)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(dropTargetFolderId == "" ? Color.accentColor.opacity(0.18) : Color.clear)
@@ -106,6 +129,49 @@ extension ContentView {
         }
     }
 
+    // MARK: - [T-sidebar-recent-unread-badge] 最近 bucket: unread counter + 全部已读
+
+    /// Unread chats shown in this "最近" bucket right now.
+    ///
+    /// Derived, never stored: the store's LIVE unread set ∩ the bucket's own
+    /// ids. That is what makes the header react to every existing mark-read
+    /// path (opening a chat removes its `.unread` badge; so does "全部已读")
+    /// without a second counter that could disagree with the rows.
+    ///
+    /// `group.ids` is intact while the bucket is FOLDED (folding removes rows,
+    /// not membership), so a collapsed 最近 still reports how many unread
+    /// conversations are hidden inside it — which is exactly when the number
+    /// matters most.
+    func recentUnreadCount(_ group: SidebarGroup) -> Int {
+        RecentSectionPlanner.unreadCount(ids: group.ids,
+                                         unread: sidebarBadgeStore.unreadSessionIds)
+    }
+
+    /// [T-sidebar-recent-unread-badge] "全部已读".
+    ///
+    /// Uses ONLY the app's existing mark-read primitive — the very call that
+    /// runs when a chat is opened (`SessionBadgeStore.remove(.unread,…)`) — on
+    /// every session currently carrying the `.unread` hint. It clears a
+    /// transient UI badge and nothing else: no message is deleted, no session
+    /// body/updatedAt is rewritten, no `.paused` or other queued state is
+    /// touched (that would need `clearAll(for:)`, which this deliberately does
+    /// NOT use), and nothing is persisted beyond the store's own "unread is
+    /// transient" rule.
+    ///
+    /// Every unread session is cleared, not only the ones the 3/5/10 cap
+    /// currently lists: the button says "all", and a capped bucket can hold
+    /// fewer rows than there are unread chats. The badge then reads 0 and
+    /// disappears together with the button.
+    func markAllSessionsRead() {
+        let unread = sidebarBadgeStore.unreadSessionIds
+        guard !unread.isEmpty else { return }
+        for id in unread {
+            sidebarBadgeStore.remove(.unread, for: id)
+        }
+        AppLogger(category: "SessionBadgeStore").info(
+            "[BadgeMarkAll] cleared=\(unread.count) source=sidebar-recent-header")
+    }
+
     /// Display aggregates for the Move-to-Group picker rows: the same
     /// composed icon glyphs and member count the home group card shows, plus
     /// the subtitle context — the folder's description when one is set,
@@ -125,14 +191,11 @@ extension ContentView {
             activity[folder.id] = FolderPickerOrder.lastActive(
                 folderUpdatedAt: folder.updatedAt, folderCreatedAt: folder.createdAt,
                 newestMemberUpdatedAt: m.first?.updatedAt)
-            // Top-3 DISTINCT category glyphs by recency — same rule as
+            // Top-4 member category glyphs by recency — same rule as
             // groupedSessionIDs, so the picker icon matches the home card.
-            var glyphs: [FolderGlyph] = []
-            var seenCategories = Set<String>()
-            for s in m where seenCategories.insert(s.category ?? "").inserted {
-                let icon = sessionCategoryIcon(for: s.category)
-                glyphs.append(FolderGlyph(systemName: icon.systemName, color: icon.color))
-                if glyphs.count == 3 { break }
+            let glyphs = m.prefix(4).map {
+                let icon = sessionCategoryIcon(for: $0.category)
+                return FolderGlyph(systemName: icon.systemName, color: icon.color)
             }
             let desc = folder.desc?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return FolderPickerSheet.FolderItem(
@@ -179,8 +242,8 @@ extension ContentView {
                     // guessing which row it refers to.
                     .overlay {
                         if group.isCollapsed && group.anyActive {
-                            SpinningRing(color: group.glyphs.first?.color ?? .gray)
-                                .frame(width: 42, height: 42)
+                            FolderSpinningBorder(color: group.glyphs.first?.color ?? .gray)
+                                .frame(width: 44, height: 44)
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {

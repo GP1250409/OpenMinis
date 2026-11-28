@@ -49,7 +49,8 @@ final class AccordionCollectionLayout: UICollectionViewLayout {
 
     func headerY(section: Int) -> CGFloat {
         guard sections.indices.contains(section), starts.indices.contains(section) else { return 0 }
-        return starts[section] + sections[section].labelHeight
+        let s = sections[section]
+        return s.headerHeight > 0 ? starts[section] + s.labelHeight : starts[section]
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool { true }

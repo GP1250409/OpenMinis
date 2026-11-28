@@ -147,8 +147,106 @@ final class AccordionTestApp: UIResponder, UIApplicationDelegate {
         floatingBarTest()
         sidebarChromeTest()
         folderAppearanceTest()
+        recentBucketSpacingTest()
         usageStampTest()
         print("ACCORDION_UIKIT_PASS \(passed)"); fflush(stdout); exit(0)
     }
     func checkSilent(_ condition: Bool) { if !condition { check(false, "anchor geometry"); } }
+
+    /// [T-sidebar-recent-section] "最近" and "置顶" are the SAME kind of section:
+    /// one 32pt label slot, then real rows only. Folded, a bucket contributes
+    /// nothing but its label; expanded, it adds exactly its rows — no minimum
+    /// height, no inter-section spacing. That is the spacing contract the
+    /// official sidebar breaks (its folded Recent leaves a row-sized hole) and
+    /// this one must not: 最近→置顶 == 置顶→分组 == one label slot when folded,
+    /// and every expanded boundary is flush.
+    func recentBucketSpacingTest() {
+        let layout = AccordionCollectionLayout()
+        let collection = UICollectionView(frame: CGRect(x: 0, y: 0, width: 390, height: 844),
+                                          collectionViewLayout: layout)
+        collection.contentInset = .zero
+        layout.sections = [
+            AccordionSectionGeometry(id: "b:Recent", folderID: nil, count: 5, rowHeight: 68,
+                                     labelHeight: 32, headerHeight: 0, footerHeight: 0),
+            AccordionSectionGeometry(id: "b:Pinned", folderID: nil, count: 3, rowHeight: 68,
+                                     labelHeight: 32, headerHeight: 0, footerHeight: 0),
+            AccordionSectionGeometry(id: "f:g", folderID: "g", count: 2, rowHeight: 68,
+                                     labelHeight: 32, headerHeight: 68, footerHeight: 4),
+        ]
+
+        // The group card behind them stays EXPANDED, exactly as a folder card
+        // ships (only the two date buckets toggle), so its own rows are part of
+        // every expectation below.
+        // NOTE: the slots are named CGFloat constants on purpose. Written as one
+        // literal chain inside `check`'s @autoclosure every literal becomes
+        // overloadable against CGFloat and the compiler gives up ("unable to
+        // type-check this expression in reasonable time"), which is what killed
+        // the first CI run of this fixture.
+        let labelSlot: CGFloat = 32
+        let rowSlot: CGFloat = 68
+        // A group card's WHOLE contribution to naturalHeight: its own 32pt
+        // "Groups" label, the 68pt header, one 68pt row per member and the 4pt
+        // footer. The previous version defined `groupChrome` as header+footer
+        // only, so `groupExpanded` was 32pt short of what prepare() actually
+        // adds for this section (production builds folder sections with
+        // labelHeight 32 / headerHeight 68 / footerHeight 4 — see
+        // ContentView+NativeAccordion.swift). That fixture arithmetic, not the
+        // shipping layout, is what failed on the simulator.
+        let groupChrome: CGFloat = labelSlot + 68 + 4   // own label + header + footer
+        let groupExpanded: CGFloat = groupChrome + 2 * rowSlot
+
+        // Reports the two real numbers before an exact-equality assertion, so a
+        // future mismatch shows the actual/expected geometry instead of only a
+        // test name. The assertion itself stays exact.
+        func checkHeight(_ actual: CGFloat, _ expected: CGFloat, _ name: String) {
+            print("HEIGHT \(name) actual=\(actual) expected=\(expected) delta=\(actual - expected)")
+            fflush(stdout)
+            check(actual == expected, name)
+        }
+
+        // Both date buckets folded: equal 32pt pitches, no reserved member rows.
+        layout.reveal = [0, 0, 1]
+        layout.prepare()
+        check(layout.starts[1] - layout.starts[0] == labelSlot, "folded 最近→置顶 pitch is one 32pt label slot")
+        check(layout.starts[2] - layout.starts[1] == labelSlot, "folded 置顶→分组 pitch is one 32pt label slot")
+        // Only the two folded date buckets still add a label; the group's own
+        // label is already inside groupExpanded.
+        let foldedHeight: CGFloat = 2 * labelSlot + groupExpanded
+        checkHeight(layout.naturalHeight, foldedHeight, "a folded bucket reserves no member height")
+        print("RECENT_BUCKET_SPACING_PASS folded_pitch=32 reserved_rows=0"); fflush(stdout)
+
+        // 最近 expanded: label→row pitch is the label's own height, and the last
+        // row sits flush on the 置顶 title.
+        layout.reveal = [1, 0, 1]
+        layout.prepare()
+        let recentLabel = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))!
+        let recentFirst = layout.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))!
+        let recentLast = layout.layoutAttributesForItem(at: IndexPath(item: 5, section: 0))!
+        check(recentLabel.frame.height == 32, "最近 keeps the shared 32pt label slot")
+        check(recentFirst.frame.minY == recentLabel.frame.maxY, "最近 title→first row has no extra gap")
+        check(recentLast.frame.maxY == layout.starts[1], "last 最近 row meets 置顶 title with no gap")
+        let recentExpandedHeight: CGFloat = labelSlot + 5 * rowSlot + labelSlot + groupExpanded
+        checkHeight(layout.naturalHeight, recentExpandedHeight,
+                    "expanded 最近 adds exactly its five real rows and nothing else")
+
+        // 置顶 expanded between a folded Recent and the Groups divider.
+        layout.reveal = [0, 1, 1]
+        layout.prepare()
+        let pinnedLabel = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 1))!
+        let pinnedFirst = layout.layoutAttributesForItem(at: IndexPath(item: 1, section: 1))!
+        let pinnedLast = layout.layoutAttributesForItem(at: IndexPath(item: 3, section: 1))!
+        check(pinnedFirst.frame.minY == pinnedLabel.frame.maxY, "置顶 title→first row has no extra gap")
+        check(pinnedLast.frame.maxY == layout.starts[2], "last pinned row meets 分组 with no gap")
+        let pinnedExpandedHeight: CGFloat = labelSlot + labelSlot + 3 * rowSlot + groupExpanded
+        checkHeight(layout.naturalHeight, pinnedExpandedHeight,
+                    "expanded 置顶 adds exactly its three real rows and nothing else")
+
+        // Both expanded: the two buckets stack on the same rhythm.
+        layout.reveal = [1, 1, 1]
+        layout.prepare()
+        let recentOpenPitch: CGFloat = labelSlot + 5 * rowSlot
+        check(layout.starts[1] - layout.starts[0] == recentOpenPitch,
+              "expanded 最近→置顶 pitch is its label plus its rows")
+        print("RECENT_BUCKET_SPACING_PASS expanded_pitch=32 row=68 footer=0"); fflush(stdout)
+    }
 }

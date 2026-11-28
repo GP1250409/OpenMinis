@@ -94,10 +94,16 @@ enum SidebarIdentityTracer {
         // A duplicate here would mean SidebarGroup.ids' guard was bypassed —
         // impossible through the setter, but if it ever shows up it is the
         // whole answer, so check rather than assume.
-        if rows.count != newRowSet.count {
+        //
+        // [T-sidebar-recent-pinned-copy] The check is PER SECTION: a pinned
+        // chat now legitimately appears in both 最近 and 置顶, so the flattened
+        // sequence repeats ids by design. What must never repeat is a section's
+        // OWN list — that is the single ForEach a duplicate identity can crash.
+        let duplicatedSections = groups.filter { $0.ids.count != Set($0.ids).count }
+        if !duplicatedSections.isEmpty {
             logger.error(
-                "[\(site)] DUPLICATE ROW IDENTITY reached ForEach — "
-                + "rows=\(rows.count) unique=\(newRowSet.count). "
+                "[\(site)] DUPLICATE ROW IDENTITY inside a section — "
+                + "\(duplicatedSections.map { $0.id }.joined(separator: ",")). "
                 + "SidebarGroup.ids' dedup was bypassed; this is the crash shape.")
         }
     }

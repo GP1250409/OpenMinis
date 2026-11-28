@@ -18,6 +18,29 @@ arch=subprocess.check_output(['uname','-m'],text=True).strip()
 surfaces=(ios/'SidebarSurfaces.swift').read_text()
 paint='import SwiftUI\nimport UIKit\n'+surfaces[surfaces.index('private struct FolderSegmentBorder:'):surfaces.index('/// Background for the expanded FAB search bar.')]
 paint+=surfaces[surfaces.index('private struct FolderSurface:'):surfaces.index('/// Rename + dissolve alerts')]
+# [T-pinned-section-collapse] NativeAccordionList reads PinnedSectionState for
+# the pinned bucket's fold, and PinnedSectionState sits past this slice's end
+# (in the stable pinned-title section of the file). Include the state and its
+# two leaf views explicitly so the shipped accordion still compiles verbatim.
+paint+=surfaces[surfaces.index('/// [T-pinned-section-collapse] Fold state'):surfaces.index('struct PinnedBoundaryProbe: UIViewRepresentable')]
+# [T-sidebar-title-glyph-removal] NEITHER date-bucket title carries a leading
+# glyph any more: the pinned bucket's pin AND the Recent bucket's clock are
+# both gone, and the titles did not move — the glyph was always an out-of-flow
+# leading overlay at a negative offset, never an HStack member, so the text's
+# own frame (and therefore its x) never depended on it. The fold chevron stays
+# immediately after the title, and the sticky UIKit copy paints the same
+# relationship from `labelX` so the handover cannot hop.
+pin_row=surfaces[surfaces.index('struct PinnedSectionHeaderRow: View {'):surfaces.index('/// Rows of the pinned bucket for the plain-List paths')]
+pin_hstack=pin_row[pin_row.index('HStack(spacing: 4) {'):pin_row.index('.frame(maxWidth: .infinity, alignment: .leading)')]
+assert 'pin.fill' not in pin_hstack,'no glyph may precede the pinned title'
+assert pin_hstack.index('Text(LocalizedStringKey(label))') < pin_hstack.index('Image(systemName: "chevron.down")'),'title stays the leading element of the row'
+assert '.overlay(alignment: .leading)' not in pin_row,'the gutter glyph is gone from the pinned header'
+assert 'PinnedTitlePin' not in surfaces,'the pin gutter geometry must be gone with the glyph'
+stable=surfaces[surfaces.index('final class StablePinnedTitle'):surfaces.index('/// [T-pinned-section-collapse] Fold state')]
+assert 'label.frame = CGRect(x: labelX' in stable,'sticky title must keep x == labelX'
+assert 'pin.frame' not in stable,'the sticky copy must not paint a glyph in the gutter'
+assert 'chevron.frame = CGRect(x: labelX + titleWidth + 4' in stable,'the sticky chevron still follows the title'
+print('TITLE_GLYPH_REMOVAL_OK gutter=0')
 paint_source=out/'ProductionFolderSurfaces.swift';paint_source.write_text(paint)
 # Compile the complete production SessionRow, not a replacement Text fixture.
 # Only application services/models are doubled in RowClippingTests.swift.
@@ -125,3 +148,9 @@ if 'ACCORDION_UIKIT_PASS ' not in r.stdout:
  except subprocess.TimeoutExpired:
   (out/'diagnostic.log').write_text('log show timed out')
 assert 'ACCORDION_UIKIT_PASS ' in r.stdout,'Native accordion regression failed'
+# [T-sidebar-recent-section] Both labelled date buckets (最近 / 置顶) sit on one
+# 32pt label pitch, a folded bucket reserves no member height, and every
+# expanded boundary is flush: the spacing contract the official sidebar
+# breaks by leaving a row-sized hole under a folded 最近.
+assert 'RECENT_BUCKET_SPACING_PASS folded_pitch=32 reserved_rows=0' in r.stdout,'recent bucket spacing contract'
+assert 'RECENT_BUCKET_SPACING_PASS expanded_pitch=32 row=68 footer=0' in r.stdout,'recent bucket expanded spacing contract'

@@ -42,64 +42,87 @@ func sessionCategoryIcon(for category: String?) -> (systemName: String, color: C
     }
 }
 
-/// Folder icon composed from the folder's top member glyphs: a rounded-rect
-/// "group" container tinted with the first member's category color, holding up
-/// to 3 distinct category symbols. Empty folder → plain gray folder glyph.
-/// Pure rendering — the glyph selection/dedup happens in groupedSessionIDs.
-/// The "grouped list" glyph from the user-provided asset: two rounded
-/// square outlines on the left, four list lines on the right. Traced from
-/// the 1024-unit SVG; squares are drawn as even-odd rings so the whole
-/// glyph is a single fill (no stroke-vs-fill mixing).
-struct GroupGlyphShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let u = rect.width / 1024.0
-
-        func ring(x: CGFloat, y: CGFloat) {
-            // Outer 325.8×325.8 with r 93; inner inset by the 46.5 stroke.
-            let outer = CGRect(x: x * u, y: y * u, width: 325.8 * u, height: 325.8 * u)
-            let inner = outer.insetBy(dx: 46.5 * u, dy: 46.5 * u)
-            p.addRoundedRect(in: outer, cornerSize: CGSize(width: 93 * u, height: 93 * u), style: .continuous)
-            p.addRoundedRect(in: inner, cornerSize: CGSize(width: 46.5 * u, height: 46.5 * u), style: .continuous)
-        }
-        func line(cy: CGFloat) {
-            let r = CGRect(x: 558.5 * u, y: (cy - 23.27) * u, width: 325.8 * u, height: 46.5 * u)
-            p.addRoundedRect(in: r, cornerSize: CGSize(width: 23.27 * u, height: 23.27 * u))
-        }
-
-        ring(x: 139.6, y: 139.6)
-        ring(x: 139.6, y: 511.9)
-        line(cy: 209.5)
-        line(cy: 395.6)
-        line(cy: 581.8)
-        line(cy: 768.0)
-        return p
-    }
-}
-
-/// Group icon: the grouped-list glyph on the SAME circular translucent tint
-/// the session rows use, at the same 44pt slot — so a group icon and a
-/// session icon are the same species at the same size. The tint and glyph
-/// color borrow the newest member's category color (gray when empty), which
-/// is all that remains of the member-glyph composition: the shape is
-/// uniform, the color still says what the group holds.
+/// Folder icon composed from up to 4 member glyphs in an iOS-folder-style
+/// 2×2 mini-circle grid inside a rounded-square container. Empty folder →
+/// plain gray folder glyph.
+/// Pure rendering — the top-4 glyph selection happens in groupedSessionIDs.
 struct FolderComposedIcon: View {
     let glyphs: [FolderGlyph]
     var diameter: CGFloat = 44
 
     var body: some View {
-        let tint = glyphs.first?.color ?? .gray
+        let corner = diameter * (11.0 / 44.0)
+        let pad = diameter * (4.0 / 44.0)
+        let gap = diameter * (2.0 / 44.0)
+        let cell = (diameter - pad * 2 - gap) / 2.0
+        let iconSize = diameter * (8.5 / 44.0)
+
         ZStack {
-            // 0.28 vs the session icons' 0.18: a deliberately stronger tint
-            // so a group circle reads as a different kind of thing at a
-            // glance, while keeping the same size and shape language.
-            Circle()
-                .fill(tint.opacity(0.28))
-            GroupGlyphShape()
-                .fill(tint, style: FillStyle(eoFill: true))
-                .frame(width: diameter * 0.56, height: diameter * 0.56)
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .fill(Color(UIColor.tertiarySystemFill))
+
+            if glyphs.isEmpty {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: diameter * 0.42))
+                    .foregroundStyle(.gray)
+            } else {
+                VStack(spacing: gap) {
+                    HStack(spacing: gap) {
+                        miniCell(index: 0, size: cell, iconSize: iconSize)
+                        miniCell(index: 1, size: cell, iconSize: iconSize)
+                    }
+                    HStack(spacing: gap) {
+                        miniCell(index: 2, size: cell, iconSize: iconSize)
+                        miniCell(index: 3, size: cell, iconSize: iconSize)
+                    }
+                }
+                .padding(pad)
+            }
         }
         .frame(width: diameter, height: diameter)
+    }
+
+    @ViewBuilder
+    private func miniCell(index: Int, size: CGFloat, iconSize: CGFloat) -> some View {
+        if index < glyphs.count {
+            let g = glyphs[index]
+            ZStack {
+                Circle()
+                    .fill(g.color.opacity(0.22))
+                Image(systemName: g.systemName)
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(g.color)
+            }
+            .frame(width: size, height: size)
+        } else {
+            Color.clear.frame(width: size, height: size)
+        }
+    }
+}
+
+/// Spinning border matching FolderComposedIcon's rounded-square silhouette
+/// when a collapsed folder has an active running session.
+struct FolderSpinningBorder: View {
+    let color: Color
+    var cornerRadius: CGFloat = 11
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let angle = timeline.date.timeIntervalSinceReferenceDate.remainder(dividingBy: 1.0) * 360
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .clear, location: 0.0),
+                            .init(color: .clear, location: 0.65),
+                            .init(color: color, location: 1.0),
+                        ]),
+                        center: .center,
+                        angle: .degrees(angle)
+                    ),
+                    lineWidth: 1.5
+                )
+        }
     }
 }
 

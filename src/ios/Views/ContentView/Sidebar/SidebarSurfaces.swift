@@ -183,40 +183,20 @@ private struct FolderSurface: ViewModifier {
     enum Kind { case lone, top, middle, bottom }
     let kind: Kind
     private var edgeColor: Color {
-        // Match upstream: expanded segments use the adaptive glass highlight
-        // on every iOS version. Only legacy collapsed cards use separator.
-        if kind != .lone { return folderEdgeHighlight }
-        if #available(iOS 26.0, *) { return folderEdgeHighlight }
-        return Color(UIColor.separator).opacity(0.5)
+        // Match official Minis: collapsed and expanded cards use the same
+        // adaptive edge highlight (white 0.30 dark / black 0.08 light) across
+        // all iOS versions.
+        folderEdgeHighlight
     }
     private var edgeWidth: CGFloat {
-        // Upstream expanded outline is 0.75pt, not the MOD's former 1.5pt.
-        if kind != .lone { return 0.75 }
-        if #available(iOS 26.0, *) { return 0.75 }
-        return 0.5
+        0.75
     }
 
-    /// The collapsed card's ACTUAL rendered color, eyedropper-sampled from
-    /// device screenshots. Dark: RGB 18/18/18 — re-sampled with a probe
-    /// build rendering REAL glass over a pure-black list with no pinned rows
-    /// behind it (24 points, zero variance). The earlier 57/57/60 was
-    /// contaminated: that screenshot's card had blurred colorful content
-    /// showing through the glass, and the too-light constant is what read as
-    /// a heavy solid slab against the black page. True glass sits nearly on
-    /// the background and lets the edge hairline do the lifting — that IS
-    /// the lightweight look. Light: RGB 252/252/252 (sampled over a clean
-    /// light background, unaffected).
-    /// Used for the expanded segments on iOS 26 instead of per-row
-    /// glassEffect: glass pieces cannot merge across List rows (edge lines
-    /// between every segment — twice rejected), and in THIS context glass
-    /// has nothing to blur behind it (the container sits on the flat list
-    /// background), so its rendered output IS effectively this constant
-    /// color. Sampling it gives pixel-level brightness parity with the
-    /// collapsed card, perfectly seamless tiling, and zero perf risk —
-    /// chosen by the user over a preference-propagation spike.
+    /// Collapsed card fill matching official Minis in dark mode (28/255/28/255/30/255,
+    /// i.e. secondarySystemBackground) and clean light surface (252/252/252).
     static let sampledGlassColor = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 18/255.0, green: 18/255.0, blue: 18/255.0, alpha: 1)
+            ? UIColor(red: 28/255.0, green: 28/255.0, blue: 30/255.0, alpha: 1)
             : UIColor(red: 252/255.0, green: 252/255.0, blue: 252/255.0, alpha: 1)
     })
 
@@ -402,7 +382,18 @@ final class StablePinnedTitle: ObservableObject {
     private var labelX: CGFloat = 16
     private let surface = UIView()
     private let label = UILabel()
-    private let pin = UIImageView(image: UIImage(systemName: "pin.fill"))
+    /// [T-sidebar-recent-section] No leading glyph on either date-bucket title
+    /// ([T-sidebar-title-glyph-removal]): the sticky copy used to paint the
+    /// pinned bucket's pin symbol in the gutter to mirror the SwiftUI header,
+    /// and it is gone from both, so the handover between the two copies cannot
+    /// show a glyph one of them no longer draws.
+    /// [T-pinned-section-collapse] The chevron the SwiftUI header draws for a
+    /// date bucket. While the section is expanded the sticky overlay is the
+    /// only VISIBLE copy of that header (the SwiftUI one is at opacity 0.001
+    /// for the probe), so the chevron has to be painted here too or the
+    /// expand affordance would disappear exactly when it is needed.
+    private let chevron = UIImageView(image: UIImage(systemName: "chevron.down"))
+    private var chevronAngle: CGFloat = 0
     private var queued = false
 
     init() {
@@ -411,9 +402,9 @@ final class StablePinnedTitle: ObservableObject {
         label.textColor = .secondaryLabel
         label.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .semibold)
         label.accessibilityTraits = .header
-        pin.tintColor = .secondaryLabel
-        pin.contentMode = .scaleAspectFit
-        surface.addSubview(pin); surface.addSubview(label)
+        chevron.tintColor = .tertiaryLabel
+        chevron.contentMode = .scaleAspectFit
+        surface.addSubview(label); surface.addSubview(chevron)
     }
 
     func configure(ids: [String], enabled: Bool) {
@@ -472,7 +463,11 @@ final class StablePinnedTitle: ObservableObject {
 
     private func layoutTitle() {
         guard let scroll else { return }
-        guard enabled else { surface.isHidden = true; return }
+        // [T-pinned-section-collapse] A folded bucket has no members, so the
+        // first/last probes that give this overlay its bounds are stale at
+        // best: hide the sticky copy and let the real SwiftUI header (with
+        // its right-pointing chevron) be the visible one.
+        guard enabled, !PinnedSectionState.isCollapsedNow else { surface.isHidden = true; return }
         if let h = headerProbe, h.window != nil, h.isDescendant(of: scroll) {
             // Use the supplementary container's height, not just the Text's
             // glyph box: this preserves the native section header spacing.
@@ -504,11 +499,292 @@ final class StablePinnedTitle: ObservableObject {
         label.text = AppLocalized("Pinned")
         let fontSize = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
         label.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        pin.frame = CGRect(x: labelX, y: (headerHeight - 10) / 2, width: 10, height: 10)
-        label.frame = CGRect(x: labelX + 14, y: 0, width: max(0, surface.bounds.width - labelX - 30), height: headerHeight)
+        label.frame = CGRect(x: labelX, y: 0, width: max(0, surface.bounds.width - labelX - 16), height: headerHeight)
+        // [T-sidebar-title-glyph-removal] The gutter glyph is gone, so the
+        // sticky copy draws NOTHING left of `labelX` any more: both bucket
+        // titles start exactly at the SwiftUI header's text edge, and the
+        // handover between the two copies is a pure cross-fade of the same
+        // title at the same x. `label.frame` above was never touched by the
+        // glyph (it hung outside the layout flow), which is why removing it
+        // moves nothing.
+        // [T-pinned-section-collapse] Chevron right after the title, matching
+        // the SwiftUI header's 4pt spacing and 11pt glyph.
+        let titleWidth = min(label.intrinsicContentSize.width,
+                             max(0, surface.bounds.width - labelX - 30))
+        let chevronSize: CGFloat = 11
+        chevron.frame = CGRect(x: labelX + titleWidth + 4,
+                               y: (headerHeight - chevronSize) / 2,
+                               width: chevronSize, height: chevronSize)
+        chevron.transform = CGAffineTransform(rotationAngle: chevronAngle)
         // Keep the title in front of newly inserted rows; scrollView still
         // receives all taps and drops through this noninteractive surface.
         scroll.bringSubviewToFront(surface)
+    }
+}
+
+/// [T-pinned-section-collapse] Fold state of the "置顶" bucket.
+///
+/// A tiny store instead of a `ContentView` @State on purpose. The pinned
+/// bucket collapses through the NATIVE ACCORDION's own display-link motion —
+/// the same 0.25s reveal a folder card gets — and that motion is driven by
+/// `NativeAccordionController`, which can only react to a change it can see.
+/// Keeping the flag here means:
+///   • the header row re-renders its chevron on its own (`@ObservedObject`),
+///   • the accordion observes `didChange` and animates the section height,
+///   • `ContentView`'s body never rebuilds its grouping for a pure fold, so
+///     the sidebar memo and the row identities stay exactly as they were.
+///
+/// Persisted like the folder accordion, never synced.
+@MainActor
+final class PinnedSectionState: ObservableObject {
+    static let shared = PinnedSectionState()
+    /// Non-isolated because `isCollapsedNow` (below) reads it from code that
+    /// must stay callable off the SwiftUI actor path.
+    nonisolated static let defaultsKey = "pinnedSectionCollapsed"
+    static let didChange = Notification.Name("PinnedSectionStateDidChange")
+
+    @Published private(set) var isCollapsed: Bool
+
+    /// Thread-safe, actor-free read for call sites that are not views (the
+    /// accordion's geometry code runs on the main thread anyway, but a plain
+    /// `UserDefaults` read keeps those paths free of actor hops).
+    nonisolated static var isCollapsedNow: Bool {
+        UserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    private init() {
+        isCollapsed = Self.isCollapsedNow
+    }
+
+    func toggle() {
+        let next = !isCollapsed
+        isCollapsed = next
+        UserDefaults.standard.set(next, forKey: Self.defaultsKey)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+}
+
+/// [T-sidebar-recent-section] Fold state of the "最近" bucket.
+///
+/// A byte-for-byte sibling of `PinnedSectionState`: same tiny store, same
+/// persisted-key discipline, same `didChange` contract. Both buckets are date
+/// buckets that fold through the native accordion's reveal motion, so the
+/// accordion has to be able to observe them WITHOUT rebuilding the grouping —
+/// hence a store outside `ContentView`'s @State.
+@MainActor
+final class RecentSectionState: ObservableObject {
+    static let shared = RecentSectionState()
+    nonisolated static let defaultsKey = "recentSectionCollapsed"
+    static let didChange = Notification.Name("RecentSectionStateDidChange")
+
+    @Published private(set) var isCollapsed: Bool
+
+    /// Actor-free read for the accordion's geometry path (same reason as the
+    /// pinned bucket's).
+    nonisolated static var isCollapsedNow: Bool {
+        UserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    private init() {
+        isCollapsed = Self.isCollapsedNow
+    }
+
+    func toggle() {
+        let next = !isCollapsed
+        isCollapsed = next
+        UserDefaults.standard.set(next, forKey: Self.defaultsKey)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+}
+
+// [T-sidebar-title-glyph-removal] The leading-glyph geometry block used to live
+// here: a 10pt symbol (a pin, and for 最近 a clock) drawn in a 14pt leading
+// gutter as an out-of-flow overlay. Both date-bucket titles now carry NO
+// leading glyph at all — the user asked for exactly that — so the geometry had
+// no reader left and was deleted with them. The titles' x is unchanged: the
+// glyph was always an overlay at a negative offset, never an HStack member, so
+// nothing about the text's own layout depended on it. What remains of each
+// header row is exactly [title][chevron], plus the Recent bucket's unread
+// counter between them, and the sticky UIKit copy paints the same.
+
+/// The pinned bucket's header row: title, and the chevron that folds the
+/// bucket. Its own view so the chevron tracks `PinnedSectionState` without
+/// `ContentView` observing the flag.
+///
+/// [T-sidebar-title-glyph-removal] No leading glyph any more: the pin that used
+/// to hang in the gutter is gone, and the title is still the row's first
+/// element at the same x it always had.
+struct PinnedSectionHeaderRow: View {
+    let label: String
+    /// False in a result set: the bucket there is the search result list, so
+    /// the chevron would fold away exactly what matched (same rule the folder
+    /// cards follow — no fold chevron in results).
+    var folds: Bool = true
+    @ObservedObject private var state = PinnedSectionState.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            // Bucket labels are English keys; localize at display only.
+            Text(LocalizedStringKey(label))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(UIColor.secondaryLabel))
+            if folds {
+                // Same chevron language as the folder cards: down while the
+                // chats are on screen, pointing right once they are folded.
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(UIColor.tertiaryLabel))
+                    .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { if folds { state.toggle() } }
+        .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
+        .textCase(nil)
+        .accessibilityAddTraits(folds ? .isButton : [])
+    }
+}
+
+/// Rows of the pinned bucket for the plain-List paths (search results,
+/// multi-select, iPad/Mac sidebar). The native accordion animates its own
+/// collapse, but a `List` has no reveal concept — there the rows simply have
+/// to stop being rows — and the fold flag lives outside `ContentView`, so the
+/// decision needs an observing wrapper of its own.
+struct PinnedBucketRows<Rows: View>: View {
+    @ObservedObject private var state = PinnedSectionState.shared
+    /// True only for the pinned bucket, and only where folding applies.
+    let active: Bool
+    @ViewBuilder var rows: () -> Rows
+
+    var body: some View {
+        if active && state.isCollapsed {
+            EmptyView()
+        } else {
+            rows()
+        }
+    }
+}
+
+/// [T-sidebar-recent-unread-badge] The red counter beside the "最近" title —
+/// the official header reads 最近 (1).
+///
+/// A COUNT, not a dot: it is the number of unread chats the bucket currently
+/// lists, computed by the caller from `SessionBadgeStore.unreadSessionIds` and
+/// the bucket's own ids (`RecentSectionPlanner.unreadCount`). Nothing here
+/// remembers a number, so opening one chat (the existing mark-read path) or
+/// "全部已读" moves it on the next pass. Zero never reaches this view — the
+/// caller hides it.
+struct RecentUnreadBadge: View {
+    let count: Int
+
+    var body: some View {
+        // `verbatim`: this is a number, not a translatable sentence.
+        Text(verbatim: count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 12, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            // One digit reads as a circle (18pt), three as a pill — the
+            // official shape, and it keeps the header's height at 18pt either
+            // way so a 32pt label slot never grows.
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Capsule().fill(Color.red))
+            // Non-localized on purpose: the visible text is the number, and
+            // the header is announced with it.
+            .accessibilityLabel(Text(verbatim: "\(count) unread"))
+    }
+}
+
+/// [T-sidebar-recent-section] The "最近" bucket's header row: the title, the
+/// unread counter, the fold chevron, and "全部已读" on the right.
+///
+/// [T-sidebar-title-glyph-removal] No leading glyph: the clock that used to
+/// hang in the gutter is gone, and the title is still the row's first element
+/// at the same x — it was never an HStack member, so nothing moved.
+///
+/// Deliberately a TWIN of `PinnedSectionHeaderRow`: same title `Text`, same
+/// `.subheadline.weight(.semibold)`, same 4pt gap, same 11pt chevron, same
+/// 0.25s fold animation — so "最近" and "置顶" share one text edge by
+/// construction rather than by eye.
+struct RecentSectionHeaderRow: View {
+    let label: String
+    /// [T-sidebar-recent-unread-badge] Unread chats currently listed in the
+    /// bucket. 0 hides BOTH the badge and "全部已读": there is nothing to mark
+    /// read, and a control that looks live but does nothing is worse than no
+    /// control. Fed from the store every pass — this view owns no counter.
+    var unreadCount: Int = 0
+    /// False in a result set (see `PinnedSectionHeaderRow.folds`).
+    var folds: Bool = true
+    /// "全部已读". Optional so a caller with nothing to clear (and the UIKit
+    /// fixture) renders the header without the button.
+    var markAllRead: (() -> Void)? = nil
+    @ObservedObject private var state = RecentSectionState.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            // THE FOLD TAP AREA: title + badge + chevron, stretched over all
+            // the width left of the button. The tap lives on this CHILD rather
+            // than on the whole row precisely so it cannot overlap "全部已读":
+            // the button is a SIBLING, not something inside the tappable
+            // region, so neither control has to win a gesture race.
+            HStack(spacing: 4) {
+                // Bucket labels are English keys; localize at display only.
+                Text(LocalizedStringKey(label))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(UIColor.secondaryLabel))
+                if unreadCount > 0 {
+                    RecentUnreadBadge(count: unreadCount)
+                }
+                if folds {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(UIColor.tertiaryLabel))
+                        .rotationEffect(.degrees(state.isCollapsed ? -90 : 0))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { if folds { state.toggle() } }
+
+            if let markAllRead, unreadCount > 0 {
+                Button(action: markAllRead) {
+                    Text("Mark All as Read")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                        // NO vertical padding on purpose: the row's height must
+                        // stay the title's own (~20pt), or "最近" would be a
+                        // few points taller than "置顶" everywhere the header is
+                        // laid out by content (the iPad split list) instead of
+                        // by the accordion's fixed 32pt slot. `contentShape`
+                        // still makes the whole word tappable.
+                        .padding(.leading, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Mark All as Read"))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: state.isCollapsed)
+        .textCase(nil)
+        .accessibilityAddTraits(folds ? .isButton : [])
+    }
+}
+
+/// [T-sidebar-recent-section] Rows of the Recent bucket for the plain-List
+/// paths — same contract as `PinnedBucketRows`, different flag.
+struct RecentBucketRows<Rows: View>: View {
+    @ObservedObject private var state = RecentSectionState.shared
+    let active: Bool
+    @ViewBuilder var rows: () -> Rows
+
+    var body: some View {
+        if active && state.isCollapsed {
+            EmptyView()
+        } else {
+            rows()
+        }
     }
 }
 

@@ -363,6 +363,13 @@ struct AppearanceSettingsView: View {
     /// `ToolFoldPlanner.liveSettingsKey`. Independent: it folds the run that is
     /// still growing, whether or not a finished reply folds anything.
     @AppStorage("chat.foldToolsWhileReplying") private var foldToolsWhileReplying: Bool = false
+    /// [T-sidebar-recent-section] "显示最近分区" + "最近分区条数" (3 / 5 / 10).
+    /// Literal keys on purpose: they must match `RecentSectionSettings` in the
+    /// sidebar, and this file has to compile standalone in the settings
+    /// harness, so it cannot import that enum. `scripts/sidebar_recent_regression.py`
+    /// asserts the two spellings still agree.
+    @AppStorage("sidebarRecentSectionEnabled") private var showsRecentSection: Bool = true
+    @AppStorage("sidebarRecentSectionCount") private var recentSectionCount: Int = 5
     @ObservedObject private var fontSettings = FontSettings.shared
 
     enum LanguageSummaryDisplay: Equatable {
@@ -430,6 +437,26 @@ struct AppearanceSettingsView: View {
                 Text("Grouping")
             } footer: {
                 Text("When a chat's title is first generated, also file it into a matching existing group. Runs once per chat, only uses groups you already created, and leaves the chat ungrouped when nothing matches.")
+            }
+
+            // [T-sidebar-recent-section] The "最近" bucket above "置顶" — the
+            // switch, its 3/5/10 cap, and the rule in one place. No section
+            // header: the official screen shows it directly under the
+            // auto-grouping footer, and the footer below carries the whole
+            // explanation (what lands there, what dims, when it appears).
+            Section {
+                Toggle("Show Recent Section", isOn: $showsRecentSection)
+                if showsRecentSection {
+                    Picker("Recent Section Chats", selection: $recentSectionCount) {
+                        // Plain numbers, not localized strings.
+                        ForEach([3, 5, 10], id: \.self) { count in
+                            Text(verbatim: "\(count)").tag(count)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+            } footer: {
+                Text("Unread, running and recently active conversations also appear at the top of the list and stay in their original position. Read ones stay there, dimmed, until one hour after their last activity. This section appears only when pinned conversations and groups together exceed four.")
             }
 
             Section {

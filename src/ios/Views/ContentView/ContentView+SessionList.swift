@@ -105,6 +105,18 @@ extension ContentView {
     /// `SessionStackRow` (one view, fixed type). Runs only for rows the List
     /// actually builds, so the lookups below are per visible row, not per
     /// session in the library.
+    /// [T-pinned-section-collapse] The pinned bucket is the only date bucket
+    /// that folds. Its rows are wrapped in `PinnedBucketRows` on the plain-List
+    /// paths; the native accordion animates the same fold through `reveal`.
+    private func isPinnedBucket(_ group: SidebarGroup) -> Bool {
+        group.folderId == nil && group.label == "Pinned"
+    }
+
+    /// [T-sidebar-recent-section] The Recent bucket folds like the pinned one.
+    private func isRecentBucket(_ group: SidebarGroup) -> Bool {
+        group.folderId == nil && group.label == "Recent"
+    }
+
     func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {
         let session = sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId)
         return SessionStackRow(
@@ -261,24 +273,44 @@ extension ContentView {
                     if isSelecting {
                         ForEach(group.ids, id: \.self) { sessionId in
                             selectableRow(sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId))
-                                .id("select-\(sessionId)")
+                                // [T-sidebar-recent-pinned-copy] SECTION-scoped
+                                // id: a pinned chat now legitimately sits in
+                                // both 最近 and 置顶, and two rows carrying the
+                                // same explicit id inside one List is exactly
+                                // the duplicate-identity shape this file's
+                                // ForEach guards exist for.
+                                .id("select-\(group.id)-\(sessionId)")
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
-                        ForEach(group.ids, id: \.self) { sessionId in
-                            stackRow(sessionId, group: group)
-                                .background {
-                                    if group.label == "Pinned", group.folderId == nil, !isSearching {
-                                        ZStack {
-                                            if sessionId == group.ids.first {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
+                        // [T-pinned-section-collapse] Folded pinned bucket:
+                        // the rows really are gone in a plain List (unlike the
+                        // accordion, which animates their height to zero).
+                        // [T-sidebar-recent-section] The Recent bucket folds
+                        // through the same wrapper — one extra EmptyView-capable
+                        // level, no extra spacing of its own.
+                        RecentBucketRows(active: isRecentBucket(group)) {
+                            PinnedBucketRows(active: isPinnedBucket(group) && !isSearching) {
+                                ForEach(group.ids, id: \.self) { sessionId in
+                                    stackRow(sessionId, group: group)
+                                        // [T-sidebar-recent-section] Read-but-recent
+                                        // rows are dim; every other bucket's
+                                        // dimmedIds is empty.
+                                        .opacity(group.isDimmed(sessionId) ? RecentSectionPlanner.dimOpacity : 1)
+                                        .background {
+                                            if group.label == "Pinned", group.folderId == nil, !isSearching {
+                                                ZStack {
+                                                    if sessionId == group.ids.first {
+                                                        PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .first)
+                                                    }
+                                                    if sessionId == group.ids.last {
+                                                        PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
+                                                    }
+                                                }.allowsHitTesting(false)
                                             }
-                                            if sessionId == group.ids.last {
-                                                PinnedBoundaryProbe(owner: stablePinnedTitle, edge: .last)
-                                            }
-                                        }.allowsHitTesting(false)
-                                    }
+                                        }
                                 }
+                            }
                         }
                     }
                     if group.hiddenMatchCount > 0, !isSelecting {
@@ -290,7 +322,14 @@ extension ContentView {
                     // the select-mode select-all, and — on the first folder
                     // group only — the "Groups" divider label.
                     if group.folderId == nil || isSelecting {
-                        if group.label == "Pinned", !isSelecting, !isSearching {
+                        // [T-pinned-section-collapse] The sticky UIKit title
+                        // only exists while the section is EXPANDED: it needs
+                        // first/last member probes, and a collapsed bucket has
+                        // no members. Folded, the real SwiftUI header is drawn
+                        // instead — that is the row carrying the right-pointing
+                        // chevron and the tap that unfolds again.
+                        if group.label == "Pinned", !isSelecting, !isSearching,
+                           !PinnedSectionState.isCollapsedNow {
                             sectionHeader(index: index, group: group)
                                 .opacity(0.001)
                                 .accessibilityHidden(true)
@@ -381,12 +420,22 @@ extension ContentView {
                     if isSelecting {
                         ForEach(group.ids, id: \.self) { sessionId in
                             selectableRow(sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId))
-                                .id("select-\(sessionId)")
+                                // [T-sidebar-recent-pinned-copy] Section-scoped
+                                // id — see the compact list above: the same
+                                // session can appear in 最近 AND 置顶 now.
+                                .id("select-\(group.id)-\(sessionId)")
                                 .listRowInsets(EdgeInsets())
                         }
                     } else {
-                        ForEach(group.ids, id: \.self) { sessionId in
-                            splitRow(sessionId, group: group)
+                        // [T-sidebar-recent-section] Same two fold wrappers and
+                        // the same dim rule as the compact list.
+                        RecentBucketRows(active: isRecentBucket(group)) {
+                            PinnedBucketRows(active: isPinnedBucket(group)) {
+                                ForEach(group.ids, id: \.self) { sessionId in
+                                    splitRow(sessionId, group: group)
+                                        .opacity(group.isDimmed(sessionId) ? RecentSectionPlanner.dimOpacity : 1)
+                                }
+                            }
                         }
                     }
                     if group.hiddenMatchCount > 0, !isSelecting {
