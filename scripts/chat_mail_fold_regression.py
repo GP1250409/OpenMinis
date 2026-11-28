@@ -154,6 +154,27 @@ ok('abortToolGroupAccordion()' in delegate, 'drag takes the viewport from the fo
 # No production path may name the cancelled curtain driver for the tap.
 ok('ToolGroupAccordionFlight' not in toggle_fn, 'no cancelled curtain driver on the tap')
 
+# ---------------------------------------------------------------- production chain
+# The new native path must be the one the USER's tap reaches: row tap posts
+# `.toolGroupToggled`, the coordinator sink calls `toggleToolGroup`, that tries
+# the mail transaction first and returns on `.started` (the instant switch is
+# only the fallback).
+row_view = read(IOS / 'Views/Chat/AssistantBlockView.swift')
+snapshot = read(IOS / 'Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift')
+ok('name: .toolGroupToggled, object: firstBlockId' in row_view, 'chain: the row tap posts .toolGroupToggled')
+ok('publisher(for: .toolGroupToggled)' in snapshot, 'chain: the list subscribes to it')
+ok('self.toggleToolGroup(firstBlockId: firstBlockId)' in snapshot, 'chain: the sink reaches toggleToolGroup')
+ok('switch ChatMailFoldToggle.run(mailRequest, in: mailEnv)' in toggle_fn, 'chain: the tap tries the mail transaction')
+ok(re.search(r'case \.started:\s*\n\s*if isNearBottom', toggle_fn) is not None,
+   'chain: a started flight returns BEFORE the instant switch')
+ok('MailFoldToggle.swift' not in '', 'noop')
+harness = read(ROOT / 'src/ios/MinisTests/ChatMailFoldUIKitTests.swift')
+for needle in ['testExpandUsesMailGeometryAndLandsExactly', 'testCloseRemovesRowsWithoutMovingTheFollower',
+               'testInterruptionLandsTheEndStateAtOnceAndKeepsTheOffset',
+               'testRapidReversalRetargetsInsteadOfRestarting', 'testReduceMotionIsInstant',
+               'testStreamingFallsBack', 'ChatMailFoldToggle.run(', 'ChatMailFoldFlight']:
+    ok(needle in harness, 'uikit test: ' + needle)
+
 print('CHATMAILFOLD_PASS geometry=%d static=%d failures=%d' % (len(asserts), 40, len(failures)))
 if failures:
     print('FAILURES:', failures)

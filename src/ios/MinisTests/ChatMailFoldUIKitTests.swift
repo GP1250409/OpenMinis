@@ -212,7 +212,7 @@ final class ChatMailFoldUIKitTests: XCTestCase {
         let lastCell = h.cv.cellForItem(at: IndexPath(item: lastIndex, section: 0)) as? SelfSizingCell
         let firstCell = h.cv.cellForItem(at: IndexPath(item: firstIndex, section: 0)) as? SelfSizingCell
         XCTAssertNotNil(lastCell)
-        XCTAssertEqual(lastCell?.accordionContentHeight, CGFloat(h.memberHeights[2]), accuracy: 0.5,
+        XCTAssertEqual(lastCell?.accordionContentHeight ?? -1, CGFloat(h.memberHeights[2]), accuracy: 0.5,
                        "the straddling child is laid out at its NATURAL height (no squash)")
         XCTAssertGreaterThan(lastCell?.mailFoldContentTopClip ?? 0, 1,
                              "the last child's TOP is hidden behind the header (mail order)")
